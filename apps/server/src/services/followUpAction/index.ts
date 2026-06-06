@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { TRACING_SCENARIOS } from '@lobechat/const';
 import type { TracingOptions } from '@lobechat/llm-generation-tracing';
 import type { FollowUpChip, FollowUpExtractInput, FollowUpExtractResult } from '@lobechat/types';
@@ -59,6 +61,10 @@ export class FollowUpActionService {
     const { model, provider } = modelConfig;
 
     const ai = new AiGenerationService(this.db, this.userId, this.workspaceId);
+    // Pre-allocate the tracing row id so it can be returned to the client
+    // synchronously — the client holds it for the chip's lifetime to report a
+    // click (positive) / dismissal (negative) back via `recordFeedback`.
+    const tracingId = randomUUID();
     let raw: unknown;
     try {
       raw = await ai.generateObject(
@@ -77,6 +83,7 @@ export class FollowUpActionService {
             scenario: TRACING_SCENARIOS.FollowUp,
             schemaName: 'FollowUpSuggestionResponse',
             topicId,
+            tracingId,
           } satisfies TracingOptions,
         },
       );
@@ -101,6 +108,10 @@ export class FollowUpActionService {
       )
       .slice(0, 4);
 
-    return { chips, messageId: row.id };
+    // Only surface the tracingId when chips actually rendered — an empty result
+    // gives the user nothing to act on, so there's no feedback to collect.
+    return chips.length > 0
+      ? { chips, messageId: row.id, tracingId }
+      : { chips, messageId: row.id };
   }
 }
