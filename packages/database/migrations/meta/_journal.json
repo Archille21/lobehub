@@ -812,6 +812,13 @@
 			"when": 1782954350516,
 			"tag": "0115_add_workspace_private_visibility",
 			"breakpoints": true
+		},
+		{
+			"idx": 116,
+			"version": "7",
+			"when": 1783483189805,
+			"tag": "0116_add_messages_topic_updated_at_index",
+			"breakpoints": true
 		}
 	],
 	"version": "6"

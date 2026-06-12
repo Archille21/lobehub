@@ -1,0 +1,12 @@
+-- Hot messages recent-query index.
+--
+-- On cloud production this index must be built online before deploy:
+--
+--   CREATE INDEX CONCURRENTLY IF NOT EXISTS "messages_topic_id_updated_at_idx"
+--   ON "messages" USING btree ("topic_id","updated_at");
+--
+-- The guarded statement below is then a NO-OP on databases that already have
+-- the index, while fresh / self-hosted databases still converge to the target
+-- schema during normal migration replay. Keep this statement non-CONCURRENTLY
+-- so local PGlite / normal migration replay remains compatible.
+CREATE INDEX IF NOT EXISTS "messages_topic_id_updated_at_idx" ON "messages" USING btree ("topic_id","updated_at");

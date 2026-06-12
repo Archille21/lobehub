@@ -1223,6 +1223,7 @@ table messages {
     created_at [name: 'messages_created_at_idx']
     (client_id, user_id) [name: 'message_client_id_user_unique', unique]
     topic_id [name: 'messages_topic_id_idx']
+    (topic_id, updated_at) [name: 'messages_topic_id_updated_at_idx']
     parent_id [name: 'messages_parent_id_idx']
     quota_id [name: 'messages_quota_id_idx']
     user_id [name: 'messages_user_id_idx']
