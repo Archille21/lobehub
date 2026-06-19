@@ -14,9 +14,11 @@ import { z } from 'zod';
 
 import { withScopedPermission } from '@/business/server/trpc-middlewares/rbacPermission';
 import { wsCompatProcedure } from '@/business/server/trpc-middlewares/workspaceAuth';
+import { serverDBEnv } from '@/config/db';
 import { AgentModel } from '@/database/models/agent';
 import { AgentOperationModel } from '@/database/models/agentOperation';
 import { ChatGroupModel } from '@/database/models/chatGroup';
+import { FileModel } from '@/database/models/file';
 import { MessageModel } from '@/database/models/message';
 import { TopicModel } from '@/database/models/topic';
 import { TopicShareModel } from '@/database/models/topicShare';
@@ -26,6 +28,7 @@ import { TopicImporterRepo } from '@/database/repositories/topicImporter';
 import { chatGroups } from '@/database/schemas';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { FileService } from '@/server/services/file';
 import { type BatchTaskResult } from '@/types/service';
 
 import {
@@ -579,9 +582,30 @@ export const topicRouter = router({
 
   removeTopic: topicProcedure
     .use(withScopedPermission('topic:delete'))
-    .input(z.object({ id: z.string() }))
+    .input(z.object({ id: z.string(), removeFiles: z.boolean().optional() }))
     .mutation(async ({ input, ctx }) => {
-      return ctx.topicModel.delete(input.id);
+      if (!input.removeFiles) return ctx.topicModel.delete(input.id);
+
+      const wsId = ctx.workspaceId ?? undefined;
+      const fileModel = new FileModel(ctx.serverDB, ctx.userId, wsId);
+
+      // Collect the topic's attached files BEFORE deleting it — the lookup joins
+      // messages, which are cascade-deleted along with the topic.
+      const fileIds = await fileModel.findFilesByTopicId(input.id);
+
+      const result = await ctx.topicModel.delete(input.id);
+
+      if (fileIds.length > 0) {
+        const needToRemove = await fileModel.deleteMany(fileIds, serverDBEnv.REMOVE_GLOBAL_FILE);
+        // deleteMany returns only files whose underlying object is no longer
+        // referenced by any other file, so the S3 cleanup is reference-safe.
+        if (needToRemove && needToRemove.length > 0) {
+          const fileService = new FileService(ctx.serverDB, ctx.userId, wsId);
+          await fileService.deleteFiles(needToRemove.map((file) => file.url!));
+        }
+      }
+
+      return result;
     }),
 
   searchTopics: topicProcedure

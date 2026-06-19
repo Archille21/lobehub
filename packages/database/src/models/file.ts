@@ -455,6 +455,25 @@ export class FileModel {
     return [...deduped.values()];
   };
 
+  /**
+   * Find the user-uploaded files attached to messages inside a topic.
+   *
+   * Unlike {@link findFilesToInitInSandbox}, this intentionally excludes
+   * session-level files (`files_to_sessions`): those are shared across every
+   * topic in the session and must survive when a single topic is deleted.
+   * Used to clean up attachments when a topic is removed.
+   */
+  findFilesByTopicId = async (topicId: string): Promise<string[]> => {
+    const rows = await this.db
+      .selectDistinct({ id: files.id })
+      .from(messagesFiles)
+      .innerJoin(messages, eq(messagesFiles.messageId, messages.id))
+      .innerJoin(files, eq(messagesFiles.fileId, files.id))
+      .where(and(eq(messages.topicId, topicId), eq(messagesFiles.userId, this.userId)));
+
+    return rows.map((row) => row.id);
+  };
+
   countFilesByHash = async (hash: string) => {
     const result = await this.db
       .select({

@@ -1692,6 +1692,80 @@ describe('FileModel', () => {
     });
   });
 
+  describe('findFilesByTopicId', () => {
+    const sessionId = 'topic-files-session-1';
+    const topicId = 'topic-files-topic-1';
+
+    beforeEach(async () => {
+      await serverDB.insert(sessions).values({ id: sessionId, userId });
+      await serverDB.insert(topics).values([
+        { id: topicId, sessionId, userId },
+        { id: 'topic-files-topic-2', sessionId, userId },
+      ]);
+      await serverDB.insert(messages).values([
+        { id: 'tf-msg-1', role: 'user', topicId, userId },
+        { id: 'tf-msg-1b', role: 'user', topicId, userId },
+        { id: 'tf-msg-2', role: 'user', topicId: 'topic-files-topic-2', userId },
+      ]);
+      await serverDB.insert(files).values([
+        { fileType: 'text/csv', id: 'tf-msg', name: 'msg.csv', size: 1, url: 'k-msg', userId },
+        {
+          fileType: 'application/pdf',
+          id: 'tf-sess',
+          name: 's.pdf',
+          size: 2,
+          url: 'k-sess',
+          userId,
+        },
+        { fileType: 'text/plain', id: 'tf-other', name: 'o.txt', size: 4, url: 'k-other', userId },
+      ]);
+    });
+
+    it('returns only files attached to messages inside the topic, de-duped', async () => {
+      await serverDB.insert(messagesFiles).values([
+        { fileId: 'tf-msg', messageId: 'tf-msg-1', userId },
+        // same file attached to another message in the topic → must be de-duped
+        { fileId: 'tf-msg', messageId: 'tf-msg-1b', userId },
+        // attached to a different topic → must be excluded
+        { fileId: 'tf-other', messageId: 'tf-msg-2', userId },
+      ]);
+      // session-level files must NOT be returned: they are shared across topics
+      await serverDB.insert(filesToSessions).values({ fileId: 'tf-sess', sessionId, userId });
+
+      const result = await fileModel.findFilesByTopicId(topicId);
+
+      expect(result).toEqual(['tf-msg']);
+    });
+
+    it('returns an empty array when the topic has no message files', async () => {
+      const result = await fileModel.findFilesByTopicId(topicId);
+      expect(result).toEqual([]);
+    });
+
+    it('does not return files belonging to another user', async () => {
+      await serverDB.insert(messages).values({
+        id: 'tf-msg-other',
+        role: 'user',
+        topicId,
+        userId: 'user2',
+      });
+      await serverDB.insert(files).values({
+        fileType: 'text/plain',
+        id: 'tf-user2',
+        name: 'u2.txt',
+        size: 5,
+        url: 'k-u2',
+        userId: 'user2',
+      });
+      await serverDB
+        .insert(messagesFiles)
+        .values({ fileId: 'tf-user2', messageId: 'tf-msg-other', userId: 'user2' });
+
+      const result = await fileModel.findFilesByTopicId(topicId);
+      expect(result).toEqual([]);
+    });
+  });
+
   describe('updateGlobalFile', () => {
     it('should update url and metadata of a global file by hashId', async () => {
       await fileModel.createGlobalFile({
