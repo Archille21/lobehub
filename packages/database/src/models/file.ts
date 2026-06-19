@@ -1,6 +1,20 @@
 import type { QueryFileListParams } from '@lobechat/types';
 import { FilesTabs, SortType } from '@lobechat/types';
-import { and, asc, count, desc, eq, ilike, inArray, like, notExists, or, sum } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNull,
+  like,
+  ne,
+  notExists,
+  or,
+  sum,
+} from 'drizzle-orm';
 import type { PgTransaction } from 'drizzle-orm/pg-core';
 
 import type { FileItem, NewFile, NewGlobalFile } from '../schemas';
@@ -456,22 +470,60 @@ export class FileModel {
   };
 
   /**
-   * Find the user-uploaded files attached to messages inside a topic.
+   * Find the user-uploaded files that can be safely deleted when a topic is
+   * removed: files attached to messages inside the topic that have **no other
+   * reference** surviving the deletion.
    *
-   * Unlike {@link findFilesToInitInSandbox}, this intentionally excludes
-   * session-level files (`files_to_sessions`): those are shared across every
-   * topic in the session and must survive when a single topic is deleted.
-   * Used to clean up attachments when a topic is removed.
+   * Deleting a `files` row cascades to `messages_files` and `files_to_sessions`,
+   * so a file still referenced elsewhere would silently disappear from there.
+   * A candidate is therefore preserved (excluded) when it is still attached:
+   * - to a message in another topic (or a message with no topic), or
+   * - at the session level (`files_to_sessions`), which outlives a single topic.
+   *
+   * Session-level files are likewise never returned, matching the behaviour
+   * documented on {@link findFilesToInitInSandbox}.
    */
-  findFilesByTopicId = async (topicId: string): Promise<string[]> => {
-    const rows = await this.db
-      .selectDistinct({ id: files.id })
+  findDeletableFilesByTopicId = async (topicId: string): Promise<string[]> => {
+    const candidates = await this.db
+      .selectDistinct({ id: messagesFiles.fileId })
       .from(messagesFiles)
       .innerJoin(messages, eq(messagesFiles.messageId, messages.id))
-      .innerJoin(files, eq(messagesFiles.fileId, files.id))
       .where(and(eq(messages.topicId, topicId), eq(messagesFiles.userId, this.userId)));
 
-    return rows.map((row) => row.id);
+    const candidateIds = candidates.map((row) => row.id);
+    if (candidateIds.length === 0) return [];
+
+    const [messageRefsOutsideTopic, sessionRefs] = await Promise.all([
+      // same file attached to a message in a different topic (or no topic)
+      this.db
+        .selectDistinct({ id: messagesFiles.fileId })
+        .from(messagesFiles)
+        .innerJoin(messages, eq(messagesFiles.messageId, messages.id))
+        .where(
+          and(
+            inArray(messagesFiles.fileId, candidateIds),
+            eq(messagesFiles.userId, this.userId),
+            or(ne(messages.topicId, topicId), isNull(messages.topicId)),
+          ),
+        ),
+      // same file attached at the session level — survives topic deletion
+      this.db
+        .selectDistinct({ id: filesToSessions.fileId })
+        .from(filesToSessions)
+        .where(
+          and(
+            inArray(filesToSessions.fileId, candidateIds),
+            eq(filesToSessions.userId, this.userId),
+          ),
+        ),
+    ]);
+
+    const referencedElsewhere = new Set<string>([
+      ...messageRefsOutsideTopic.map((row) => row.id),
+      ...sessionRefs.map((row) => row.id),
+    ]);
+
+    return candidateIds.filter((id) => !referencedElsewhere.has(id));
   };
 
   countFilesByHash = async (hash: string) => {

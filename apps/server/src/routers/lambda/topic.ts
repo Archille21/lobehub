@@ -589,9 +589,10 @@ export const topicRouter = router({
       const wsId = ctx.workspaceId ?? undefined;
       const fileModel = new FileModel(ctx.serverDB, ctx.userId, wsId);
 
-      // Collect the topic's attached files BEFORE deleting it — the lookup joins
-      // messages, which are cascade-deleted along with the topic.
-      const fileIds = await fileModel.findFilesByTopicId(input.id);
+      // Collect the topic's deletable attachments BEFORE deleting it — the lookup
+      // joins messages, which are cascade-deleted along with the topic. Files
+      // still referenced by another topic or the session are intentionally kept.
+      const fileIds = await fileModel.findDeletableFilesByTopicId(input.id);
 
       const result = await ctx.topicModel.delete(input.id);
 

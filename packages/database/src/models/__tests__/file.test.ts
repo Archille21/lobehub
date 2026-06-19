@@ -1692,7 +1692,7 @@ describe('FileModel', () => {
     });
   });
 
-  describe('findFilesByTopicId', () => {
+  describe('findDeletableFilesByTopicId', () => {
     const sessionId = 'topic-files-session-1';
     const topicId = 'topic-files-topic-1';
 
@@ -1711,34 +1711,71 @@ describe('FileModel', () => {
         { fileType: 'text/csv', id: 'tf-msg', name: 'msg.csv', size: 1, url: 'k-msg', userId },
         {
           fileType: 'application/pdf',
-          id: 'tf-sess',
-          name: 's.pdf',
+          id: 'tf-shared',
+          name: 'shared.pdf',
           size: 2,
-          url: 'k-sess',
+          url: 'k-shared',
           userId,
         },
+        { fileType: 'text/plain', id: 'tf-sess', name: 's.txt', size: 3, url: 'k-sess', userId },
         { fileType: 'text/plain', id: 'tf-other', name: 'o.txt', size: 4, url: 'k-other', userId },
       ]);
     });
 
-    it('returns only files attached to messages inside the topic, de-duped', async () => {
+    it('returns only files attached exclusively inside the topic, de-duped', async () => {
       await serverDB.insert(messagesFiles).values([
         { fileId: 'tf-msg', messageId: 'tf-msg-1', userId },
         // same file attached to another message in the topic → must be de-duped
         { fileId: 'tf-msg', messageId: 'tf-msg-1b', userId },
-        // attached to a different topic → must be excluded
+        // attached only to a different topic → not a candidate
         { fileId: 'tf-other', messageId: 'tf-msg-2', userId },
       ]);
-      // session-level files must NOT be returned: they are shared across topics
-      await serverDB.insert(filesToSessions).values({ fileId: 'tf-sess', sessionId, userId });
 
-      const result = await fileModel.findFilesByTopicId(topicId);
+      const result = await fileModel.findDeletableFilesByTopicId(topicId);
 
       expect(result).toEqual(['tf-msg']);
     });
 
+    it('preserves a file still attached to a message in another topic', async () => {
+      await serverDB.insert(messagesFiles).values([
+        { fileId: 'tf-msg', messageId: 'tf-msg-1', userId },
+        // tf-shared lives in both the deleted topic and another topic
+        { fileId: 'tf-shared', messageId: 'tf-msg-1', userId },
+        { fileId: 'tf-shared', messageId: 'tf-msg-2', userId },
+      ]);
+
+      const result = await fileModel.findDeletableFilesByTopicId(topicId);
+
+      expect(result).toEqual(['tf-msg']);
+    });
+
+    it('preserves a file still attached to a message with no topic', async () => {
+      await serverDB.insert(messages).values({ id: 'tf-msg-inbox', role: 'user', userId });
+      await serverDB.insert(messagesFiles).values([
+        { fileId: 'tf-shared', messageId: 'tf-msg-1', userId },
+        // also attached to an inbox message (topicId = null) → must be preserved
+        { fileId: 'tf-shared', messageId: 'tf-msg-inbox', userId },
+      ]);
+
+      const result = await fileModel.findDeletableFilesByTopicId(topicId);
+
+      expect(result).toEqual([]);
+    });
+
+    it('preserves a file still attached at the session level', async () => {
+      await serverDB
+        .insert(messagesFiles)
+        .values({ fileId: 'tf-sess', messageId: 'tf-msg-1', userId });
+      // also bound to the session → survives a single-topic deletion
+      await serverDB.insert(filesToSessions).values({ fileId: 'tf-sess', sessionId, userId });
+
+      const result = await fileModel.findDeletableFilesByTopicId(topicId);
+
+      expect(result).toEqual([]);
+    });
+
     it('returns an empty array when the topic has no message files', async () => {
-      const result = await fileModel.findFilesByTopicId(topicId);
+      const result = await fileModel.findDeletableFilesByTopicId(topicId);
       expect(result).toEqual([]);
     });
 
@@ -1761,7 +1798,7 @@ describe('FileModel', () => {
         .insert(messagesFiles)
         .values({ fileId: 'tf-user2', messageId: 'tf-msg-other', userId: 'user2' });
 
-      const result = await fileModel.findFilesByTopicId(topicId);
+      const result = await fileModel.findDeletableFilesByTopicId(topicId);
       expect(result).toEqual([]);
     });
   });
