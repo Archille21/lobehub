@@ -172,22 +172,15 @@ export const userConnectors = pgTable(
   },
   (t) => [
     /**
-     * Personal / workspace connectors (`agent_id IS NULL`): one row per
-     * (user, identifier). Partial index preserves the pre-agent-dimension
-     * uniqueness exactly (NULL agent_id would otherwise be treated as distinct
-     * and let duplicate personal rows through).
+     * Agent-scoped connectors (`agent_id IS NOT NULL`): one connector per
+     * (user, agent) — an agent may have at most one connector attached,
+     * regardless of `identifier`. Personal/workspace connectors (`agent_id
+     * IS NULL`) are intentionally not constrained here: a user may hold
+     * multiple connectors of the same `identifier` (e.g. several Gmail
+     * accounts), so no uniqueness applies to that dimension.
      */
-    uniqueIndex('user_connectors_user_identifier_unique')
-      .on(t.userId, t.identifier)
-      .where(sql`${t.agentId} IS NULL`),
-    /**
-     * Agent-scoped connectors (`agent_id IS NOT NULL`): one row per
-     * (agent, identifier). `agent_id` is globally unique, so an agent row
-     * coexists with the personal/workspace row of the same identifier — that
-     * coexistence is what enables the Agent > Workspace > Personal fallback.
-     */
-    uniqueIndex('user_connectors_agent_identifier_unique')
-      .on(t.agentId, t.identifier)
+    uniqueIndex('user_connectors_user_agent_unique')
+      .on(t.userId, t.agentId)
       .where(sql`${t.agentId} IS NOT NULL`),
     index('user_connectors_user_id_idx').on(t.userId),
     /** Scanned by background token-refresh worker */
