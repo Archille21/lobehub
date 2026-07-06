@@ -4,9 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as swr from '@/libs/swr';
 import { recentKeys } from '@/libs/swr/keys';
 import * as cacheScope from '@/libs/swr/useCacheScope';
-import { type RecentItem } from '@/server/routers/lambda/recent';
 import { useHomeStore } from '@/store/home';
 import { initialRecentState } from '@/store/home/slices/recent/initialState';
+import { type RecentItem } from '~server/routers/lambda/recent';
 
 const item = (id: string, title: string): RecentItem => ({ id, title }) as unknown as RecentItem;
 
