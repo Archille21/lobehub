@@ -6,7 +6,7 @@
   },
   "dialect": "postgresql",
   "enums": {},
-  "id": "72ee52c7-8e38-4be1-b3f1-7b8b431ee51d",
+  "id": "38603d17-9563-4733-b2f6-ffde29465211",
   "policies": {},
   "prevId": "d65bcc8b-fc15-41e7-8678-0c9d603f213d",
   "roles": {},
@@ -5920,8 +5920,8 @@
         }
       },
       "indexes": {
-        "user_connectors_user_agent_unique": {
-          "name": "user_connectors_user_agent_unique",
+        "user_connectors_user_agent_identifier_unique": {
+          "name": "user_connectors_user_agent_identifier_unique",
           "columns": [
             {
               "expression": "user_id",
@@ -5931,6 +5931,12 @@
             },
             {
               "expression": "agent_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "identifier",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

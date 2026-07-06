@@ -172,15 +172,16 @@ export const userConnectors = pgTable(
   },
   (t) => [
     /**
-     * Agent-scoped connectors (`agent_id IS NOT NULL`): one connector per
-     * (user, agent) — an agent may have at most one connector attached,
-     * regardless of `identifier`. Personal/workspace connectors (`agent_id
-     * IS NULL`) are intentionally not constrained here: a user may hold
-     * multiple connectors of the same `identifier` (e.g. several Gmail
-     * accounts), so no uniqueness applies to that dimension.
+     * Agent-scoped connectors (`agent_id IS NOT NULL`): one row per
+     * (user, agent, identifier) — an agent can hold several different
+     * connectors (e.g. Gmail + Google Docs) but not two of the same
+     * identifier. Personal/workspace connectors (`agent_id IS NULL`) are
+     * intentionally not constrained here: a user may hold multiple
+     * connectors of the same `identifier` (e.g. several Gmail accounts),
+     * so no uniqueness applies to that dimension.
      */
-    uniqueIndex('user_connectors_user_agent_unique')
-      .on(t.userId, t.agentId)
+    uniqueIndex('user_connectors_user_agent_identifier_unique')
+      .on(t.userId, t.agentId, t.identifier)
       .where(sql`${t.agentId} IS NOT NULL`),
     index('user_connectors_user_id_idx').on(t.userId),
     /** Scanned by background token-refresh worker */

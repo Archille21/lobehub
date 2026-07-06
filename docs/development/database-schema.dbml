@@ -718,7 +718,7 @@ table user_connectors {
   updated_at "timestamp with time zone" [not null, default: `now()`]
 
   indexes {
-    (user_id, agent_id) [name: 'user_connectors_user_agent_unique', unique]
+    (user_id, agent_id, identifier) [name: 'user_connectors_user_agent_identifier_unique', unique]
     user_id [name: 'user_connectors_user_id_idx']
     token_expires_at [name: 'user_connectors_token_expires_at_idx']
     workspace_id [name: 'user_connectors_workspace_id_idx']
