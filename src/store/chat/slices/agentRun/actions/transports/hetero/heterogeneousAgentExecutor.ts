@@ -57,6 +57,7 @@ import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { buildRunLifecycle } from '../../lifecycle/buildRunLifecycle';
 import type { RunScope } from '../../lifecycle/types';
 import { createGatewayEventHandler, isCompletedRuntimeEnd } from '../gateway/gatewayEventHandler';
+import { applyWorktreeAddToTopic, parseWorktreeAddPath } from './worktreeDetection';
 
 /** Mirrors `idGenerator('threads', 16)` on the server so sync-allocated ids have the same shape. */
 const generateThreadId = () => `thd_${createNanoId(16)()}`;
@@ -513,6 +514,13 @@ export const executeHeterogeneousAgent = async (
    * `persistToolResult` and the intervention handlers.
    */
   const toolMsgIdByCallId: Map<string, string> = new Map();
+  /**
+   * `tool_use.id → resolved worktree path` for MAIN-agent shell calls that ran
+   * `git worktree add <path>`. Captured when the tool row is created, consumed
+   * once its result lands SUCCESSFULLY (`resolveToolResult`, `!isError`) to flip
+   * the topic into the new worktree — so a failed add never moves the state.
+   */
+  const worktreeAddByCallId: Map<string, string> = new Map();
   /**
    * Shared main-agent run coordinator state — the pure reducer in
    * `@lobechat/heterogeneous-agents`. Owns the main turn/step state machine
@@ -1049,6 +1057,10 @@ export const executeHeterogeneousAgent = async (
         // register the global lookup so a later tool_result resolves.
         for (const x of intent.tools) {
           if (!x.isNew) continue;
+          // Sniff `git worktree add <path>` so a successful result can flip the
+          // topic into the new worktree (see `resolveToolResult` below).
+          const worktreePath = parseWorktreeAddPath(x.payload.arguments, workingDirectory);
+          if (worktreePath) worktreeAddByCallId.set(x.payload.id, worktreePath);
           const toolMetadata = heteroProvenance(mainState.currentMainMessageId);
           try {
             await messageService.createMessage({
@@ -1095,6 +1107,17 @@ export const executeHeterogeneousAgent = async (
           context,
           intent.pluginState,
         );
+        // A `git worktree add` that succeeded → record the new worktree as the
+        // topic's active one. Fire-and-forget: it only patches topic metadata.
+        const worktreePath = worktreeAddByCallId.get(intent.toolCallId);
+        worktreeAddByCallId.delete(intent.toolCallId);
+        if (worktreePath && !intent.isError && context.topicId) {
+          void applyWorktreeAddToTopic(get, {
+            sourcePath: workingDirectory,
+            topicId: context.topicId,
+            worktreePath,
+          }).catch((e) => console.error('[HeterogeneousAgent] worktree state update failed:', e));
+        }
         return;
       }
 
