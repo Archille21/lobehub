@@ -134,10 +134,19 @@ export const threadKeys = {
 
 // ---- recent -------------------------------------------------------------
 export const recentKeys = {
-  /** Home "all recents" drawer list, keyed by open state. */
-  allDrawer: def('recent:allDrawer', (open: boolean) => ['recent:allDrawer', open]),
-  /** Home recents list, keyed by login + limit. */
-  list: def('recent:list', (isLogin: boolean, limit: number) => ['recent:list', isLogin, limit]),
+  /** Home "all recents" drawer list, keyed by open state and identity scope. */
+  allDrawer: def('recent:allDrawer', (open: boolean, scope: string) => [
+    'recent:allDrawer',
+    open,
+    scope,
+  ]),
+  /** Home recents list, keyed by login + limit + identity scope. */
+  list: def('recent:list', (isLogin: boolean, limit: number, scope: string) => [
+    'recent:list',
+    isLogin,
+    limit,
+    scope,
+  ]),
 };
 
 // ---- task ---------------------------------------------------------------
@@ -480,6 +489,11 @@ export const deviceKeys = {
   ),
   gitWorkingTreeStatus: def('device:gitWorkingTreeStatus', (deviceId: string, path: string) => [
     'device:gitWorkingTreeStatus',
+    deviceId,
+    path,
+  ]),
+  gitWorktrees: def('device:gitWorktrees', (deviceId: string, path: string) => [
+    'device:gitWorktrees',
     deviceId,
     path,
   ]),

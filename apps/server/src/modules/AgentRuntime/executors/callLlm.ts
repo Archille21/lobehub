@@ -125,8 +125,7 @@ export const callLlm =
     // was populated by a bug or a mid-run side effect. Plans absent on old /
     // resumed operations fall back to the policy-only gate.
     const devicePolicy = state.metadata?.deviceAccessPolicy as
-      | { canUseDevice: boolean; reason: DeviceAccessReason }
-      | undefined;
+      { canUseDevice: boolean; reason: DeviceAccessReason } | undefined;
     const executionPlan = state.metadata?.executionPlan as ExecutionPlan | undefined;
     const planAllowsDevice = !executionPlan || isDeviceCapablePlan(executionPlan);
     const activeDeviceId =
@@ -300,7 +299,7 @@ export const callLlm =
         // surface identity (the inbox `{{model}}` fallback no longer exists).
         if (!modelDisplayName && ctx.serverDB && ctx.userId) {
           try {
-            const aiModelModel = new AiModelModel(ctx.serverDB, ctx.userId);
+            const aiModelModel = new AiModelModel(ctx.serverDB, ctx.userId, ctx.workspaceId);
             const userModel = await aiModelModel.findByIdAndProvider(model, provider);
             modelDisplayName = userModel?.displayName ?? undefined;
           } catch (error) {
@@ -509,8 +508,7 @@ export const callLlm =
         const lobehubSkillAgentId = state.metadata?.agentId;
         const lobehubSkillTopicId = state.metadata?.topicId;
         const lobehubSkillAgentMeta = state.metadata?.agentConfig as
-          | { description?: string | null; title?: string | null }
-          | undefined;
+          { description?: string | null; title?: string | null } | undefined;
 
         let lobehubSkillTopicTitle = '';
         if (lobehubSkillTopicId && ctx.serverDB && ctx.userId) {
@@ -593,14 +591,12 @@ export const callLlm =
             const credsResult = await marketService.market.creds.list();
             const userCreds = (credsResult as any)?.data ?? [];
             credsListStr = generateCredsList(
-              userCreds.map(
-                (cred: any): CredSummary => ({
-                  description: cred.description,
-                  key: cred.key,
-                  name: cred.name,
-                  type: cred.type,
-                }),
-              ),
+              userCreds.map((cred: any): CredSummary => ({
+                description: cred.description,
+                key: cred.key,
+                name: cred.name,
+                type: cred.type,
+              })),
             );
             log('Fetched %d creds for {{CREDS_LIST}} substitution', userCreds.length);
           } catch (error) {
@@ -756,6 +752,18 @@ export const callLlm =
           // into op metadata, mirroring agentConfig/botContext — no per-step DB
           // lookup here.
           agentGroup: state.metadata?.agentGroup as AgentGroupConfig | undefined,
+          // Bridge the @-mentioned agents (persisted into the runtime
+          // initialContext by AiAgentService.execAgent) into the agent-management
+          // context so AgentManagementContextInjector injects the delegation
+          // block, prompting the supervisor to `callAgent` the mentioned agents.
+          // Mirrors the client's contextEngineering bridge; scoped to mention
+          // runs only (undefined otherwise) so ordinary runs are unaffected.
+          agentManagementContext: (state as any).initialContext?.initialContext?.mentionedAgents
+            ?.length
+            ? {
+                mentionedAgents: (state as any).initialContext.initialContext.mentionedAgents,
+              }
+            : undefined,
           additionalVariables: {
             ...state.metadata?.deviceSystemInfo,
             ...lobehubSkillVariables,

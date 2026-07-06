@@ -35,6 +35,11 @@ vi.mock('~server/services/memory/userMemory/extract', () => ({
   normalizeMemoryExtractionPayload: (payload: unknown) => payload,
 }));
 
+vi.mock('../runGuard', () => ({
+  checkGuard: vi.fn().mockResolvedValue({ result: true }),
+  ensureWorkflowStarted: vi.fn().mockResolvedValue({ started: true }),
+}));
+
 describe('hourlyWorkflowHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();

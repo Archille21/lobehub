@@ -20,11 +20,13 @@ import type {
   SendMessageServerResponse,
   UIChatMessage,
 } from '@lobechat/types';
+import { getWorkingDirEffectivePath, getWorkingDirSourcePath } from '@lobechat/types';
 import { nanoid } from '@lobechat/utils';
 import { TRPCClientError } from '@trpc/client';
 import { t } from 'i18next';
 
 import { message as antdMessage } from '@/components/AntdStaticMethods';
+import { resolveAgentWorkingDirectoryConfig } from '@/helpers/agentWorkingDirectory';
 import { agentService } from '@/services/agent';
 import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
@@ -565,14 +567,38 @@ export class ConversationLifecycleActionImpl {
       ? topicSelectors.getTopicById(operationContext.topicId)(this.#get())
       : undefined;
     const currentDeviceId = getElectronStoreState().gatewayDeviceInfo?.deviceId;
+    const agentState = getAgentStoreState();
     const agentWorkingDirectory =
       runtimeType === 'hetero' && heterogeneousProvider
-        ? agentByIdSelectors.getAgentWorkingDirectoryById(
-            agentId,
-            currentDeviceId,
-          )(getAgentStoreState())
+        ? agentByIdSelectors.getAgentWorkingDirectoryById(agentId, currentDeviceId)(agentState)
         : undefined;
-    const workingDirectory = existingTopic?.metadata?.workingDirectory || agentWorkingDirectory;
+    const agencyConfig = agentByIdSelectors.getAgencyConfigById(agentId)(agentState);
+    const agentWorkingDirectoryConfig =
+      runtimeType === 'hetero' && heterogeneousProvider
+        ? resolveAgentWorkingDirectoryConfig({
+            agencyConfig,
+            currentDeviceId,
+            fallback: agentWorkingDirectory,
+            legacyAgentWorkingDirectory: agentState.localAgentWorkingDirectoryMap[agentId],
+          })
+        : undefined;
+    // Heterogeneous CLI agents (Claude Code, Codex, …) store sessions per-cwd
+    // (`~/.claude/projects/<encoded-cwd>/`). Anchor their session cwd to the
+    // SOURCE repo, NOT the selected worktree, so switching worktree keeps cwd +
+    // sessionId consistent and never drops the conversation context. The active
+    // worktree lives only in `workingDirectoryConfig.git.activeWorktree` as a
+    // record. Non-hetero runtimes keep the effective (worktree) path.
+    const resolveWorkingDirPath =
+      runtimeType === 'hetero' ? getWorkingDirSourcePath : getWorkingDirEffectivePath;
+    const workingDirectory =
+      resolveWorkingDirPath(existingTopic?.metadata?.workingDirectoryConfig) ??
+      existingTopic?.metadata?.workingDirectory ??
+      agentWorkingDirectory;
+    const workingDirectoryConfig =
+      existingTopic?.metadata?.workingDirectoryConfig ??
+      (existingTopic?.metadata?.workingDirectory
+        ? { path: existingTopic.metadata.workingDirectory }
+        : agentWorkingDirectoryConfig);
     const pendingTopicRepos =
       runtimeType === 'gateway' && !operationContext.topicId && operationContext.agentId
         ? getPendingTopicRepos(operationContext.agentId)
@@ -581,9 +607,16 @@ export class ConversationLifecycleActionImpl {
     // until the server topic replaces `tmp_topic_*`.
     const optimisticTopicMetadata: ChatTopicMetadata | undefined =
       pendingTopicRepos.length > 0
-        ? { repos: pendingTopicRepos, workingDirectory: pendingTopicRepos[0] }
+        ? {
+            repos: pendingTopicRepos,
+            workingDirectory: pendingTopicRepos[0],
+            workingDirectoryConfig: { path: pendingTopicRepos[0], repoType: 'github' },
+          }
         : workingDirectory
-          ? { workingDirectory }
+          ? {
+              workingDirectory,
+              ...(workingDirectoryConfig ? { workingDirectoryConfig } : {}),
+            }
           : undefined;
 
     const optimisticTopic: OptimisticTopicPlaceholder | undefined =
@@ -715,7 +748,12 @@ export class ConversationLifecycleActionImpl {
             newAssistantMessage: { provider: heterogeneousProvider.type },
             newTopic: !operationContext.topicId
               ? {
-                  metadata: workingDirectory ? { workingDirectory } : undefined,
+                  metadata: workingDirectory
+                    ? {
+                        workingDirectory,
+                        ...(workingDirectoryConfig ? { workingDirectoryConfig } : {}),
+                      }
+                    : undefined,
                   title: newTopicTitle,
                   topicMessageIds: messages.map((m) => m.id),
                 }
@@ -830,9 +868,12 @@ export class ConversationLifecycleActionImpl {
       // branch returns early (line 498) and never reaches that clear.
       this.#get().updateOperationMetadata(operationId, { inputEditorTempState: null });
 
-      if (heteroData.topicId && !optimisticTopicResolved) {
-        this.#get().internal_updateTopicLoading(heteroData.topicId, true);
-      }
+      // Sidebar "running" spinner for hetero runs is driven off the persisted
+      // `topic.status === 'running'` (written by the executor's writeTopicStatus,
+      // and bucketed by resolveStatusBucket) — no separate client-only
+      // `topicLoadingIds` overlay, which used to desync: it cleared on the
+      // linear sendPrompt path (below) while `status` stayed 'running' when the
+      // executor's onComplete stalled, leaving the topic spinning after finish.
 
       // Start heterogeneous agent execution
       const { operationId: heteroOpId } = this.#get().startOperation({
@@ -877,6 +918,7 @@ export class ConversationLifecycleActionImpl {
           operationId: heteroOpId,
           resumeSessionId,
           workingDirectory,
+          workingDirectoryConfig,
         });
       } catch (e) {
         console.error('[HeterogeneousAgent] Execution failed:', e);
@@ -886,8 +928,6 @@ export class ConversationLifecycleActionImpl {
         });
       }
 
-      if (heteroData.topicId) this.#get().internal_updateTopicLoading(heteroData.topicId, false);
-
       return {
         assistantMessageId: heteroData.assistantMessageId,
         userMessageId: heteroData.userMessageId,
@@ -895,7 +935,15 @@ export class ConversationLifecycleActionImpl {
     }
 
     // ── Gateway mode: skip sendMessageInServer, let execAgentTask handle everything ──
-    if (runtimeType === 'gateway') {
+    // A single-agent @mention (`directMentionRoute`) is the exception: the current
+    // agent acts as a pure deterministic router and never runs an LLM turn itself, so
+    // there is nothing to execute on the gateway. We let it fall through to the client
+    // message-persistence path below, where `#executeDirectMentionRoute` emits the
+    // callAgent tool call and dispatches the *target* agent via
+    // `dispatchNonHeteroSubAgent` — which re-selects the runtime and runs the target on
+    // the gateway when gateway mode is enabled. Routing the supervisor through the
+    // gateway here would drop the mention entirely (execAgentTask carries no mention data).
+    if (runtimeType === 'gateway' && !directMentionRoute) {
       try {
         // Pass `sendMessage` as `parentOperationId` so executeGatewayAgent
         // completes it the instant phase-1 init finishes (after the child
@@ -909,6 +957,19 @@ export class ConversationLifecycleActionImpl {
           metadata: requestMetadata,
           parentOperationId: operationId,
           optimisticTopic,
+          // Forward @-mentioned tool ids so the server runtime enables them for
+          // this run — the gateway/server path otherwise never sees the mention
+          // selection (only the client runtime did). Omit when empty.
+          selectedToolIds:
+            selectedTools.length > 0 ? selectedTools.map((tool) => tool.identifier) : undefined,
+          // Forward @-mentioned agents so the server supervisor can delegate to
+          // them (multi-mention). Mirrors the client runtime's `initialContext`
+          // injection: the server enables the callAgent tool and injects the
+          // mentioned-agents delegation context so the supervisor calls them.
+          // Omit when empty (single-mention takes the client path above and never
+          // reaches here). Non-group only — group @member mentions are handled by
+          // the group orchestration path, not agent-management delegation.
+          mentionedAgents: hasMentionedAgents ? mentionedAgents : undefined,
           // Pass temp message IDs so the UI doesn't show a blank loading
           // state while waiting for the first step_start event to replace
           // messages with the server's real IDs.

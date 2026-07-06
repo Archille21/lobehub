@@ -1,6 +1,6 @@
 'use client';
 
-import type { VerifyRunContext } from '@lobechat/types';
+import type { VerifyEvidenceType, VerifyRunContext } from '@lobechat/types';
 import {
   Block,
   Center,
@@ -22,8 +22,9 @@ import {
   CircleHelp,
   Clock3,
   FileText,
-  Paperclip,
+  Image as ImageIcon,
   RefreshCw,
+  Video,
   X,
 } from 'lucide-react';
 import { memo, type ReactNode, useEffect, useMemo, useState } from 'react';
@@ -84,8 +85,8 @@ const styles = createStaticStyles(({ css }) => ({
     line-height: 1;
   `,
   summary: css`
-    max-width: 64ch;
-    color: ${cssVar.colorTextSecondary};
+    max-width: 100%;
+    color: ${cssVar.colorText};
   `,
   meta: css`
     display: flex;
@@ -140,7 +141,7 @@ const styles = createStaticStyles(({ css }) => ({
     margin-block: 20px 12px;
     padding-block: 12px;
 
-    background: color-mix(in srgb, ${cssVar.colorBgLayout} 88%, transparent);
+    background: color-mix(in srgb, ${cssVar.colorBgContainer} 88%, transparent);
     backdrop-filter: blur(8px);
   `,
   chip: css`
@@ -163,7 +164,6 @@ const styles = createStaticStyles(({ css }) => ({
     transition: background 0.12s ease;
 
     b {
-      font-family: ${cssVar.fontFamilyCode};
       font-weight: 600;
       font-variant-numeric: tabular-nums;
       color: ${cssVar.colorText};
@@ -323,6 +323,66 @@ const styles = createStaticStyles(({ css }) => ({
   `,
 
   /* evidence */
+  evidenceList: css`
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+
+    max-width: 70ch;
+  `,
+  evidenceFile: css`
+    cursor: pointer;
+
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+
+    width: min(100%, 520px);
+    padding-block: 7px;
+    padding-inline: 10px;
+    border: 1px solid ${cssVar.colorBorderSecondary};
+    border-radius: ${cssVar.borderRadius};
+
+    text-align: start;
+
+    background: ${cssVar.colorFillQuaternary};
+
+    &:hover {
+      border-color: ${cssVar.colorLink};
+      color: ${cssVar.colorLink};
+    }
+  `,
+  evidenceFileIcon: css`
+    display: flex;
+    color: ${cssVar.colorTextTertiary};
+  `,
+  evidenceFileBody: css`
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  `,
+  evidenceFileName: css`
+    overflow: hidden;
+
+    font-size: 13px;
+    line-height: 1.35;
+    color: ${cssVar.colorText};
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  `,
+  evidenceFileDesc: css`
+    overflow: hidden;
+
+    margin-block-start: 2px;
+
+    font-size: 12px;
+    line-height: 1.35;
+    color: ${cssVar.colorTextTertiary};
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  `,
   evidenceText: css`
     overflow: auto;
 
@@ -348,30 +408,6 @@ const styles = createStaticStyles(({ css }) => ({
 
     object-fit: contain;
   `,
-  evidenceTrigger: css`
-    cursor: pointer;
-
-    display: inline-flex;
-    gap: 6px;
-    align-items: center;
-
-    width: fit-content;
-    max-width: 100%;
-    padding-block: 5px;
-    padding-inline: 10px;
-    border: 1px solid ${cssVar.colorBorderSecondary};
-    border-radius: 4px;
-
-    font-size: 13px;
-    color: ${cssVar.colorTextSecondary};
-
-    background: ${cssVar.colorFillQuaternary};
-
-    &:hover {
-      border-color: ${cssVar.colorLink};
-      color: ${cssVar.colorLink};
-    }
-  `,
   evChip: css`
     display: inline-flex;
     gap: 4px;
@@ -381,7 +417,6 @@ const styles = createStaticStyles(({ css }) => ({
     padding-inline: 6px;
     border-radius: 999px;
 
-    font-family: ${cssVar.fontFamilyCode};
     font-size: 12px;
     font-variant-numeric: tabular-nums;
     color: ${cssVar.colorTextTertiary};
@@ -432,7 +467,23 @@ const VERDICT_META: Record<
 };
 
 const imageEvidenceTypes = new Set(['gif', 'screenshot']);
-const terminalRunStatuses = new Set(['delivered', 'failed', 'passed']);
+/** Media that renders/plays inline in the check body (image + video), no click-to-open. */
+const isInlineEvidence = (evidence: VerifyEvidenceWithUrl) =>
+  Boolean(evidence.fileUrl && (imageEvidenceTypes.has(evidence.type) || evidence.type === 'video'));
+
+/** Coarse attachment bucket for the type marker: image / video / everything else. */
+type EvidenceCategory = 'file' | 'image' | 'video';
+const evidenceCategory = (type: VerifyEvidenceType): EvidenceCategory =>
+  type === 'video' ? 'video' : imageEvidenceTypes.has(type) ? 'image' : 'file';
+const CATEGORY_ICON: Record<EvidenceCategory, typeof FileText> = {
+  file: FileText,
+  image: ImageIcon,
+  video: Video,
+};
+const CATEGORY_ORDER: EvidenceCategory[] = ['image', 'video', 'file'];
+// `errored` is terminal too (the verifier couldn't run) — stop polling and don't
+// treat it as a live/in-progress status.
+const terminalRunStatuses = new Set(['delivered', 'errored', 'failed', 'passed']);
 const liveStatusLabelKey = {
   planned: 'report.status.planned',
   repairing: 'report.status.repairing',
@@ -449,8 +500,18 @@ const checkVerdict = (result: VerifyResultWithEvidence): Verdict => {
   return 'uncertain';
 };
 
+const evidenceDisplayName = (
+  evidence: VerifyEvidenceWithUrl,
+  t: TFunction<'verify'>,
+  index: number,
+) =>
+  evidence.fileName ||
+  (evidence.fileUrl ? filenameFromUrl(evidence.fileUrl) : '') ||
+  evidence.description ||
+  t('report.evidence.inlineFallback', { index });
+
 /** A file-backed text evidence, decoded + syntax highlighted (avoids mojibake). */
-const DocumentViewer = memo<{ url: string }>(({ url }) => {
+const DocumentViewer = memo<{ fileName?: string | null; url: string }>(({ fileName, url }) => {
   const { t } = useTranslation('verify');
   const { fileData, loading, error } = useTextFileLoader(url);
 
@@ -475,7 +536,7 @@ const DocumentViewer = memo<{ url: string }>(({ url }) => {
     <Flexbox className={styles.docViewer}>
       <Highlighter
         wrap
-        language={getLanguageFromFilename(filenameFromUrl(url))}
+        language={getLanguageFromFilename(fileName || filenameFromUrl(url))}
         showLanguage={false}
         variant={'borderless'}
       >
@@ -486,37 +547,82 @@ const DocumentViewer = memo<{ url: string }>(({ url }) => {
 });
 
 /** One evidence artifact rendered by its type: zoomable image/gif, video, doc, text. */
-const EvidenceItem = memo<{ evidence: VerifyEvidenceWithUrl }>(({ evidence: e }) => (
-  <Flexbox gap={6}>
-    {e.description && (
-      <Text fontSize={13} type={'secondary'}>
-        {e.description}
-      </Text>
-    )}
-    {e.fileUrl && imageEvidenceTypes.has(e.type) ? (
-      <Flexbox align={'flex-start'} style={{ maxWidth: '100%' }}>
-        <Image
-          preview
-          alt={e.description ?? e.type}
-          objectFit={'contain'}
-          src={e.fileUrl}
-          style={{ maxWidth: '100%' }}
-          variant={'outlined'}
-        />
+const EvidenceItem = memo<{ evidence: VerifyEvidenceWithUrl; index: number }>(
+  ({ evidence: e, index }) => {
+    const { t } = useTranslation('verify');
+    const label = evidenceDisplayName(e, t, index);
+    const description = e.description && e.description !== label ? e.description : null;
+    // Inline media (image/gif/video) speaks for itself — the raw filename header
+    // is visual noise, so only keep a meaningful caption (description) for it.
+    const isMedia = isInlineEvidence(e);
+
+    return (
+      <Flexbox gap={6}>
+        {!isMedia && (
+          <Text strong fontSize={13}>
+            {label}
+          </Text>
+        )}
+        {description && (
+          <Text fontSize={13} type={'secondary'}>
+            {description}
+          </Text>
+        )}
+        {e.fileUrl && imageEvidenceTypes.has(e.type) ? (
+          <Flexbox align={'flex-start'} style={{ maxWidth: '100%' }}>
+            <Image
+              preview
+              alt={e.description ?? label}
+              src={e.fileUrl}
+              style={{ maxWidth: '100%' }}
+              variant={'outlined'}
+            />
+          </Flexbox>
+        ) : e.fileUrl && e.type === 'video' ? (
+          <video controls className={styles.evidenceVideo} src={e.fileUrl} />
+        ) : e.fileUrl ? (
+          <div className={styles.evidenceDoc}>
+            <DocumentViewer fileName={e.fileName} url={e.fileUrl} />
+          </div>
+        ) : e.content ? (
+          <div className={styles.evidenceText}>{e.content}</div>
+        ) : (
+          <span className={styles.softTag}>{e.type}</span>
+        )}
       </Flexbox>
-    ) : e.fileUrl && e.type === 'video' ? (
-      <video controls className={styles.evidenceVideo} src={e.fileUrl} />
-    ) : e.fileUrl ? (
-      <div className={styles.evidenceDoc}>
-        <DocumentViewer url={e.fileUrl} />
-      </div>
-    ) : e.content ? (
-      <div className={styles.evidenceText}>{e.content}</div>
-    ) : (
-      <span className={styles.softTag}>{e.type}</span>
-    )}
-  </Flexbox>
-));
+    );
+  },
+);
+
+const EvidenceFileButton = memo<{
+  evidence: VerifyEvidenceWithUrl;
+  index: number;
+  onClick: () => void;
+}>(({ evidence, index, onClick }) => {
+  const { t } = useTranslation('verify');
+  const name = evidenceDisplayName(evidence, t, index);
+  const description =
+    evidence.description && evidence.description !== name ? evidence.description : null;
+
+  return (
+    <button
+      className={styles.evidenceFile}
+      title={t('report.evidence.openDetail', { name })}
+      type={'button'}
+      onClick={onClick}
+    >
+      <span className={styles.evidenceFileIcon}>
+        <Icon icon={CATEGORY_ICON[evidenceCategory(evidence.type)]} size={13} />
+      </span>
+      <span className={styles.evidenceFileBody}>
+        <span className={styles.evidenceFileName}>{name}</span>
+        {description && <span className={styles.evidenceFileDesc}>{description}</span>}
+      </span>
+    </button>
+  );
+});
+
+EvidenceFileButton.displayName = 'EvidenceFileButton';
 
 /** Modal gallery of one check's evidence — one section per artifact, by type. */
 const EvidenceModal = memo<{
@@ -533,24 +639,40 @@ const EvidenceModal = memo<{
     onCancel={() => onClose()}
   >
     <Flexbox gap={20} style={{ maxHeight: '68vh', overflow: 'auto', paddingBlock: 4 }}>
-      {evidence.map((e) => (
-        <EvidenceItem evidence={e} key={e.id} />
+      {evidence.map((e, index) => (
+        <EvidenceItem evidence={e} index={index + 1} key={e.id} />
       ))}
     </Flexbox>
   </Modal>
 ));
 
-/** One check — an expandable row; evidence opens in a per-check modal gallery. */
+EvidenceItem.displayName = 'EvidenceItem';
+
+EvidenceModal.displayName = 'EvidenceModal';
+
+/** One check — an expandable row; evidence opens one artifact at a time. */
 const CheckRow = memo<{ defaultOpen: boolean; result: VerifyResultWithEvidence }>(
   ({ defaultOpen, result }) => {
     const { t } = useTranslation('verify');
     const [open, setOpen] = useState(defaultOpen);
-    const [evidenceOpen, setEvidenceOpen] = useState(false);
+    const [selectedEvidenceId, setSelectedEvidenceId] = useState<string | null>(null);
     const verdict = checkVerdict(result);
     const meta = VERDICT_META[verdict];
     const evidenceCount = result.evidence.length;
+    const categoryCounts = result.evidence.reduce(
+      (acc, e) => {
+        acc[evidenceCategory(e.type)] += 1;
+        return acc;
+      },
+      { file: 0, image: 0, video: 0 } as Record<EvidenceCategory, number>,
+    );
     const hasBody =
       Boolean(result.toulmin?.evidence) || Boolean(result.suggestion) || evidenceCount > 0;
+    const selectedEvidenceIndex = selectedEvidenceId
+      ? result.evidence.findIndex((e) => e.id === selectedEvidenceId)
+      : -1;
+    const selectedEvidence =
+      selectedEvidenceIndex >= 0 ? result.evidence[selectedEvidenceIndex] : null;
 
     return (
       <div className={styles.row}>
@@ -566,14 +688,17 @@ const CheckRow = memo<{ defaultOpen: boolean; result: VerifyResultWithEvidence }
             {result.checkItemTitle || result.checkItemId}
           </span>
           <span className={styles.rowSide}>
-            {evidenceCount > 0 && (
-              <span
-                className={styles.evChip}
-                title={t('report.evidence.count', { count: evidenceCount })}
-              >
-                <Icon icon={Paperclip} size={12} />
-                {evidenceCount}
-              </span>
+            {CATEGORY_ORDER.map((cat) =>
+              categoryCounts[cat] > 0 ? (
+                <span
+                  className={styles.evChip}
+                  key={cat}
+                  title={`${t(`report.evidence.category.${cat}`)} × ${categoryCounts[cat]}`}
+                >
+                  <Icon icon={CATEGORY_ICON[cat]} size={12} />
+                  {categoryCounts[cat]}
+                </span>
+              ) : null,
             )}
             {!result.required && (
               <span className={styles.softTag}>{t('report.check.optional')}</span>
@@ -591,20 +716,28 @@ const CheckRow = memo<{ defaultOpen: boolean; result: VerifyResultWithEvidence }
             {result.suggestion && <p className={styles.suggestion}>{result.suggestion}</p>}
             {evidenceCount > 0 && (
               <>
-                <button
-                  className={styles.evidenceTrigger}
-                  type={'button'}
-                  onClick={() => setEvidenceOpen(true)}
-                >
-                  <Icon icon={Paperclip} size={13} />
-                  {t('report.evidence.view', { count: evidenceCount })}
-                </button>
-                <EvidenceModal
-                  evidence={result.evidence}
-                  open={evidenceOpen}
-                  title={result.checkItemTitle || t('report.sections.evidence')}
-                  onClose={() => setEvidenceOpen(false)}
-                />
+                <div className={styles.evidenceList}>
+                  {result.evidence.map((e, index) =>
+                    isInlineEvidence(e) ? (
+                      <EvidenceItem evidence={e} index={index + 1} key={e.id} />
+                    ) : (
+                      <EvidenceFileButton
+                        evidence={e}
+                        index={index + 1}
+                        key={e.id}
+                        onClick={() => setSelectedEvidenceId(e.id)}
+                      />
+                    ),
+                  )}
+                </div>
+                {selectedEvidence && (
+                  <EvidenceModal
+                    evidence={[selectedEvidence]}
+                    open={Boolean(selectedEvidence)}
+                    title={evidenceDisplayName(selectedEvidence, t, selectedEvidenceIndex + 1)}
+                    onClose={() => setSelectedEvidenceId(null)}
+                  />
+                )}
               </>
             )}
           </div>
@@ -613,6 +746,8 @@ const CheckRow = memo<{ defaultOpen: boolean; result: VerifyResultWithEvidence }
     );
   },
 );
+
+CheckRow.displayName = 'CheckRow';
 
 const ReportPageState = memo<{
   action?: ReactNode;
@@ -807,7 +942,11 @@ const ReportViewer = memo(() => {
         {visible.length > 0 ? (
           <div className={styles.checks}>
             {visible.map((r) => (
-              <CheckRow defaultOpen={checkVerdict(r) === 'failed'} key={r.id} result={r} />
+              <CheckRow
+                defaultOpen={checkVerdict(r) === 'failed' || r.evidence.some(isInlineEvidence)}
+                key={r.id}
+                result={r}
+              />
             ))}
           </div>
         ) : (

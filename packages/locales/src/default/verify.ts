@@ -1,4 +1,5 @@
 export default {
+  'badge.errored': 'Check could not run',
   'badge.failed': 'Check failed',
   'badge.passed': 'Check passed',
   'badge.pending': 'Awaiting check',
@@ -58,7 +59,12 @@ export default {
   'report.error.description':
     'The report could not be loaded. Check your connection and try again.',
   'report.error.title': 'Unable to load report',
+  'report.evidence.category.file': 'File',
+  'report.evidence.category.image': 'Image',
+  'report.evidence.category.video': 'Video',
   'report.evidence.count': '{{count}} evidence',
+  'report.evidence.inlineFallback': 'Inline evidence {{index}}',
+  'report.evidence.openDetail': 'Open {{name}}',
   'report.evidence.view': 'View evidence ({{count}})',
   'report.filter.all': 'All',
   'report.filter.failed': 'Failed',
@@ -123,6 +129,9 @@ export default {
   'reports.verdict.pending': 'No report',
   'reports.verdict.uncertain': 'Uncertain',
 
+  'result.errored.sub':
+    'The delivery checker could not run because of an internal error, so this result was not evaluated. Retry the verification or review it manually.',
+  'result.errored.title': 'Draft result',
   'result.failed.sub':
     'This result is held back. The delivery checker found verification insufficient and triggered a repair.',
   'result.failed.title': 'Draft result',
@@ -140,6 +149,7 @@ export default {
 
   'status.checking': 'Delivery Checker: checking {{passed}}/{{total}}',
   'status.draft': 'Delivery Checker: awaiting confirmation · {{total}} checks',
+  'status.errored': 'Delivery Checker: could not run',
   'status.failed': 'Delivery Checker: failed · repair triggered',
   'status.idle': 'Delivery Checker: not generated',
   'status.passed': 'Delivery Checker: passed {{passed}}/{{total}}',
@@ -155,12 +165,24 @@ export default {
 
   'workspace.clearSearch': 'Clear search',
   'workspace.collapse': 'Collapse report list',
+  'workspace.actions.delete': 'Delete',
+  'workspace.actions.more': 'More actions',
+  'workspace.actions.rename': 'Rename',
+  'workspace.deleteConfirmDescription':
+    'Delete “{{title}}”? This report and its evidence will be removed.',
+  'workspace.deleteConfirmTitle': 'Delete report',
+  'workspace.deleteError': 'Failed to delete report',
+  'workspace.deleteSuccess': 'Report deleted',
   'workspace.emptyDetail.description':
     'Pick a verification report from the list to see its verdict, checks, and evidence.',
   'workspace.emptyDetail.title': 'No report selected',
   'workspace.expand': 'Show report list',
   'workspace.listEmpty':
     'Reports appear here after a checker run finishes or a report is ingested.',
+  'workspace.listEmptyTitle': 'No reports yet',
+  'workspace.renameEmpty': 'Report title cannot be empty',
+  'workspace.renameError': 'Failed to rename report',
+  'workspace.renameSuccess': 'Report renamed',
   'workspace.search': 'Search reports',
   'workspace.searchEmptyPrefix': 'No reports match “',
   'workspace.searchEmptySuffix': '”.',

@@ -1,9 +1,20 @@
 'use client';
 
 import type { VerifyRunStatus, VerifyVerdict } from '@lobechat/types';
-import { DraggablePanel, DraggablePanelContainer, type DraggablePanelProps } from '@lobehub/ui';
-import { Icon, Text } from '@lobehub/ui';
-import { ScrollArea } from '@lobehub/ui/base-ui';
+import {
+  ActionIcon,
+  Center,
+  DraggablePanel,
+  DraggablePanelContainer,
+  type DraggablePanelProps,
+  Empty,
+  Flexbox,
+  Icon,
+  Text,
+} from '@lobehub/ui';
+import type { DropdownItem } from '@lobehub/ui/base-ui';
+import { confirmModal, DropdownMenu } from '@lobehub/ui/base-ui';
+import { App } from 'antd';
 import { createStaticStyles, cssVar, useResponsive } from 'antd-style';
 import dayjs from 'dayjs';
 import isEqual from 'fast-deep-equal';
@@ -11,15 +22,24 @@ import {
   CircleCheck,
   CircleHelp,
   CircleX,
+  ClipboardCheck,
   LoaderCircle,
+  MoreHorizontal,
   PanelLeftClose,
+  Pencil,
   Search,
+  Trash2,
 } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
+import { memo, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router';
 
+import NavItem from '@/features/NavPanel/components/NavItem';
+import { SkeletonList } from '@/features/NavPanel/components/SkeletonList';
+import { mutate } from '@/libs/swr';
+import { verifyKeys } from '@/libs/swr/keys';
 import type { VerifyReportSummary } from '@/services/verify';
+import { verifyService } from '@/services/verify';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 
@@ -108,35 +128,9 @@ const styles = createStaticStyles(({ css }) => ({
     padding-block: 6px 16px;
     padding-inline: 8px;
   `,
-  item: css`
-    cursor: pointer;
-
-    display: grid;
-    grid-template-columns: 18px minmax(0, 1fr);
-    gap: 10px;
-    align-items: start;
-
-    width: 100%;
-    padding-block: 9px;
-    padding-inline: 10px;
-    border: none;
-    border-radius: ${cssVar.borderRadius};
-
-    text-align: start;
-
-    background: none;
-
-    &:hover {
-      background: ${cssVar.colorFillQuaternary};
-    }
-
-    &[data-active='true'] {
-      background: ${cssVar.colorFillSecondary};
-    }
-  `,
-  glyph: css`
-    display: flex;
-    margin-block-start: 2px;
+  editRow: css`
+    padding-block: 4px;
+    padding-inline: 4px;
   `,
   spin: css`
     animation: verify-spin 1.1s linear infinite;
@@ -145,19 +139,6 @@ const styles = createStaticStyles(({ css }) => ({
       to {
         transform: rotate(360deg);
       }
-    }
-  `,
-  itemTitle: css`
-    overflow: hidden;
-
-    font-size: 13px;
-    line-height: 1.4;
-    color: ${cssVar.colorText};
-    text-overflow: ellipsis;
-    white-space: nowrap;
-
-    &[data-active='true'] {
-      font-weight: 600;
     }
   `,
   itemSub: css`
@@ -169,8 +150,26 @@ const styles = createStaticStyles(({ css }) => ({
     font-size: 12px;
     color: ${cssVar.colorTextTertiary};
   `,
+  itemTitleInput: css`
+    width: 100%;
+    min-width: 0;
+    height: 24px;
+    padding-inline: 6px;
+    border: 1px solid ${cssVar.colorBorder};
+    border-radius: 4px;
+
+    font-size: 13px;
+    color: ${cssVar.colorText};
+
+    background: ${cssVar.colorBgContainer};
+    outline: none;
+
+    &:focus {
+      border-color: ${cssVar.colorPrimary};
+      box-shadow: 0 0 0 2px ${cssVar.colorPrimaryBg};
+    }
+  `,
   counts: css`
-    font-family: ${cssVar.fontFamilyCode};
     font-variant-numeric: tabular-nums;
 
     em {
@@ -186,6 +185,12 @@ const styles = createStaticStyles(({ css }) => ({
 
     padding-block: 24px;
     padding-inline: 12px;
+  `,
+  emptyState: css`
+    height: 100%;
+    min-height: 240px;
+    padding-block: 24px;
+    padding-inline: 16px;
   `,
   emptyMsg: css`
     font-size: 12px;
@@ -245,9 +250,19 @@ const relativeTime = (value?: Date | string | null) => {
   return dayjs().diff(d, 'day') < 7 ? d.fromNow() : d.format('MMM D');
 };
 
-const ReportListItem = memo<{ active: boolean; item: VerifyReportSummary }>(({ active, item }) => {
-  const { t } = useTranslation('verify');
+const ReportListItem = memo<{
+  active: boolean;
+  item: VerifyReportSummary;
+  onReportsChanged: () => Promise<unknown> | unknown;
+}>(({ active, item, onReportsChanged }) => {
+  const { t } = useTranslation(['verify', 'common']);
+  const { message } = App.useApp();
   const navigate = useNavigate();
+  const [editing, setEditing] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(item.run.title || '');
+  const [mutating, setMutating] = useState(false);
+  const isSavingRef = useRef(false);
+
   const status = item.run.status ?? null;
   const glyph = glyphOf(status, item.report?.verdict);
   const meta = glyphMeta[glyph];
@@ -256,46 +271,178 @@ const ReportListItem = memo<{ active: boolean; item: VerifyReportSummary }>(({ a
   const total = item.report?.totalChecks ?? planCount;
   const passed = item.report?.passedChecks ?? 0;
   const failed = item.report?.failedChecks ?? 0;
-  const title = item.run.title || t('reports.untitled');
+  const title = item.run.title || t('verify:reports.untitled');
   const time =
     glyph === 'running'
-      ? t('list.running')
+      ? t('verify:list.running')
       : relativeTime(item.report?.generatedAt ?? item.run.createdAt);
 
+  const refreshRelatedReports = async () => {
+    await Promise.all([onReportsChanged(), mutate(verifyKeys.reportBundle(item.run.id))]);
+  };
+
+  const startRename = () => {
+    setDraftTitle(title);
+    setEditing(true);
+  };
+
+  const cancelRename = () => {
+    if (isSavingRef.current) return;
+    setDraftTitle(item.run.title || '');
+    setEditing(false);
+  };
+
+  const commitRename = async () => {
+    if (isSavingRef.current) return;
+
+    const nextTitle = draftTitle.trim();
+    if (!nextTitle) {
+      message.error(t('verify:workspace.renameEmpty'));
+      setDraftTitle(item.run.title || '');
+      setEditing(false);
+      return;
+    }
+
+    if (nextTitle === title) {
+      setEditing(false);
+      return;
+    }
+
+    isSavingRef.current = true;
+    setMutating(true);
+    try {
+      await verifyService.updateRunTitle(item.run.id, nextTitle);
+      await refreshRelatedReports();
+      message.success(t('verify:workspace.renameSuccess'));
+      setEditing(false);
+    } catch (error) {
+      console.error('[verify:renameReport]', error);
+      message.error(t('verify:workspace.renameError'));
+    } finally {
+      isSavingRef.current = false;
+      setMutating(false);
+    }
+  };
+
+  const deleteReport = () => {
+    confirmModal({
+      cancelText: t('common:cancel'),
+      content: t('verify:workspace.deleteConfirmDescription', { title }),
+      okButtonProps: { danger: true },
+      okText: t('common:delete'),
+      onOk: async () => {
+        setMutating(true);
+        try {
+          await verifyService.deleteRun(item.run.id);
+          if (active) navigate('/verify', { replace: true });
+          await Promise.all([
+            onReportsChanged(),
+            mutate(verifyKeys.reportBundle(item.run.id), null, { revalidate: false }),
+          ]);
+          message.success(t('verify:workspace.deleteSuccess'));
+        } catch (error) {
+          console.error('[verify:deleteReport]', error);
+          message.error(t('verify:workspace.deleteError'));
+        } finally {
+          setMutating(false);
+        }
+      },
+      title: t('verify:workspace.deleteConfirmTitle'),
+    });
+  };
+
+  const menuItems: DropdownItem[] = [
+    {
+      icon: <Icon icon={Pencil} />,
+      key: 'rename',
+      label: t('verify:workspace.actions.rename'),
+      onClick: startRename,
+    },
+    {
+      danger: true,
+      icon: <Icon icon={Trash2} />,
+      key: 'delete',
+      label: t('verify:workspace.actions.delete'),
+      onClick: deleteReport,
+    },
+  ];
+
+  // Rename swaps the whole row for an inline input.
+  if (editing) {
+    return (
+      <div className={styles.editRow}>
+        <input
+          autoFocus
+          className={styles.itemTitleInput}
+          value={draftTitle}
+          onBlur={() => void commitRename()}
+          onChange={(e) => setDraftTitle(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              void commitRename();
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              cancelRename();
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
+  const description =
+    time || (total > 0 && glyph !== 'running') ? (
+      <Flexbox horizontal className={styles.itemSub} gap={8}>
+        {time ? <span>{time}</span> : null}
+        {total > 0 && glyph !== 'running' ? (
+          <span className={styles.counts}>
+            {passed}/{total}
+            {failed > 0 ? (
+              <>
+                {' · '}
+                <em>{t('verify:list.failedCount', { count: failed })}</em>
+              </>
+            ) : null}
+          </span>
+        ) : null}
+      </Flexbox>
+    ) : undefined;
+
   return (
-    <button
-      className={styles.item}
-      data-active={active}
-      type={'button'}
-      onClick={() => navigate(`/verify/${item.run.id}`)}
-    >
-      <span className={styles.glyph} style={{ color: meta.color }}>
+    <NavItem
+      active={active}
+      description={description}
+      style={mutating ? { opacity: 0.62, pointerEvents: 'none' } : undefined}
+      title={title}
+      titleColor={cssVar.colorText}
+      actions={
+        <DropdownMenu
+          iconSpaceMode={'group'}
+          items={menuItems}
+          placement={'bottomRight'}
+          popupProps={{ style: { minWidth: 140 } }}
+        >
+          <ActionIcon
+            icon={MoreHorizontal}
+            size={'small'}
+            title={t('verify:workspace.actions.more')}
+          />
+        </DropdownMenu>
+      }
+      icon={
         <Icon
           className={glyph === 'running' ? styles.spin : undefined}
           icon={meta.icon}
-          size={15}
+          size={16}
+          style={{ color: meta.color }}
         />
-      </span>
-      <span style={{ minWidth: 0 }}>
-        <span className={styles.itemTitle} data-active={active}>
-          {title}
-        </span>
-        <span className={styles.itemSub}>
-          {time ? <span>{time}</span> : null}
-          {total > 0 && glyph !== 'running' ? (
-            <span className={styles.counts}>
-              {passed}/{total}
-              {failed > 0 ? (
-                <>
-                  {' '}
-                  · <em>{t('list.failedCount', { count: failed })}</em>
-                </>
-              ) : null}
-            </span>
-          ) : null}
-        </span>
-      </span>
-    </button>
+      }
+      onClick={() => navigate(`/verify/${item.run.id}`)}
+    />
   );
 });
 
@@ -305,7 +452,7 @@ const ReportListPanel = memo(() => {
   const { t } = useTranslation('verify');
   const { runId } = useParams<{ runId: string }>();
   const { md = true } = useResponsive();
-  const { data } = useVerifyReportSummaries();
+  const { data, isLoading, mutate: refreshReports } = useVerifyReportSummaries();
   const reports = useMemo(() => data ?? [], [data]);
 
   const [query, setQuery] = useState('');
@@ -372,32 +519,43 @@ const ReportListPanel = memo(() => {
           </label>
         </div>
 
-        <ScrollArea style={{ flex: 1, minHeight: 0 }}>
-          {filtered.length === 0 ? (
-            <div className={styles.empty}>
-              {query.trim() ? (
-                <>
-                  <span className={styles.emptyMsg}>
-                    {t('workspace.searchEmptyPrefix')}
-                    <b className={styles.queryHl}>{query.trim()}</b>
-                    {t('workspace.searchEmptySuffix')}
-                  </span>
-                  <button className={styles.clearBtn} type={'button'} onClick={() => setQuery('')}>
-                    {t('workspace.clearSearch')}
-                  </button>
-                </>
-              ) : (
-                <span className={styles.emptyMsg}>{t('workspace.listEmpty')}</span>
-              )}
-            </div>
+        <Flexbox flex={1} style={{ minHeight: 0, overflowX: 'hidden', overflowY: 'auto' }}>
+          {isLoading && !data ? (
+            <SkeletonList rows={6} style={{ paddingBlock: 6, paddingInline: 8 }} />
+          ) : filtered.length === 0 ? (
+            query.trim() ? (
+              <div className={styles.empty}>
+                <span className={styles.emptyMsg}>
+                  {t('workspace.searchEmptyPrefix')}
+                  <b className={styles.queryHl}>{query.trim()}</b>
+                  {t('workspace.searchEmptySuffix')}
+                </span>
+                <button className={styles.clearBtn} type={'button'} onClick={() => setQuery('')}>
+                  {t('workspace.clearSearch')}
+                </button>
+              </div>
+            ) : (
+              <Center className={styles.emptyState}>
+                <Empty
+                  description={t('workspace.listEmpty')}
+                  icon={ClipboardCheck}
+                  title={t('workspace.listEmptyTitle')}
+                />
+              </Center>
+            )
           ) : (
             <div className={styles.list}>
               {filtered.map((item) => (
-                <ReportListItem active={item.run.id === runId} item={item} key={item.run.id} />
+                <ReportListItem
+                  active={item.run.id === runId}
+                  item={item}
+                  key={item.run.id}
+                  onReportsChanged={refreshReports}
+                />
               ))}
             </div>
           )}
-        </ScrollArea>
+        </Flexbox>
       </DraggablePanelContainer>
     </DraggablePanel>
   );

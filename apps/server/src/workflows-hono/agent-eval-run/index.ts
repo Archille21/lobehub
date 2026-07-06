@@ -1,3 +1,4 @@
+import { withOtelMetricsForUpstashWorkflows } from '@lobechat/observability-otel/modules/upstash-workflow';
 import { serve } from '@upstash/workflow/hono';
 import { Hono } from 'hono';
 
@@ -16,86 +17,126 @@ const app = new Hono();
 
 app.post(
   '/execute-test-case',
-  serve(executeTestCaseWorkflow, {
-    flowControl: {
-      key: 'agent-eval-run.execute-test-case',
-      parallelism: 200,
-      ratePerSecond: 5,
+  serve(
+    withOtelMetricsForUpstashWorkflows(executeTestCaseWorkflow, {
+      url: '/api/workflows/agent-eval-run/execute-test-case',
+    }),
+    {
+      flowControl: {
+        key: 'agent-eval-run.execute-test-case',
+        parallelism: 200,
+        ratePerSecond: 5,
+      },
+      qstashClient,
     },
-    qstashClient,
-  }),
+  ),
 );
 
 app.post(
   '/finalize-run',
-  serve(finalizeRunWorkflow, {
-    flowControl: { key: 'agent-eval-run.finalize-run', parallelism: 10, rate: 1 },
-    qstashClient,
-  }),
+  serve(
+    withOtelMetricsForUpstashWorkflows(finalizeRunWorkflow, {
+      url: '/api/workflows/agent-eval-run/finalize-run',
+    }),
+    {
+      flowControl: { key: 'agent-eval-run.finalize-run', parallelism: 10, rate: 1 },
+      qstashClient,
+    },
+  ),
 );
 
 app.post(
   '/paginate-test-cases',
-  serve(paginateTestCasesWorkflow, {
-    flowControl: { key: 'agent-eval-run.paginate-test-cases', parallelism: 200, rate: 5 },
-    qstashClient,
-  }),
+  serve(
+    withOtelMetricsForUpstashWorkflows(paginateTestCasesWorkflow, {
+      url: '/api/workflows/agent-eval-run/paginate-test-cases',
+    }),
+    {
+      flowControl: { key: 'agent-eval-run.paginate-test-cases', parallelism: 200, rate: 5 },
+      qstashClient,
+    },
+  ),
 );
 
 app.post(
   '/resume-agent-trajectory',
-  serve(resumeAgentTrajectoryWorkflow, {
-    flowControl: {
-      key: 'agent-eval-run.resume-agent-trajectory',
-      parallelism: 500,
-      ratePerSecond: 20,
+  serve(
+    withOtelMetricsForUpstashWorkflows(resumeAgentTrajectoryWorkflow, {
+      url: '/api/workflows/agent-eval-run/resume-agent-trajectory',
+    }),
+    {
+      flowControl: {
+        key: 'agent-eval-run.resume-agent-trajectory',
+        parallelism: 500,
+        ratePerSecond: 20,
+      },
+      qstashClient,
     },
-    qstashClient,
-  }),
+  ),
 );
 
 app.post(
   '/resume-thread-trajectory',
-  serve(resumeThreadTrajectoryWorkflow, {
-    flowControl: {
-      key: 'agent-eval-run.resume-thread-trajectory',
-      parallelism: 500,
-      ratePerSecond: 20,
+  serve(
+    withOtelMetricsForUpstashWorkflows(resumeThreadTrajectoryWorkflow, {
+      url: '/api/workflows/agent-eval-run/resume-thread-trajectory',
+    }),
+    {
+      flowControl: {
+        key: 'agent-eval-run.resume-thread-trajectory',
+        parallelism: 500,
+        ratePerSecond: 20,
+      },
+      qstashClient,
     },
-    qstashClient,
-  }),
+  ),
 );
 
 app.post(
   '/run-agent-trajectory',
-  serve(runAgentTrajectoryWorkflow, {
-    flowControl: {
-      key: 'agent-eval-run.run-agent-trajectory',
-      parallelism: 500,
-      ratePerSecond: 20,
+  serve(
+    withOtelMetricsForUpstashWorkflows(runAgentTrajectoryWorkflow, {
+      url: '/api/workflows/agent-eval-run/run-agent-trajectory',
+    }),
+    {
+      flowControl: {
+        key: 'agent-eval-run.run-agent-trajectory',
+        parallelism: 500,
+        ratePerSecond: 20,
+      },
+      qstashClient,
     },
-    qstashClient,
-  }),
+  ),
 );
 
 app.post(
   '/run-benchmark',
-  serve(runBenchmarkWorkflow, {
-    flowControl: { key: 'agent-eval-run.process-run', parallelism: 100, rate: 1 },
-    qstashClient,
-  }),
+  serve(
+    withOtelMetricsForUpstashWorkflows(runBenchmarkWorkflow, {
+      url: '/api/workflows/agent-eval-run/run-benchmark',
+    }),
+    {
+      flowControl: { key: 'agent-eval-run.process-run', parallelism: 100, rate: 1 },
+      qstashClient,
+    },
+  ),
 );
 
 app.post(
   '/run-thread-trajectory',
-  serve(runThreadTrajectoryWorkflow, {
-    flowControl: {
-      key: 'agent-eval-run.run-thread-trajectory',
-      parallelism: 500,
-      ratePerSecond: 20,
+  serve(
+    withOtelMetricsForUpstashWorkflows(runThreadTrajectoryWorkflow, {
+      url: '/api/workflows/agent-eval-run/run-thread-trajectory',
+    }),
+    {
+      flowControl: {
+        key: 'agent-eval-run.run-thread-trajectory',
+        parallelism: 500,
+        ratePerSecond: 20,
+      },
+      qstashClient,
     },
-    qstashClient,
-  }),
+  ),
 );
 
 export default app;

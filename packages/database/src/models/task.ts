@@ -32,8 +32,8 @@ import { buildWorkspaceWhere } from '../utils/workspace';
 
 /**
  * Ownership helpers in this model come in three flavors. Choose by USE CASE,
- * not by table — picking the wrong one is how LOBE-10946's `seq` allocation
- * hotfix got introduced (see git log).
+ * not by table — picking the wrong one led to a `seq` allocation hotfix
+ * (see git log).
  *
  * ┌────────────────────┬──────────────────────────────────────────────┬────────────────────────┐
  * │ Helper             │ Use for                                      │ Visibility-aware?      │
@@ -255,18 +255,18 @@ export class TaskModel {
   }
 
   /**
-   * Promote a task and its full subtree to a new visibility. Combined with the
-   * router-level guard (LOBE-11027), the only legal transition is
-   * `private → public` — there is no `public → private` path.
+   * Promote a task and its full subtree to a new visibility. The only legal
+   * transition is `private → public` — there is no `public → private` path
+   * (one-way commitment; enforced by the router-level guard).
    *
    * Cascades inside a single transaction across structural rows only:
    *   - the root task and every descendant in `tasks`;
    *   - `task_dependencies` and `task_documents` whose `task_id` is in the set.
    *
-   * `task_topics` and `task_comments` are deliberately **not** cascaded
-   * (LOBE-11028). They are event-shaped historical rows whose visibility was
-   * fixed at write time; promoting the task to public must not retroactively
-   * expose runs and discussions that happened while the task was private.
+   * `task_topics` and `task_comments` are deliberately **not** cascaded.
+   * They are event-shaped historical rows whose visibility was fixed at write
+   * time; promoting the task to public must not retroactively expose runs and
+   * discussions that happened while the task was private.
    * Topics / comments created after promotion inherit the task's then-current
    * visibility through their own create paths.
    *
@@ -1179,6 +1179,7 @@ export class TaskModel {
     taskId: string,
     targetWorkspaceId: string | null,
     targetUserId: string,
+    targetVisibility?: 'private' | 'public',
   ): Promise<{ taskIds: string[] }> {
     return this.db.transaction(async (trx) => {
       const scoped = new TaskModel(trx as LobeChatDatabase, this.userId, this.workspaceId);
@@ -1186,6 +1187,11 @@ export class TaskModel {
       if (subtree.length === 0) throw new Error('Task not found');
 
       const ids = subtree.map((t) => t.id);
+
+      // Visibility only applies when landing in a workspace. In personal scope
+      // every row is implicitly private and the field is ignored.
+      const visibilityUpdate =
+        targetWorkspaceId && targetVisibility ? { visibility: targetVisibility } : {};
 
       // Reallocate identifier + seq in target scope to avoid collisions.
       const baseSeq = await this.nextSeqIn(
@@ -1208,23 +1214,26 @@ export class TaskModel {
             seq,
             updatedAt: new Date(),
             workspaceId: targetWorkspaceId,
+            ...visibilityUpdate,
           })
           .where(eq(tasks.id, task.id));
       }
 
-      // Update child tables that key off taskId.
+      // Update child tables that key off taskId. Child rows mirror the parent
+      // task's visibility (see schema comments on task_deps / task_docs /
+      // task_comments) so cascade the new visibility here too.
       const ownershipUpdate = { userId: targetUserId, workspaceId: targetWorkspaceId };
       await (trx as LobeChatDatabase)
         .update(taskDependencies)
-        .set(ownershipUpdate)
+        .set({ ...ownershipUpdate, ...visibilityUpdate })
         .where(inArray(taskDependencies.taskId, ids));
       await (trx as LobeChatDatabase)
         .update(taskDocuments)
-        .set(ownershipUpdate)
+        .set({ ...ownershipUpdate, ...visibilityUpdate })
         .where(inArray(taskDocuments.taskId, ids));
       await (trx as LobeChatDatabase)
         .update(taskComments)
-        .set(ownershipUpdate)
+        .set({ ...ownershipUpdate, ...visibilityUpdate })
         .where(inArray(taskComments.taskId, ids));
 
       return { taskIds: ids };
@@ -1241,11 +1250,16 @@ export class TaskModel {
     taskId: string,
     targetWorkspaceId: string | null,
     targetUserId: string,
+    targetVisibility?: 'private' | 'public',
   ): Promise<{ rootId: string }> {
     return this.db.transaction(async (trx) => {
       const scoped = new TaskModel(trx as LobeChatDatabase, this.userId, this.workspaceId);
       const subtree = await scoped.collectTaskSubtree(taskId, trx as LobeChatDatabase);
       if (subtree.length === 0) throw new Error('Task not found');
+
+      // Visibility only applies when landing in a workspace.
+      const visibilityOverride =
+        targetWorkspaceId && targetVisibility ? { visibility: targetVisibility } : {};
 
       // BFS clone — parent inserted before children, so we always know the
       // new parentTaskId by the time we reach the child.
@@ -1299,6 +1313,7 @@ export class TaskModel {
             status: 'backlog',
             totalTopics: 0,
             workspaceId: targetWorkspaceId,
+            ...visibilityOverride,
           } as NewTask)
           .returning({ id: tasks.id })) as { id: string }[];
 

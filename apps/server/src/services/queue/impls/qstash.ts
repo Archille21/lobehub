@@ -1,5 +1,7 @@
 import debug from 'debug';
 
+import { OtelQstashClient } from '@/libs/qstash';
+
 import { type HealthCheckResult, type QueueMessage, type QueueStats } from '../types';
 import { type QueueServiceImpl } from './type';
 
@@ -33,10 +35,9 @@ export class QStashQueueServiceImpl implements QueueServiceImpl {
     } = message;
 
     try {
-      const { Client } = await import('@upstash/qstash');
       log('Initialized QStash queue service');
-      const qstashClient = new Client({ token: this.config.qstashToken });
-      const response = await qstashClient.publishJSON({
+      const qstashClient = new OtelQstashClient({ token: this.config.qstashToken });
+      const request = {
         body: {
           context,
           operationId,
@@ -45,7 +46,10 @@ export class QStashQueueServiceImpl implements QueueServiceImpl {
           stepIndex,
           timestamp: Date.now(),
         },
-        delay: Math.ceil(delay / 1000), // Convert milliseconds to seconds
+        // QStash delay granularity is whole seconds, so sub-second step delays
+        // can't be expressed. Ceiling them up padded every step to a full second;
+        // instead dispatch immediately (0) and only delay for >= 1s intents.
+        delay: delay >= 1000 ? Math.round(delay / 1000) : 0,
         headers: {
           'Content-Type': 'application/json',
           'X-Agent-Operation-Id': operationId,
@@ -55,7 +59,8 @@ export class QStashQueueServiceImpl implements QueueServiceImpl {
         retryDelay,
         retries,
         url: endpoint,
-      });
+      };
+      const response = await qstashClient.publishJSON(request);
 
       log(
         `[${operationId}] Scheduled step %d to %s with %dms delay (messageId: %s)`,

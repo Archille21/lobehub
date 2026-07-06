@@ -11,6 +11,8 @@ import type {
   DeviceGitCheckoutResult,
   DeviceGitDeleteBranchResult,
   DeviceGitLinkedPullRequest,
+  DeviceGitLinkedPullRequestLookupStatus,
+  DeviceGitRemoveWorktreeResult,
   DeviceGitRenameBranchResult,
   DeviceGitSyncResult,
   DeviceGitWorkingTreeStatus,
@@ -31,6 +33,7 @@ export interface GitLinkedPRSummary {
   extraCount?: number;
   ghMissing?: boolean;
   pullRequest?: DeviceGitLinkedPullRequest | null;
+  pullRequestStatus?: DeviceGitLinkedPullRequestLookupStatus;
 }
 
 /**
@@ -103,6 +106,21 @@ class GitService {
       : electronGitService.deleteGitBranch({ branch, path });
   }
 
+  /** Remove a worktree from a working directory's repository. */
+  removeGitWorktree({
+    deviceId,
+    path,
+    worktreePath,
+  }: {
+    deviceId?: string;
+    path: string;
+    worktreePath: string;
+  }): Promise<DeviceGitRemoveWorktreeResult> {
+    return deviceId
+      ? lambdaClient.device.removeGitWorktree.mutate({ deviceId, path, worktreePath })
+      : electronGitService.removeGitWorktree({ path, worktreePath });
+  }
+
   /** Pull (`--ff-only`) the current branch of a working directory. */
   pullGitBranch({
     deviceId,
@@ -170,6 +188,7 @@ class GitService {
       extraCount: pr.extraCount,
       ghMissing: pr.status === 'gh-missing',
       pullRequest: pr.pullRequest,
+      pullRequestStatus: pr.status,
     };
   }
 

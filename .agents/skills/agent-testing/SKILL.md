@@ -18,8 +18,8 @@ One skill for all agentic end-to-end testing — local-first today, designed to
 also run as full cloud automation. Every test session follows the same
 contract:
 
-```
-Step -2: Read the two living logs → Step -1: Plan approval → Step 0: Env + Auth → Step 1: Pick surface → Step 2: Run → Step 3: Structured report → Step 4: Publish to LobeHub
+```text
+Step -2: Read the two living logs → Step -1: Plan approval → Step 0: Env + Auth → Step 1: Pick surface → Step 2: Run → Step 3: Structured report → Step 4: Publish to LobeHub → Step 5: Teardown
 ```
 
 ## Step -2 — Read the two living logs (mandatory, before every run)
@@ -282,6 +282,32 @@ do not open a login page; verify agent-browser first, then request the Network
 `Cookie:` header only if that verification fails. Full background and failure modes:
 [references/auth.md](./references/auth.md).
 
+### 0.5 — Screen-recording preflight (OS-capture surfaces only)
+
+macOS `screencapture` / osascript / bot-channel captures come out **entirely
+black** when Screen Recording (TCC) permission is missing OR — just as often —
+the **display is asleep / locked / on a screensaver** (permission is fine, but
+there is nothing lit to capture; this bites after a long idle test run). A black
+PNG is easy to mistake for a real capture, so gate BEFORE any OS-capture step:
+
+```bash
+./.agents/skills/agent-testing/scripts/check-screen-recording.sh # exit 0 = OS capture will work
+```
+
+It checks both layers — `CGPreflightScreenCaptureAccess` for permission and a
+real one-frame capture for blackness — and prints the exact fix (which `.app` to
+grant, or wake/unlock the display). `capture-app-window.sh` runs it automatically
+and refuses to write a black artifact (bypass with `SKIP_SCREEN_CHECK=1`).
+
+This gate is **only** for OS-capture surfaces (bot tests, `capture-app-window.sh`,
+osascript screenshots). CDP-based evidence (`agent-browser screenshot`,
+`record-app-screen.sh`) renders from the browser engine and is unaffected. Because
+the display can sleep mid-run, keep it awake for the whole capture session:
+
+```bash
+caffeinate -dimsu & # prevent display/idle sleep for the test run; kill when done
+```
+
 ## Step 1 — Pick the surface by change scope
 
 | Change scope                                            | Default surface                      | Why                                                               | Guide                              |
@@ -362,19 +388,21 @@ Surface guides above carry the detailed workflows. Shared infrastructure:
 
 All under `.agents/skills/agent-testing/scripts/`:
 
-| Script                    | Usage                                                                        |
-| ------------------------- | ---------------------------------------------------------------------------- |
-| `test-env.sh`             | Print/export the resolved local test env and ports                           |
-| `setup-auth.sh`           | One-stop auth setup & status check (`status` / `cli` / `web`)                |
-| `init-dev-env.sh`         | Self-contained local dev env (`setup-db` / `seed-user` / `dev-next` / `dev`) |
-| `app-probe.sh`            | LobeHub app probes: `auth` / `route` / `ops` / `goto <path>` / `errors`      |
-| `record-gif.sh`           | Frame-sequence → GIF for time-based behavior (streaming, timers, animations) |
-| `report-init.sh`          | Scaffold a structured test report (Step 3)                                   |
-| `electron-dev.sh`         | Manage Electron dev env (start/stop/status/restart, CDP 9222)                |
-| `capture-app-window.sh`   | Screenshot a specific app window (general; used by bot tests)                |
-| `record-app-screen.sh`    | Record app screen (video + periodic screenshots)                             |
-| `record-electron-demo.sh` | Record Electron app demo with ffmpeg                                         |
-| `agent-gateway/`          | Gateway probe / dump / analyze tools                                         |
+| Script                      | Usage                                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------------------- |
+| `test-env.sh`               | Print/export the resolved local test env and ports                                          |
+| `setup-auth.sh`             | One-stop auth setup & status check (`status` / `cli` / `web`)                               |
+| `init-dev-env.sh`           | Self-contained local dev env (`setup-db` / `seed-user` / `dev-next` / `dev`)                |
+| `app-probe.sh`              | LobeHub app probes: `auth` / `route` / `ops` / `goto <path>` / `errors`                     |
+| `record-gif.sh`             | Frame-sequence → GIF for time-based behavior (streaming, timers, animations)                |
+| `report-init.sh`            | Scaffold a structured test report (Step 3)                                                  |
+| `check-screen-recording.sh` | Preflight: OS screen-capture works (macOS Screen Recording + display awake)                 |
+| `electron-dev.sh`           | Manage Electron dev env (start/stop/status/restart, CDP 9222)                               |
+| `cdp-screenshot.sh`         | Electron/Chrome screenshot via RAW CDP (bypasses agent-browser daemon); `--check` preflight |
+| `capture-app-window.sh`     | Screenshot a specific app window (general; used by bot tests)                               |
+| `record-app-screen.sh`      | Record app screen (video + periodic screenshots)                                            |
+| `record-electron-demo.sh`   | Record Electron app demo with ffmpeg                                                        |
+| `agent-gateway/`            | Gateway probe / dump / analyze tools                                                        |
 
 `app-probe.sh` is the LobeHub-specific fast path into app state — auth check,
 current route, running operations, and `goto <path>` quick navigation
@@ -418,13 +446,17 @@ Two hard rules worth front-loading:
   embed images/GIFs in `report.md` (no `![...](assets/...)`) — they would just
   double up with the per-case evidence the page already shows. `report.md` stays
   prose-only (follow-ups / notes / reproduction).
-- **Final replies must include visual evidence links.** When a run includes UI
-  screenshots or GIFs, include the report directory and the most important
-  visual artifacts in the final chat response. Each item must include a stable
-  label, an evidence caption describing the observed UI outcome, and a
-  repo-relative path, for example:
-  `[Image #1 - error toast shows provider auth failure](<report-dir>/assets/foo.png)`.
-  Use repo-relative paths, not absolute paths.
+- **Final replies: the ONLY visual deliverable is the published `/verify/<id>`
+  link — put NO images and NO local-file links in the chat reply at all.** The
+  chat UI cannot load a local-path image: a `![caption](<report-dir>/assets/foo.png)`
+  embed renders as a broken-image placeholder (empty grey box), and a
+  `[Image #1 …](<report-dir>/assets/foo.png)` link renders as blue text that
+  can't be opened — both are dead. Local report paths only resolve on the
+  machine, not in the message. So the primary (and only) evidence pointer in the
+  reply is the `https://app.lobehub.com/verify/<id>` URL, where every screenshot
+  is already rendered inline; you may also mention the local report dir as a
+  plain string for reference (not a markdown link). Describe key visual outcomes
+  in prose if useful, but never attempt to show a screenshot inline in chat.
 - **Time-based behavior needs a GIF, not a screenshot.** If a case asserts
   change over time (streaming output, a ticking timer, loading states,
   animations), record it with `scripts/record-gif.sh` and attach the GIF as that
@@ -480,6 +512,25 @@ inline screenshot/text evidence). On production that resolves to
 `https://app.lobehub.com/verify/<verifyRunId>`. **Include that full production
 link in the final chat reply** alongside the local report dir.
 
+### Re-verifying the same case updates the report in place (don't spawn a new one)
+
+When you iterate on one change — fix → re-verify → fix again — **keep reusing the
+same report dir (`$DIR`)**. `ingest-report` records the session it created in a
+`.verify-run.json` sidecar inside `$DIR`, so re-ingesting the **same dir**
+**updates that session in place** (same `/verify/<id>` URL) instead of creating a
+new list entry every round. The update is a full replace: cases are overwritten
+by their stable `id`, each case's evidence is re-attached (old screenshots
+cleared, not stacked), and cases the new report dropped are pruned.
+
+So the rule for an iterative case: `report-init.sh` **once**, then re-run
+`ingest-report "$DIR"` after each fix — the report accretes value at one stable
+URL rather than flooding the list with near-duplicate runs. Only scaffold a fresh
+`$DIR` when you start verifying a genuinely different case.
+
+Escape hatches: `--new` forces a fresh session even if the dir already made one;
+`--run <verifyRunId>` targets an existing session explicitly (e.g. to update from
+a different machine/checkout where the sidecar is absent).
+
 Notes:
 
 - `result.json` cases use `{ id?, name, result, observation?, evidence? }`;
@@ -498,9 +549,41 @@ Notes:
   report. If the evidence must appear, publish against an env with real storage
   (e.g. production) or attach it inline with `verify evidence upload --content`.
 
+## Step 5 — Teardown (default: stop what you started)
+
+A test run leaves processes and code edits behind. Clean them up by default once
+the report is published — a dev server left listening or an injection left in a
+service file silently corrupts the next run (and the next agent's mental model).
+
+- **Stop the dev server you started.** If you launched it via `init-dev-env.sh dev`
+  (the no-`.env` path), tear it down with:
+
+  ```bash
+  ./.agents/skills/agent-testing/scripts/init-dev-env.sh clean # stop dev server; keep DB/Redis
+  ```
+
+  `clean` stops the Next + Vite processes on the resolved `SERVER_PORT` / `SPA_PORT`
+  and the `bun run dev` supervisor, and **leaves the managed Postgres/Redis
+  containers running** (they are idempotently reused across runs — `setup-db` is a
+  no-op when they're up). Use `clean-db` only when you deliberately want the
+  containers gone, or `stop-dev` for just the server with no note. If the user
+  started their own `.env` dev server, leave it — you didn't start it.
+
+- **Revert every code injection.** Any HMR fault-injection (A4/A6/A8 in
+  `probe-mock-patterns.md`) must be undone and verified: `git checkout -- <files>`
+  then `grep -rn AGENT-TEST src/` returns nothing. Never leave an injection or a
+  debug global (`__DBG`, `__loadMoreCalls`) behind.
+
+- **Keep the report + evidence.** `.records/reports/**` is the deliverable — do
+  NOT delete it in teardown; it's gitignored and the published verify run points at
+  it.
+
+Skip teardown only when the user explicitly wants the environment left up (e.g.
+"leave the dev server running, I'll keep poking at it").
+
 ## Directory map
 
-```
+```text
 agent-testing/
 ├── SKILL.md            # this router
 ├── cli/index.md        # backend verification via the LobeHub CLI
