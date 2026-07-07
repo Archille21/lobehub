@@ -26,8 +26,12 @@ const buildCoordinator = (
 });
 
 const messageUpdateMock = vi.fn().mockResolvedValue({ success: true });
+const messageFindByIdMock = vi.fn().mockResolvedValue(null);
 vi.mock('@/database/models/message', () => ({
-  MessageModel: vi.fn().mockImplementation(() => ({ update: messageUpdateMock })),
+  MessageModel: vi.fn().mockImplementation(() => ({
+    findById: messageFindByIdMock,
+    update: messageUpdateMock,
+  })),
 }));
 
 const findOperationMock = vi.fn().mockResolvedValue(null);
@@ -88,8 +92,8 @@ const buildDb = (overrides: { assistantRow?: any; operationRow?: any } = {}) =>
 
 describe('AbandonOperationService', () => {
   beforeEach(() => {
-    messageUpdateMock.mockClear();
-    dispatchHooksMock.mockClear();
+    messageFindByIdMock.mockReset().mockResolvedValue(null);
+    messageUpdateMock.mockReset().mockResolvedValue({ success: true });
     findOperationMock.mockReset().mockResolvedValue(null);
     recordCompletionMock.mockClear();
     findThreadMock.mockReset().mockResolvedValue(null);
@@ -172,11 +176,12 @@ describe('AbandonOperationService', () => {
     });
   });
 
-  it('keeps no-state terminal operations classified as completed phantom timeouts', async () => {
+  it('returns terminal reconciliation fields for no-state terminal operations', async () => {
     const coord = buildCoordinator({ loadAgentState: vi.fn().mockResolvedValue(null) });
     const store = buildStore();
     const db = buildDb({
       operationRow: {
+        completionReason: 'done',
         id: 'op_done',
         status: 'done',
         userId: 'user_x',
@@ -190,6 +195,12 @@ describe('AbandonOperationService', () => {
 
     const result = await svc.finalizeAbandoned('op_done', 'inactivity_watchdog');
 
+    expect(result).toMatchObject({
+      completionReason: 'done',
+      reconciledStatus: 'completed',
+      terminal: true,
+      terminalStatus: 'completed',
+    });
     expect(result.abandoned).toBeUndefined();
     expect(recordCompletionMock).not.toHaveBeenCalled();
     expect(messageUpdateMock).not.toHaveBeenCalled();
@@ -307,35 +318,95 @@ describe('AbandonOperationService', () => {
     expect(coord.deleteAgentOperation).toHaveBeenCalledWith('op_x');
   });
 
-  it.each(['done', 'error', 'interrupted'])(
-    'skips abandoned lifecycle dispatch for terminal coordinator state %s',
-    async (status) => {
-      const coord = buildCoordinator({
-        loadAgentState: vi.fn().mockResolvedValue(stateWith({ status })),
-      });
-      const store = buildStore();
-      store.loadPartial.mockResolvedValue(null);
-      topicFindByIdMock.mockResolvedValue({
-        metadata: {
-          runningOperation: {
-            assistantMessageId: 'msg_assist_1',
-            operationId: 'op_x',
-          },
-        },
-      });
+  it('returns terminal reconciliation fields when live state is already terminal', async () => {
+    const coord = buildCoordinator({
+      loadAgentState: vi.fn().mockResolvedValue(stateWith({ status: 'done' })),
+    });
+    const store = buildStore();
+    store.loadPartial.mockResolvedValue({ steps: [{ stepIndex: 0 }], startedAt: 1 });
 
-      const svc = new AbandonOperationService({} as any, {
-        coordinator: coord as any,
-        snapshotStore: store as any,
-      });
+    const svc = new AbandonOperationService({} as any, {
+      coordinator: coord as any,
+      snapshotStore: store as any,
+    });
 
-      const result = await svc.finalizeAbandoned('op_x', 'inactivity_5m');
+    const result = await svc.finalizeAbandoned('op_done', 'inactivity_watchdog');
 
-      expect(result.found).toBe(true);
-      expect(topicUpdateMetadataMock).toHaveBeenCalledWith('tpc_x', { runningOperation: null });
-      expect(dispatchHooksMock).not.toHaveBeenCalled();
-    },
-  );
+    expect(result).toMatchObject({
+      completionReason: 'done',
+      finalized: false,
+      found: true,
+      reconciledStatus: 'completed',
+      terminal: true,
+      terminalStatus: 'completed',
+    });
+    expect(store.save).not.toHaveBeenCalled();
+    expect(messageUpdateMock).not.toHaveBeenCalled();
+    expect(coord.deleteAgentOperation).toHaveBeenCalledWith('op_done');
+  });
+
+  it('returns terminal reconciliation fields when partial snapshot already has completionReason', async () => {
+    const coord = buildCoordinator({
+      loadAgentState: vi.fn().mockResolvedValue(stateWith()),
+    });
+    const store = buildStore();
+    store.loadPartial.mockResolvedValue({
+      completionReason: 'interrupted',
+      startedAt: 1,
+      steps: [{ stepIndex: 0 }],
+    });
+
+    const svc = new AbandonOperationService({} as any, {
+      coordinator: coord as any,
+      snapshotStore: store as any,
+    });
+
+    const result = await svc.finalizeAbandoned('op_interrupted', 'inactivity_watchdog');
+
+    expect(result).toMatchObject({
+      completionReason: 'interrupted',
+      found: true,
+      reconciledStatus: 'interrupted',
+      terminal: true,
+      terminalStatus: 'interrupted',
+    });
+    expect(store.save).not.toHaveBeenCalled();
+    expect(messageUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('does not infer terminal completion from non-placeholder assistant content alone', async () => {
+    const coord = buildCoordinator({
+      loadAgentState: vi.fn().mockResolvedValue(stateWith()),
+    });
+    const store = buildStore();
+    store.loadPartial.mockResolvedValue({ startedAt: 1, steps: [{ stepIndex: 0 }] });
+    messageFindByIdMock.mockResolvedValue({
+      content: 'final answer already persisted',
+      id: 'msg_assist_1',
+      role: 'assistant',
+    });
+
+    const svc = new AbandonOperationService({} as any, {
+      coordinator: coord as any,
+      snapshotStore: store as any,
+    });
+
+    const result = await svc.finalizeAbandoned('op_answered', 'inactivity_watchdog');
+
+    expect(result).toMatchObject({
+      assistantMessageUpdated: true,
+      finalized: true,
+      found: true,
+    });
+    expect(result.terminal).toBeUndefined();
+    expect(store.save).toHaveBeenCalled();
+    expect(messageUpdateMock).toHaveBeenCalledWith('msg_assist_1', {
+      error: expect.objectContaining({
+        message: expect.stringContaining('inactivity_watchdog'),
+        type: 'AgentRuntimeError',
+      }),
+    });
+  });
 
   it('skips snapshot finalize when no partial exists but still updates message', async () => {
     const coord = buildCoordinator({
