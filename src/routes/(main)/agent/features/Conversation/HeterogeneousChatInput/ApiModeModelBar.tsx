@@ -26,6 +26,7 @@ const ApiModeModelBar = memo<ApiModeModelBarProps>(({ agentId }) => {
   // Only render in API mode. Returning null (instead of a placeholder) keeps
   // the subscription path visually unchanged.
   if (authMode !== 'api' || !heterogeneousProvider) return null;
+  if (providerIds.length === 0) return null;
 
   const persist = async (next: HeterogeneousApiConfig) => {
     await updateAgentConfigById(agentId, {
