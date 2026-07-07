@@ -1,5 +1,4 @@
 import type { AiProviderSDKType } from '@lobechat/types';
-import { pickString } from '@lobechat/utils/object';
 
 export interface BuildClaudeCodeApiEnvInput {
   /** Decrypted keyVaults for the provider */
@@ -19,7 +18,7 @@ export interface BuildClaudeCodeApiEnvResult {
 }
 
 const pickNonEmptyString = (value: unknown): string | undefined => {
-  const stringValue = pickString(value)?.trim();
+  const stringValue = typeof value === 'string' ? value.trim() : undefined;
   return stringValue || undefined;
 };
 
