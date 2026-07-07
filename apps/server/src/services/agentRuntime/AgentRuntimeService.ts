@@ -714,6 +714,13 @@ export class AgentRuntimeService {
         success: false,
       };
     }
+    let stepLockReleased = false;
+    const releaseCurrentStepLock = async () => {
+      if (stepLockReleased) return;
+
+      await this.coordinator.releaseStepLock(operationId, stepIndex);
+      stepLockReleased = true;
+    };
 
     // Hoisted so the error-path snapshot finalize can record an
     // approximate startedAt for the failing step. The inner `startAt` at the
@@ -1177,6 +1184,11 @@ export class AgentRuntimeService {
           const delay = this.calculateStepDelay(stepResult);
           const priority = this.calculatePriority(stepResult);
 
+          // Release before enqueueing the successor. QStash can deliver
+          // sub-second next-step messages before the finally block runs, which
+          // would otherwise collide with this step's lock and lose the delivery.
+          await releaseCurrentStepLock();
+
           await this.queueService.scheduleMessage({
             context: stepResult.nextContext,
             delay,
@@ -1384,7 +1396,7 @@ export class AgentRuntimeService {
       // Release lock so legitimate retries or next operations can proceed.
       // If Vercel force-kills the process, this won't execute — the lock
       // auto-expires after TTL (35s), allowing QStash retries to self-heal.
-      await this.coordinator.releaseStepLock(operationId, stepIndex);
+      await releaseCurrentStepLock();
     }
   }
 

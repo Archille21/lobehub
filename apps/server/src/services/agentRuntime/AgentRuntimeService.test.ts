@@ -521,6 +521,33 @@ describe('AgentRuntimeService', () => {
       expect(mockQueueService.scheduleMessage).toHaveBeenCalled();
     });
 
+    it('should release the current step lock before scheduling the next step', async () => {
+      const mockStepResult = {
+        newState: { ...mockState, stepCount: 2, status: 'running' },
+        nextContext: mockParams.context,
+        events: [],
+      };
+      const mockRuntime = { step: vi.fn().mockResolvedValue(mockStepResult) };
+      vi.spyOn(service as any, 'createAgentRuntime').mockReturnValue({ runtime: mockRuntime });
+      mockQueueService.scheduleMessage.mockImplementationOnce(async () => {
+        expect(mockCoordinator.releaseStepLock).toHaveBeenCalledWith('test-operation-1', 1);
+        return 'message-after-release';
+      });
+
+      await service.executeStep(mockParams);
+
+      expect(mockCoordinator.releaseStepLock).toHaveBeenCalledTimes(1);
+      expect(mockQueueService.scheduleMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operationId: 'test-operation-1',
+          stepIndex: 2,
+        }),
+      );
+      expect(mockCoordinator.releaseStepLock.mock.invocationCallOrder[0]).toBeLessThan(
+        mockQueueService.scheduleMessage.mock.invocationCallOrder[0],
+      );
+    });
+
     it('should resume async tools with the last pending tool result as parentMessageId', async () => {
       const pendingTools = [
         {
