@@ -710,11 +710,21 @@ export class StreamingExecutorActionImpl {
           }
 
           case 'human_approve_required': {
-            await notifyDesktopHumanApprovalRequired(this.#get, {
-              agentId,
-              groupId,
-              topicId,
-            });
+            await notifyDesktopHumanApprovalRequired(this.#get, context);
+            if (topicId) {
+              const statusWrite = this.#get().updateTopicStatus?.({
+                agentId,
+                groupId,
+                ...(context.scope === 'group' || context.scope === 'group_agent'
+                  ? { scope: context.scope }
+                  : {}),
+                status: 'waitingForHuman',
+                topicId,
+              });
+              void statusWrite?.catch((error) => {
+                console.error('[streamingExecutor] updateTopicStatus failed:', error);
+              });
+            }
             break;
           }
 
