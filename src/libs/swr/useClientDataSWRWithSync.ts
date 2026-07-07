@@ -9,12 +9,20 @@
  * SWR key — consumers never need to opt in per call.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { type SWRConfiguration, type SWRResponse } from 'swr';
 
 import { useClientDataSWR } from './index';
 
 type Key = string | readonly unknown[] | null | undefined;
+
+const useBrowserLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+
+const serializeSyncKey = (key: Key): string => {
+  if (key == null) return '';
+  if (Array.isArray(key)) return JSON.stringify(key);
+  return String(key);
+};
 
 interface UseClientDataSWRWithSyncOptions<T> extends SWRConfiguration<T> {
   /**
@@ -52,7 +60,8 @@ export function useClientDataSWRWithSync<T>(
   options?: UseClientDataSWRWithSyncOptions<T>,
 ): SWRResponse<T> {
   const { onData, skipSync, onSuccess, ...swrOptions } = options || {};
-  const hasSyncedRef = useRef(false);
+  const keySignature = serializeSyncKey(key);
+  const lastSyncedRef = useRef<{ data: T; key: string } | null>(null);
 
   const response = useClientDataSWR<T>(key, fetcher, {
     ...swrOptions,
@@ -62,25 +71,25 @@ export function useClientDataSWRWithSync<T>(
       // Also sync via onData
       if (onData && !skipSync) {
         onData(data);
-        hasSyncedRef.current = true;
+        lastSyncedRef.current = { data, key: keySignature };
       }
     },
   });
 
   const { data } = response;
 
-  // When cached data is available, sync to store immediately
-  useEffect(() => {
-    if (data && onData && !skipSync && !hasSyncedRef.current) {
-      onData(data);
-      hasSyncedRef.current = true;
-    }
-  }, [data, onData, skipSync]);
+  // When cached data is available, sync to store before the browser paints.
+  useBrowserLayoutEffect(() => {
+    if (data === undefined || !onData || skipSync) return;
 
-  // Reset sync state when key changes
-  useEffect(() => {
-    hasSyncedRef.current = false;
-  }, [key?.toString()]);
+    const lastSynced = lastSyncedRef.current;
+    if (lastSynced?.key === keySignature && lastSynced.data === data) {
+      return;
+    }
+
+    onData(data);
+    lastSyncedRef.current = { data, key: keySignature };
+  }, [data, keySignature, onData, skipSync]);
 
   return response;
 }
