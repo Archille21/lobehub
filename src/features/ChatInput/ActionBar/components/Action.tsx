@@ -48,6 +48,7 @@ const Action = memo<ActionProps>(
     const { actionSize, dropdownPlacement } = useActionBarContext();
     const { allowed: canUseChatInputAction, reason } = usePermission('create_content');
     const blocked = disabled || !canUseChatInputAction;
+    const popoverTrigger = trigger ?? 'click';
     const tooltipTitle = canUseChatInputAction ? title : reason;
     const iconNode = (
       <ActionIcon
@@ -88,7 +89,7 @@ const Action = memo<ActionProps>(
       return (
         <ActionDropdown
           open={show}
-          trigger={trigger}
+          trigger={popoverTrigger}
           onOpenChange={setShow}
           {...dropdown}
           minWidth={mobile ? '100%' : dropdown.minWidth}
@@ -102,7 +103,7 @@ const Action = memo<ActionProps>(
         <ActionPopover
           loading={loading}
           open={show}
-          trigger={trigger}
+          trigger={popoverTrigger}
           onOpenChange={setShow}
           {...popover}
           minWidth={mobile ? '100%' : popover.minWidth}

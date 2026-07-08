@@ -98,6 +98,10 @@ const RegularItem = memo<{ index: number; item: ToolItemData }>(({ item, index }
     setOpen(nextOpen);
   }, []);
 
+  const closePopover = useCallback(() => {
+    setOpen(false);
+  }, []);
+
   const iconNode = item.icon ? (
     isValidElement(item.icon) ? (
       item.icon
@@ -130,7 +134,10 @@ const RegularItem = memo<{ index: number; item: ToolItemData }>(({ item, index }
       open={open}
       placement={'rightTop'}
       positionerProps={{ sideOffset: 8 }}
+      popupProps={{ onPointerLeave: closePopover }}
       styles={{ content: { padding: 0 } }}
+      trigger="hover"
+      triggerProps={{ onPointerLeave: closePopover }}
       onOpenChange={handleOpenChange}
     >
       {row}
