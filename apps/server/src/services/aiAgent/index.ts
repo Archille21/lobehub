@@ -1633,7 +1633,7 @@ export class AiAgentService {
         agentConfig.agencyConfig?.heterogeneousProvider?.env?.GITHUB_CRED_KEY ?? 'github';
       try {
         // Inside a workspace, the GitHub cred must come from the workspace's shared
-        // organization credentials, not the operator's personal creds (LOBE-10978).
+        // organization credentials, not the operator's personal creds.
         const credsAccessor = this.workspaceId
           ? this.marketService.market.organizations.creds({ workspaceId: this.workspaceId })
           : this.marketService.market.creds;

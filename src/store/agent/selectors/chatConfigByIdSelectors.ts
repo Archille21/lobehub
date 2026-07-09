@@ -76,7 +76,7 @@ const getRuntimeModeById =
 
     // On web a bound `local` target only surfaces as `device` (not `sandbox`)
     // when Gateway mode is effectively enabled and can route to the device
-    // (LOBE-11473). Derive the gate from this selector's own state `s` so it
+    // (device routing gate). Derive the gate from this selector's own state `s` so it
     // re-evaluates on `disableGatewayMode` changes without a second global read.
     return resolveRuntimeMode(
       config?.agencyConfig,

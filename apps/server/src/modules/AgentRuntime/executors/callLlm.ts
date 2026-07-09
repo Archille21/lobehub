@@ -211,7 +211,7 @@ export const callLlm =
     // Seed fields for the client to insert this message into its local store.
     // The step_start uiMessages snapshot is resolved BEFORE this row exists,
     // so the client has no other way to learn about it until the next DB
-    // refetch — chunks would silently no-op against the missing id (LOBE-11501).
+    // refetch — chunks would silently no-op against the missing id.
     let assistantMessageSeed: Record<string, unknown> | undefined;
 
     if (existingAssistantMessageId) {
@@ -604,7 +604,7 @@ export const callLlm =
           try {
             const marketService = new MarketService({ userInfo: { userId: ctx.userId } });
             // Inside a workspace, the agent must only see the workspace's shared
-            // organization credentials — personal creds are not visible here (LOBE-10978).
+            // organization credentials — personal creds are not visible here.
             const credsResult = ctx.workspaceId
               ? await marketService.market.organizations
                   .creds({ workspaceId: ctx.workspaceId })

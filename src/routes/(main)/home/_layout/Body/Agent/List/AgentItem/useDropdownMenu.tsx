@@ -87,7 +87,7 @@ export const useAgentDropdownMenu = ({
 
   // Visibility actions are only meaningful inside a workspace: in personal
   // mode every row is implicitly owner-private. "Publish to Workspace"
-  // appears on private agents; the inverse "Make private" (LOBE-11551)
+  // appears on private agents; the inverse "Make private"
   // appears on published agents, but only for the creator or a workspace
   // owner, and never on builtin agents (LobeAI etc.). The server enforces
   // the same rules as a backstop.

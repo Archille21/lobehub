@@ -26,7 +26,7 @@ class ServerCredsService implements ICredsService {
 
   /**
    * Inside a workspace, reads/writes must hit the workspace's shared organization
-   * credentials, never the operator's personal creds (LOBE-10978). Falls back to
+   * credentials, never the operator's personal creds. Falls back to
    * the personal `market.creds` namespace outside a workspace.
    */
   private credsAccessor() {
@@ -113,7 +113,7 @@ class ServerCredsService implements ICredsService {
 
     // NOTE: stays on the personal `market.creds.inject` even inside a workspace.
     // The Market SDK's org-scoped creds service has no `inject`/`injectForSkill`
-    // equivalent yet (see LOBE-10978) — sandbox injection cannot be routed to the
+    // equivalent yet — sandbox injection cannot be routed to the
     // workspace's organization credentials until Market adds that endpoint.
     const result = await this.marketService.market.creds.inject({
       keys: params.keys,
