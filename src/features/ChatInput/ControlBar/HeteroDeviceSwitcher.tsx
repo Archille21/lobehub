@@ -20,7 +20,7 @@ import {
   SettingsIcon,
   SparklesIcon,
 } from 'lucide-react';
-import { memo, type ReactNode, useCallback, useState } from 'react';
+import { memo, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSelectExecutionTarget } from '@/features/ChatInput/hooks/useSelectExecutionTarget';
@@ -368,6 +368,7 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
   useElectronStore((s) => s.useFetchGatewayDeviceInfo)();
   const gatewayDeviceInfo = useElectronStore((s) => s.gatewayDeviceInfo);
   const currentDeviceId = isDesktop ? gatewayDeviceInfo?.deviceId : undefined;
+  const currentHostname = isDesktop ? gatewayDeviceInfo?.hostname : undefined;
 
   // Effective target: shared with server dispatch. In particular, a hetero
   // desktop "local" selection that carries this desktop's boundDeviceId becomes
@@ -388,6 +389,45 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
     },
     [selectExecutionTarget],
   );
+
+  // Workspace devices use a workspace-scoped deviceId (sha256(machineUUID +
+  // "workspace:<workspaceId>" + salt)) that differs from this desktop's
+  // personal `currentDeviceId`. So a workspace device that IS this machine is
+  // detected by hostname instead — the deterministic identifier both sides
+  // report. Rare hostname collisions across members (`macbook-pro.local`) are
+  // acceptable: the picker still lets the user pick explicitly, and the
+  // auto-default guard below only fires when nothing has been chosen yet.
+  const currentWorkspaceDevice =
+    isWorkspaceAgent && currentHostname
+      ? (devices ?? []).find((d) => d.scope === 'workspace' && d.hostname === currentHostname)
+      : undefined;
+
+  // Auto-default a workspace agent to THIS desktop's workspace-enrolled device
+  // when nothing has been chosen yet. Without this, workspace agents fall back
+  // to `sandbox` on desktop even though the user's own machine is a valid
+  // workspace device — the complaint in LOBE-11647.
+  //
+  // Only fires when `agencyConfig.executionTarget` and `boundDeviceId` are both
+  // unset, so an explicit prior selection (by ANY workspace member) is never
+  // overwritten. A hostname-matched, online workspace device is required.
+  useEffect(() => {
+    if (!isWorkspaceAgent) return;
+    if (!isDesktop) return;
+    if (agencyConfig?.executionTarget !== undefined) return;
+    if (agencyConfig?.boundDeviceId !== undefined) return;
+    if (!currentWorkspaceDevice?.online) return;
+    void selectExecutionTarget('device', currentWorkspaceDevice.deviceId);
+    // Intentionally exclude the full `agencyConfig` and `selectExecutionTarget`
+    // identity from the deps — react only to the concrete fields that gate the
+    // auto-default, not to unrelated agencyConfig field changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isWorkspaceAgent,
+    agencyConfig?.executionTarget,
+    agencyConfig?.boundDeviceId,
+    currentWorkspaceDevice?.deviceId,
+    currentWorkspaceDevice?.online,
+  ]);
 
   // Don't render for remote hetero agents — they use RemoteAgentConfigCard in profile.
   if (heteroType && isRemoteHeterogeneousType(heteroType)) return null;
@@ -455,22 +495,24 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
     </>
   );
 
-  const renderDeviceRow = (d: NonNullable<typeof devices>[number]) => (
-    <OptionRow
-      active={isActive('device', d.deviceId)}
-      disabled={!d.online}
-      icon={getDeviceIcon(d.platform)}
-      key={d.deviceId}
-      label={d.friendlyName || d.hostname || d.deviceId}
-      tag={d.deviceId === currentDeviceId ? t('heteroAgent.executionTarget.gateway') : undefined}
-      desc={
-        d.deviceId === currentDeviceId
-          ? t('heteroAgent.executionTarget.gatewayDesc')
-          : renderDeviceStatus(d)
-      }
-      onClick={() => void handleSelect('device', d.deviceId)}
-    />
-  );
+  const renderDeviceRow = (d: NonNullable<typeof devices>[number]) => {
+    const isCurrentMachine =
+      d.deviceId === currentDeviceId || d.deviceId === currentWorkspaceDevice?.deviceId;
+    return (
+      <OptionRow
+        active={isActive('device', d.deviceId)}
+        disabled={!d.online}
+        icon={getDeviceIcon(d.platform)}
+        key={d.deviceId}
+        label={d.friendlyName || d.hostname || d.deviceId}
+        tag={isCurrentMachine ? t('heteroAgent.executionTarget.gateway') : undefined}
+        desc={
+          isCurrentMachine ? t('heteroAgent.executionTarget.gatewayDesc') : renderDeviceStatus(d)
+        }
+        onClick={() => void handleSelect('device', d.deviceId)}
+      />
+    );
+  };
 
   const content = (
     <Flexbox gap={6} style={{ maxWidth: 320, minWidth: 280 }}>
