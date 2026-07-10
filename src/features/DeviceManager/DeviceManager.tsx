@@ -2,7 +2,7 @@
 
 import { isDesktop } from '@lobechat/const';
 import type { DeviceScope } from '@lobechat/types';
-import { Button, Checkbox, Flexbox, Icon, Skeleton, Text } from '@lobehub/ui';
+import { ActionIcon, Button, Checkbox, Flexbox, Icon, Skeleton, Text } from '@lobehub/ui';
 import { confirmModal } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar } from 'antd-style';
 import {
@@ -10,6 +10,7 @@ import {
   FolderCogIcon,
   type LucideIcon,
   MonitorDownIcon,
+  RefreshCwIcon,
   ServerIcon,
   TerminalIcon,
   Trash2Icon,
@@ -296,7 +297,7 @@ const DeviceManager = memo<DeviceManagerProps>(({ onConnect, scope }) => {
   // Devices come from an authed lambda procedure, so only query once signed in
   // (desktop always queries — it lists the local device's registered cwd).
   const isLogin = useUserStore(authSelectors.isLogin);
-  const { data, isLoading, error, mutate } = useClientDataSWR(
+  const { data, isLoading, error, mutate, isValidating } = useClientDataSWR(
     isLogin || isDesktop ? [DEVICE_LIST_SWR_KEY] : null,
     () => deviceService.listDevices(),
   );
@@ -450,17 +451,26 @@ const DeviceManager = memo<DeviceManagerProps>(({ onConnect, scope }) => {
                   : t('devices.selection.total', { count: devices.length })}
               </Text>
             </Flexbox>
-            {selectionActive && (
-              <Button
-                danger
-                icon={<Icon icon={Trash2Icon} />}
-                loading={removeMutation.isPending}
+            <Flexbox horizontal align={'center'} gap={8}>
+              {selectionActive && (
+                <Button
+                  danger
+                  icon={<Icon icon={Trash2Icon} />}
+                  loading={removeMutation.isPending}
+                  size={'small'}
+                  onClick={handleBulkRemove}
+                >
+                  {t('devices.actions.removeSelected', { count: checkedCount })}
+                </Button>
+              )}
+              <ActionIcon
+                icon={RefreshCwIcon}
+                loading={isValidating}
                 size={'small'}
-                onClick={handleBulkRemove}
-              >
-                {t('devices.actions.removeSelected', { count: checkedCount })}
-              </Button>
-            )}
+                title={t('devices.actions.refresh')}
+                onClick={() => mutate()}
+              />
+            </Flexbox>
           </Flexbox>
           <Flexbox className={styles.listScroll} gap={2} padding={4}>
             {devices.map((device) => {

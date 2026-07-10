@@ -348,6 +348,7 @@ export default {
   'creds.view.values': 'Credential Values',
   'creds.view.warning': 'These values are sensitive. Do not share them with others.',
   'devices.actions.edit': 'Edit',
+  'devices.actions.refresh': 'Refresh',
   'devices.actions.remove': 'Remove',
   'devices.actions.removeSelected': 'Remove ({{count}})',
   'devices.channel.connected': 'Connected {{time}}',

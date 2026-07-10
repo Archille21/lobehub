@@ -282,6 +282,7 @@
   "defaultAgent.model.title": "Model",
   "defaultAgent.title": "New Agent",
   "devices.actions.edit": "Edit",
+  "devices.actions.refresh": "Refresh",
   "devices.actions.remove": "Remove",
   "devices.actions.removeSelected": "Remove ({{count}})",
   "devices.capabilities.commands.desc": "Safely execute terminal commands in your environment.",

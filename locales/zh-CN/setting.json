@@ -282,6 +282,7 @@
   "defaultAgent.model.title": "模型",
   "defaultAgent.title": "新建助理",
   "devices.actions.edit": "编辑",
+  "devices.actions.refresh": "刷新",
   "devices.actions.remove": "移除",
   "devices.actions.removeSelected": "移除（{{count}}）",
   "devices.capabilities.commands.desc": "在你的环境中安全地执行终端命令。",
