@@ -304,7 +304,7 @@ export class TopicModel {
                 // display `updatedAt` above matches the client-side sort key to the server
                 // order (otherwise the two disagree and the list visibly jumps) while a
                 // rename/favorite edit still shows its real edit time. See rankTopics for
-                // the same activity-time pattern. (LOBE-11543)
+                // the same activity-time pattern.
                 sortUpdatedAt: topicActivityAt,
                 ...detailColumns,
               } as any)
@@ -374,7 +374,7 @@ export class TopicModel {
                 // display `updatedAt` above matches the client-side sort key to the server
                 // order (otherwise the two disagree and the list visibly jumps) while a
                 // rename/favorite edit still shows its real edit time. See rankTopics for
-                // the same activity-time pattern. (LOBE-11543)
+                // the same activity-time pattern.
                 sortUpdatedAt: topicActivityAt,
                 ...detailColumns,
               } as any)
@@ -440,7 +440,7 @@ export class TopicModel {
               // display `updatedAt` above matches the client-side sort key to the server
               // order (otherwise the two disagree and the list visibly jumps) while a
               // rename/favorite edit still shows its real edit time. See rankTopics for
-              // the same activity-time pattern. (LOBE-11543)
+              // the same activity-time pattern.
               sortUpdatedAt: topicActivityAt,
               ...detailColumns,
             } as any)

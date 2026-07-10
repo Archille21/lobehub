@@ -117,7 +117,7 @@ export const agentRouter = router({
     }),
 
   /**
-   * Bidirectional visibility switch (LOBE-11551). Rules:
+   * Bidirectional visibility switch. Rules:
    * - builtin agents (LobeAI etc., identified by slug) can never change
    *   visibility — the workspace copy must stay shared;
    * - only the agent's creator or a workspace owner may pull a published

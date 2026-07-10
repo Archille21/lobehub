@@ -91,7 +91,7 @@ export interface StreamChunkData {
  * uiMessages snapshot is resolved BEFORE this row is created, so the snapshot
  * never contains it — without a local insert, every stream_chunk/stream_end
  * dispatch for the step targets a missing id and is silently dropped
- * (LOBE-11501). Older servers send only `{ id }`; clients fall back to a DB
+ *. Older servers send only `{ id }`; clients fall back to a DB
  * refetch in that case.
  */
 export interface StreamStartAssistantMessage {
