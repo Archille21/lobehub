@@ -146,6 +146,7 @@ export interface MemoryExtractionNormalizedPayload {
    * - `direct` processes the extraction within the webhook request itself.
    */
   mode: 'workflow' | 'direct';
+  preferredLanguage?: string;
   sourceIds?: string[];
   sources: MemorySourceType[];
   to?: Date;
@@ -170,6 +171,13 @@ export const memoryExtractionPayloadSchema = z.object({
   identityCursor: z.coerce.number().int().nonnegative().optional(),
   layers: z.array(z.nativeEnum(LayersEnum)).optional(),
   mode: z.enum(['workflow', 'direct']).optional(),
+  preferredLanguage: z
+    .string()
+    .trim()
+    .min(1)
+    .max(32)
+    .regex(/^(?:auto|[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*)$/)
+    .optional(),
   sourceIds: z.array(z.string()).optional(),
   sources: z.array(z.string()).optional(),
   toDate: z.coerce.date().optional(),
@@ -218,6 +226,20 @@ const normalizeLayers = (layers?: string[]): LayersEnum[] => {
   return Array.from(new Set(normalized));
 };
 
+const normalizeLanguageForMemoryPrompt = (language?: string) =>
+  language === 'auto'
+    ? 'the most appropriate language inferred from the conversation and user context'
+    : language;
+
+export const resolveMemoryExtractionLanguage = (
+  preferredLanguage?: string,
+  memoryPreferredLanguage?: string,
+  responseLanguage?: string,
+) =>
+  normalizeLanguageForMemoryPrompt(
+    preferredLanguage || memoryPreferredLanguage || responseLanguage || undefined,
+  );
+
 export const normalizeMemoryExtractionPayload = (
   payload: MemoryExtractionPayloadInput,
   fallbackBaseUrl?: string,
@@ -237,6 +259,7 @@ export const normalizeMemoryExtractionPayload = (
     identityCursor: parsed.identityCursor ?? 0,
     layers: normalizeLayers(parsed.layers),
     mode: parsed.mode ?? 'workflow',
+    preferredLanguage: parsed.preferredLanguage,
     sourceIds: Array.from(new Set(parsed.sourceIds || [])).filter(Boolean),
     sources: normalizeSources(parsed.sources),
     to: parsed.toDate,
@@ -278,6 +301,7 @@ export const buildWorkflowPayloadInput = (
   identityCursor: payload.identityCursor,
   layers: payload.layers,
   mode: payload.mode,
+  preferredLanguage: payload.preferredLanguage,
   sourceIds: payload.sourceIds,
   sources: payload.sources,
   toDate: payload.to,
@@ -648,6 +672,7 @@ export interface TopicExtractionJob {
   forceTopics: boolean;
   from?: Date;
   layers: LayersEnum[];
+  preferredLanguage?: string;
   reportProgress?: boolean;
   source: MemorySourceType;
   to?: Date;
@@ -1588,7 +1613,11 @@ export class MemoryExtractionExecutor {
             aiProviderRuntimeState,
             memoryServiceConfig,
           );
-          const language = userState.settings?.general?.responseLanguage;
+          const language = resolveMemoryExtractionLanguage(
+            job.preferredLanguage,
+            userState.settings?.memory?.preferredLanguage,
+            userState.settings?.general?.responseLanguage,
+          );
 
           const runtimes = await this.getRuntime(job.userId, memoryServiceConfig, keyVaults);
 
@@ -1997,6 +2026,7 @@ export class MemoryExtractionExecutor {
             forceTopics: payload.forceTopics,
             from: payload.from,
             layers: payload.layers,
+            preferredLanguage: payload.preferredLanguage,
             source: MemorySourceType.ChatTopic,
             to: payload.to,
             topicId,
