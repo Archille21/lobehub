@@ -2,8 +2,8 @@
 
 import { type UserMemoryEffort } from '@lobechat/types';
 import { type FormGroupItemType } from '@lobehub/ui';
-import { Form, Skeleton, Tooltip } from '@lobehub/ui';
-import { Switch } from '@lobehub/ui/base-ui';
+import { Flexbox, Form, Skeleton, Tooltip } from '@lobehub/ui';
+import { Select, Switch } from '@lobehub/ui/base-ui';
 import isEqual from 'fast-deep-equal';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -13,6 +13,7 @@ import { FORM_STYLE } from '@/const/layoutTokens';
 import LevelSlider from '@/features/ModelSwitchPanel/components/ControlsForm/LevelSlider';
 import { usePermission } from '@/hooks/usePermission';
 import { useSaveState } from '@/hooks/useSaveState';
+import { localeOptions } from '@/locales/resources';
 import { useUserStore } from '@/store/user';
 import { settingsSelectors } from '@/store/user/selectors';
 
@@ -67,6 +68,34 @@ const MemorySetting = memo(() => {
         ),
         desc: t('memory.effort.desc'),
         label: t('memory.effort.title'),
+        layout: 'horizontal',
+        minWidth: undefined,
+      },
+      {
+        children: (
+          <Tooltip title={reason}>
+            <Flexbox horizontal justify={'flex-end'}>
+              <Select
+                allowClear
+                disabled={!canManageMemory}
+                placeholder={t('memory.preferredLanguage.placeholder')}
+                style={{ width: '50%' }}
+                value={memory?.preferredLanguage || undefined}
+                options={[
+                  { label: t('memory.preferredLanguage.auto'), value: 'auto' },
+                  ...localeOptions,
+                ]}
+                onChange={(value) => {
+                  if (!canManageMemory) return;
+
+                  save(() => setSettings({ memory: { preferredLanguage: value ?? '' } }));
+                }}
+              />
+            </Flexbox>
+          </Tooltip>
+        ),
+        desc: t('memory.preferredLanguage.desc'),
+        label: t('memory.preferredLanguage.title'),
         layout: 'horizontal',
         minWidth: undefined,
       },
