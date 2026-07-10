@@ -161,6 +161,7 @@ export interface MemoryExtractionControlMetadata {
 
 export interface UserMemoryExtractionMetadata {
   control?: MemoryExtractionControlMetadata;
+  preferredLanguage?: string;
   progress: UserMemoryExtractionProgress;
   range?: {
     from?: string;
