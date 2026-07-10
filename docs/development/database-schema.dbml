@@ -461,7 +461,8 @@ table ai_models {
   updated_at "timestamp with time zone" [not null, default: `now()`]
 
   indexes {
-    (id, provider_id, user_id) [pk]
+    (id, provider_id, user_id) [name: 'ai_models_id_provider_id_user_id_unique', unique]
+    (id, provider_id, user_id, workspace_id) [name: 'ai_models_id_provider_id_user_id_workspace_id_unique', unique]
     user_id [name: 'ai_models_user_id_idx']
     workspace_id [name: 'ai_models_workspace_id_idx']
   }
@@ -488,7 +489,8 @@ table ai_providers {
   updated_at "timestamp with time zone" [not null, default: `now()`]
 
   indexes {
-    (id, user_id) [pk]
+    (id, user_id) [name: 'ai_providers_id_user_id_unique', unique]
+    (id, user_id, workspace_id) [name: 'ai_providers_id_user_id_workspace_id_unique', unique]
     user_id [name: 'ai_providers_user_id_idx']
     workspace_id [name: 'ai_providers_workspace_id_idx']
   }
@@ -662,6 +664,30 @@ table chat_groups_agents {
     (chat_group_id, agent_id) [pk]
     user_id [name: 'chat_groups_agents_user_id_idx']
     workspace_id [name: 'chat_groups_agents_workspace_id_idx']
+  }
+}
+
+table chat_ttft_metrics {
+  id uuid [pk, not null, default: `gen_random_uuid()`]
+  operation_id text [not null]
+  user_id text [not null]
+  topic_id text
+  user_message_id text
+  assistant_message_id text
+  trigger text
+  is_topic_first boolean
+  model text
+  provider text
+  cold_start boolean
+  ttft_ms integer
+  spans jsonb [not null, default: `[]`]
+  created_at "timestamp with time zone" [not null, default: `now()`]
+  updated_at "timestamp with time zone" [not null, default: `now()`]
+
+  indexes {
+    operation_id [name: 'chat_ttft_metrics_operation_id_unique', unique]
+    created_at [name: 'chat_ttft_metrics_created_at_idx']
+    (user_id, created_at) [name: 'chat_ttft_metrics_user_id_created_at_idx']
   }
 }
 
