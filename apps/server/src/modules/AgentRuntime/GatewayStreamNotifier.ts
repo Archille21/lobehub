@@ -2,6 +2,7 @@ import type { ToolExecuteData } from '@lobechat/agent-gateway-client';
 import debug from 'debug';
 import urlJoin from 'url-join';
 
+import { ttftTrace } from '../TtftTrace';
 import {
   getDefaultReasonDetail,
   type StreamChunkData,
@@ -325,6 +326,7 @@ export class GatewayStreamNotifier implements IStreamEventManager {
     this.inflight++;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), POST_TIMEOUT);
+    const startAt = Date.now();
 
     try {
       const res = await fetch(urlJoin(this.gatewayUrl, path), {
@@ -336,6 +338,7 @@ export class GatewayStreamNotifier implements IStreamEventManager {
         method: 'POST',
         signal: controller.signal,
       });
+      ttftTrace.current()?.recordGatewayPush(startAt, path);
 
       if (!res.ok) {
         log('Gateway %s returned %d: %s', path, res.status, await res.text());

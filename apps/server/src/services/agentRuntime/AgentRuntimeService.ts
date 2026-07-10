@@ -50,6 +50,7 @@ import {
   type RuntimeExecutorContext,
 } from '@/server/modules/AgentRuntime/RuntimeExecutors';
 import { type IStreamEventManager } from '@/server/modules/AgentRuntime/types';
+import { ttftTrace } from '@/server/modules/TtftTrace';
 import { emitAgentSignalSourceEvent } from '@/server/services/agentSignal';
 import { toAgentSignalTraceEvents } from '@/server/services/agentSignal/observability/traceEvents';
 import { FileService } from '@/server/services/file';
@@ -843,7 +844,9 @@ export class AgentRuntimeService {
         // refresh below. With this in place the Redis-persisted state no longer
         // needs to carry the (potentially multi-MB) `messages` array, which is
         // what trips Upstash's 10MB single-request limit and drops the op.
-        await this.rehydrateStateMessagesFromDB(agentState);
+        await ttftTrace.time('rehydrate_messages', () =>
+          this.rehydrateStateMessagesFromDB(agentState),
+        );
 
         // Enrich invoke_agent span with agent identity now that state is loaded.
         const stateAgentConfig = agentState.metadata?.agentConfig as

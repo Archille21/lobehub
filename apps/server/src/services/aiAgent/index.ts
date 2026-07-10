@@ -26,6 +26,7 @@ import type {
   AgentManagementContext,
   BotPlatformContext,
   LobeToolManifest,
+  OperationSkillSet,
   ToolExecutor,
   ToolSource,
 } from '@lobechat/context-engine';
@@ -100,6 +101,7 @@ import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import type { EvalContext, ServerAgentToolsContext } from '@/server/modules/Mecha';
 import { createServerAgentToolsEngine } from '@/server/modules/Mecha';
 import type { ServerUserMemoryConfig } from '@/server/modules/Mecha/ContextEngineering/types';
+import { ttftTrace } from '@/server/modules/TtftTrace';
 import { AgentService } from '@/server/services/agent';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 import type {
@@ -1027,6 +1029,8 @@ export class AiAgentService {
 
     log('execAgent: identifier=%s, prompt=%s', identifier, prompt.slice(0, 50));
 
+    ttftTrace.begin({ db: this.db, fields: { trigger }, userId: this.userId });
+
     const operationTaskId = await this.resolveOperationTaskId(taskId ?? appContext?.taskId);
 
     const assistantMessageRef: { current?: string } = {};
@@ -1426,23 +1430,25 @@ export class AiAgentService {
           : undefined;
 
       const fallbackTitleSource = markdownToTxt(prompt);
-      const newTopic = await this.topicModel.create({
-        agentId: resolvedAgentId,
-        // Persist the group association when running inside a group conversation.
-        // Without it the topic is created group-less and only shows under the
-        // member agent's topic list — never in the group sidebar (which queries
-        // `topics.groupId`), so the conversation silently "disappears" from the
-        // group. execGroupAgent normally pre-creates the topic, but any path
-        // that reaches execAgent without a topicId (e.g. the async/queue run)
-        // must carry the groupId through too (group topic sidebar + ownership fix).
-        groupId: appContext?.groupId,
-        metadata,
-        title:
-          title !== undefined
-            ? title
-            : fallbackTitleSource.slice(0, 50) + (fallbackTitleSource.length > 50 ? '...' : ''),
-        trigger,
-      });
+      const newTopic = await ttftTrace.time('topic_create', () =>
+        this.topicModel.create({
+          agentId: resolvedAgentId,
+          // Persist the group association when running inside a group conversation.
+          // Without it the topic is created group-less and only shows under the
+          // member agent's topic list — never in the group sidebar (which queries
+          // `topics.groupId`), so the conversation silently "disappears" from the
+          // group. execGroupAgent normally pre-creates the topic, but any path
+          // that reaches execAgent without a topicId (e.g. the async/queue run)
+          // must carry the groupId through too (group topic sidebar + ownership fix).
+          groupId: appContext?.groupId,
+          metadata,
+          title:
+            title !== undefined
+              ? title
+              : fallbackTitleSource.slice(0, 50) + (fallbackTitleSource.length > 50 ? '...' : ''),
+          trigger,
+        }),
+      );
       topicId = newTopic.id;
       log(
         'execAgent: created new topic %s with trigger %s, groupId %s, cronJobId %s',
@@ -1547,20 +1553,25 @@ export class AiAgentService {
     const userMessageParentId = await resolveUserMessageParentId();
     const userMessageRecord = runFromHistory
       ? undefined
-      : await this.messageModel.create({
-          agentId: persistAgentId,
-          content: prompt,
-          files: runAttachments.fileIds,
-          // Group reads filter on messages.groupId (MessageModel.query group
-          // branch), so a group turn must stamp groupId or the message never
-          // shows when the topic is reopened (group topic sidebar + ownership fix).
-          groupId: appContext?.groupId ?? undefined,
-          metadata: requestTriggerMetadata,
-          parentId: userMessageParentId,
-          role: 'user',
-          threadId: appContext?.threadId ?? undefined,
-          topicId,
-        });
+      : await ttftTrace.time(
+          'message_persist',
+          () =>
+            this.messageModel.create({
+              agentId: persistAgentId,
+              content: prompt,
+              files: runAttachments.fileIds,
+              // Group reads filter on messages.groupId (MessageModel.query group
+              // branch), so a group turn must stamp groupId or the message never
+              // shows when the topic is reopened (group topic sidebar + ownership fix).
+              groupId: appContext?.groupId ?? undefined,
+              metadata: requestTriggerMetadata,
+              parentId: userMessageParentId,
+              role: 'user',
+              threadId: appContext?.threadId ?? undefined,
+              topicId,
+            }),
+          { meta: { role: 'user' } },
+        );
     if (userMessageRecord) {
       selfMessageIds.add(userMessageRecord.id);
       log('execAgent: created user message %s', userMessageRecord.id);
@@ -1584,25 +1595,38 @@ export class AiAgentService {
     // / `turn_metadata` (backfilled by HeterogeneousPersistenceHandler), and
     // seeding the agent's chat model would leak it into the model tag. A normal
     // run seeds model + provider as usual.
-    const assistantMessageRecord = await this.messageModel.create({
-      agentId: persistAgentId,
-      content: LOADING_FLAT,
-      // Stamp groupId so the assistant turn is visible in the group read path
-      // (MessageModel.query filters group chats by messages.groupId).
-      groupId: appContext?.groupId ?? undefined,
-      metadata: orchestrationMetadata,
-      model: isHeteroAgent ? undefined : model,
-      // Chain onto the user turn we just persisted; `parentMessageId` is the
-      // anchor only on a resume, where no user message is created.
-      parentId: userMessageRecord?.id ?? parentMessageId,
-      provider: isHeteroAgent ? heteroType : provider,
-      role: 'assistant',
-      threadId: appContext?.threadId ?? undefined,
-      topicId,
-    });
+    const assistantMessageRecord = await ttftTrace.time(
+      'message_persist',
+      () =>
+        this.messageModel.create({
+          agentId: persistAgentId,
+          content: LOADING_FLAT,
+          // Stamp groupId so the assistant turn is visible in the group read path
+          // (MessageModel.query filters group chats by messages.groupId).
+          groupId: appContext?.groupId ?? undefined,
+          metadata: orchestrationMetadata,
+          model: isHeteroAgent ? undefined : model,
+          // Chain onto the user turn we just persisted; `parentMessageId` is the
+          // anchor only on a resume, where no user message is created.
+          parentId: userMessageRecord?.id ?? parentMessageId,
+          provider: isHeteroAgent ? heteroType : provider,
+          role: 'assistant',
+          threadId: appContext?.threadId ?? undefined,
+          topicId,
+        }),
+      { meta: { role: 'assistant' } },
+    );
     selfMessageIds.add(assistantMessageRecord.id);
     assistantMessageRef.current = assistantMessageRecord.id;
     log('execAgent: created assistant message %s', assistantMessageRecord.id);
+    ttftTrace.set({
+      assistantMessageId: assistantMessageRecord.id,
+      isTopicFirst: isNewTopic,
+      model,
+      provider,
+      topicId,
+      userMessageId: userMessageRecord?.id ?? null,
+    });
 
     // Agent Signal is a governance side-channel (feedback / self-iteration). It
     // only applies to the server-side LLM pipeline, so it is intentionally NOT
@@ -2261,13 +2285,15 @@ export class AiAgentService {
       if (historyMessagesCache) return historyMessagesCache;
 
       if (existingMessageIds.length > 0) {
-        const messages = await this.messageModel.query(
-          {
-            sessionId: appContext?.sessionId,
-            threadId: appContext?.threadId,
-            topicId: appContext?.topicId ?? undefined,
-          },
-          { postProcessUrl },
+        const messages = await ttftTrace.time('history_load', () =>
+          this.messageModel.query(
+            {
+              sessionId: appContext?.sessionId,
+              threadId: appContext?.threadId,
+              topicId: appContext?.topicId ?? undefined,
+            },
+            { postProcessUrl },
+          ),
         );
         const idSet = new Set(existingMessageIds);
         historyMessagesCache = messages.filter((msg) => idSet.has(msg.id));
@@ -2276,13 +2302,15 @@ export class AiAgentService {
         // Exclude the turn we just persisted above (`selfMessageIds`) — history
         // must be the PRIOR turns only; the current prompt is appended separately
         // as the in-memory `userMessage`, so leaving it in would double-count it.
-        const messages = await this.messageModel.query(
-          {
-            sessionId: appContext?.sessionId,
-            threadId: appContext?.threadId,
-            topicId: appContext?.topicId,
-          },
-          { postProcessUrl },
+        const messages = await ttftTrace.time('history_load', () =>
+          this.messageModel.query(
+            {
+              sessionId: appContext?.sessionId,
+              threadId: appContext?.threadId,
+              topicId: appContext?.topicId,
+            },
+            { postProcessUrl },
+          ),
         );
         historyMessagesCache = messages.filter((msg) => !selfMessageIds.has(msg.id));
       } else {
@@ -2326,6 +2354,7 @@ export class AiAgentService {
       return historyMessagesCache;
     };
 
+    const toolDiscoveryStartAt = Date.now();
     if (params.disableTools) {
       log('execAgent: tools disabled by disableTools flag, skipping all tool discovery');
     } else {
@@ -2922,6 +2951,7 @@ export class AiAgentService {
         }
       }
     }
+    ttftTrace.span('tool_discovery', toolDiscoveryStartAt, Date.now());
 
     // Inject client function tools from Response API
     const CLIENT_FN_IDENTIFIER = 'lobe-client-fn';
@@ -3231,6 +3261,7 @@ export class AiAgentService {
     // 15. Generate operation ID: agt_{timestamp}_{agentId}_{topicId}_{random}
     const timestamp = Date.now();
     const operationId = `op_${timestamp}_${resolvedAgentId}_${topicId}_${nanoid(8)}`;
+    ttftTrace.current()?.setOperationId(operationId);
 
     // 16. Create initial context
     let initialContext: AgentRuntimeContext = {
@@ -3413,7 +3444,7 @@ export class AiAgentService {
     // Combines builtin skills + user DB skills + agent-document skill bundles,
     // filters by platform via enableChecker, and pairs with agent's enabled
     // plugin IDs for downstream SkillResolver consumption.
-    let operationSkillSet;
+    let operationSkillSet: OperationSkillSet | undefined;
     try {
       const builtinMetas = builtinSkills.map((s) => ({
         content: s.content,
@@ -3559,78 +3590,80 @@ export class AiAgentService {
     // Wrap in try-catch to handle operation startup failures (e.g., QStash unavailable)
     // If createOperation fails, we still have valid messages that need error info
     try {
-      const result = await this.agentRuntimeService.createOperation({
-        activeDeviceId,
-        agentConfig,
-        agentGroup: operationAgentGroup,
-        deviceSystemInfo: Object.keys(deviceSystemInfo).length > 0 ? deviceSystemInfo : undefined,
-        executionPlan,
-        userTimezone,
-        appContext: {
-          // Background self-iteration runs execute under a builtin slug (so they
-          // inherit the builtin agent's tools / systemRole / model), but their
-          // resource tools and receipts must attribute to the *reviewed* user
-          // agent, which rides on the marker. Prefer it so the tool-execution
-          // context (state.metadata.agentId) targets the reviewed agent; ordinary
-          // runs (no marker) fall back to the resolved executing agent.
-          agentId: appContext?.agentSignal?.agentId ?? resolvedAgentId,
-          // When scope === 'agent_builder', agentId stays as the builder builtin so
-          // message ownership and queryUiMessages remain correct. editingAgentId
-          // carries the actual editing target separately; only the AgentBuilder server
-          // runtime reads it, keeping the rest of the pipeline unaffected.
-          ...(appContext?.scope === 'agent_builder' && appContext?.editingAgentId
-            ? { editingAgentId: appContext.editingAgentId }
-            : {}),
-          // Run-scoped Agent Signal marker for background self-iteration / memory
-          // runs — lands in state.metadata.agentSignal so the completion path can
-          // project receipts/briefs. Undefined for ordinary chat runs.
-          ...(appContext?.agentSignal ? { agentSignal: appContext.agentSignal } : {}),
-          defaultTaskAssigneeAgentId: appContext?.defaultTaskAssigneeAgentId,
-          documentId: appContext?.documentId,
-          groupId: appContext?.groupId,
-          isSubAgent: appContext?.isSubAgent,
-          // Persist the orchestration role on state.metadata so the
-          // inactivity-watchdog abandon path can distinguish an isolated group
-          // member ('member') from a genuine callSubAgent child.
-          orchestrationRole: appContext?.orchestrationRole,
-          scope: appContext?.scope,
-          sourceMessageId: userMessageRecord?.id ?? parentMessageId ?? undefined,
-          taskId: operationTaskId,
-          threadId: appContext?.threadId,
-          topicId,
-          trigger,
-        },
-        autoStart,
-        botContext,
-        botPlatformContext,
-        deviceAccessPolicy: { canUseDevice, reason: deviceAccessReason },
-        discordContext,
-        evalContext,
-        initialContext,
-        initialMessages: allMessages,
-        initialStepCount,
-        maxSteps,
-        modelRuntimeConfig: { model, provider },
-        hooks,
-        operationId,
-        parentOperationId,
-        signal,
-        queueRetries,
-        queueRetryDelay,
-        stream,
-        toolSet: {
-          enabledToolIds: toolsResult.enabledToolIds,
-          executorMap: toolExecutorMap,
-          manifestMap: toolManifestMap,
-          sourceMap: toolSourceMap,
-          tools,
-        },
-        operationSkillSet,
-        userId: this.userId,
-        userInterventionConfig,
-        userMemory,
-        workspaceId: this.workspaceId,
-      });
+      const result = await ttftTrace.time('create_operation', () =>
+        this.agentRuntimeService.createOperation({
+          activeDeviceId,
+          agentConfig,
+          agentGroup: operationAgentGroup,
+          deviceSystemInfo: Object.keys(deviceSystemInfo).length > 0 ? deviceSystemInfo : undefined,
+          executionPlan,
+          userTimezone,
+          appContext: {
+            // Background self-iteration runs execute under a builtin slug (so they
+            // inherit the builtin agent's tools / systemRole / model), but their
+            // resource tools and receipts must attribute to the *reviewed* user
+            // agent, which rides on the marker. Prefer it so the tool-execution
+            // context (state.metadata.agentId) targets the reviewed agent; ordinary
+            // runs (no marker) fall back to the resolved executing agent.
+            agentId: appContext?.agentSignal?.agentId ?? resolvedAgentId,
+            // When scope === 'agent_builder', agentId stays as the builder builtin so
+            // message ownership and queryUiMessages remain correct. editingAgentId
+            // carries the actual editing target separately; only the AgentBuilder server
+            // runtime reads it, keeping the rest of the pipeline unaffected.
+            ...(appContext?.scope === 'agent_builder' && appContext?.editingAgentId
+              ? { editingAgentId: appContext.editingAgentId }
+              : {}),
+            // Run-scoped Agent Signal marker for background self-iteration / memory
+            // runs — lands in state.metadata.agentSignal so the completion path can
+            // project receipts/briefs. Undefined for ordinary chat runs.
+            ...(appContext?.agentSignal ? { agentSignal: appContext.agentSignal } : {}),
+            defaultTaskAssigneeAgentId: appContext?.defaultTaskAssigneeAgentId,
+            documentId: appContext?.documentId,
+            groupId: appContext?.groupId,
+            isSubAgent: appContext?.isSubAgent,
+            // Persist the orchestration role on state.metadata so the
+            // inactivity-watchdog abandon path can distinguish an isolated group
+            // member ('member') from a genuine callSubAgent child.
+            orchestrationRole: appContext?.orchestrationRole,
+            scope: appContext?.scope,
+            sourceMessageId: userMessageRecord?.id ?? parentMessageId ?? undefined,
+            taskId: operationTaskId,
+            threadId: appContext?.threadId,
+            topicId,
+            trigger,
+          },
+          autoStart,
+          botContext,
+          botPlatformContext,
+          deviceAccessPolicy: { canUseDevice, reason: deviceAccessReason },
+          discordContext,
+          evalContext,
+          initialContext,
+          initialMessages: allMessages,
+          initialStepCount,
+          maxSteps,
+          modelRuntimeConfig: { model, provider },
+          hooks,
+          operationId,
+          parentOperationId,
+          signal,
+          queueRetries,
+          queueRetryDelay,
+          stream,
+          toolSet: {
+            enabledToolIds: toolsResult.enabledToolIds,
+            executorMap: toolExecutorMap,
+            manifestMap: toolManifestMap,
+            sourceMap: toolSourceMap,
+            tools,
+          },
+          operationSkillSet,
+          userId: this.userId,
+          userInterventionConfig,
+          userMemory,
+          workspaceId: this.workspaceId,
+        }),
+      );
 
       log('execAgent: created operation %s (autoStarted: %s)', operationId, result.autoStarted);
 
@@ -3651,6 +3684,8 @@ export class AiAgentService {
       } catch {
         log('execAgent: failed to sign gateway JWT, gateway auth will be unavailable');
       }
+
+      ttftTrace.current()?.finish('server_exec_agent');
 
       return {
         agentId: resolvedAgentId,

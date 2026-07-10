@@ -32,6 +32,7 @@ import { aiChatService } from '@/services/aiChat';
 import { chatService } from '@/services/chat';
 import { resolveSelectedSkillsWithContent } from '@/services/chat/mecha/skillPreload';
 import { resolveSelectedToolsWithContent } from '@/services/chat/mecha/toolPreload';
+import { chatTtftTrace } from '@/services/chatTtftTrace';
 import { messageService } from '@/services/message';
 import { getAgentStoreState, useAgentStore } from '@/store/agent';
 import {
@@ -240,6 +241,10 @@ export class ConversationLifecycleActionImpl {
     pageSelections,
     onTopicCreated,
   }: SendMessageWithContextParams): Promise<SendMessageResult | undefined> => {
+    // TTFT trace anchor: the user-perceived start of the send. Only reported
+    // if the gateway transport later attaches a server operation id.
+    chatTtftTrace.beginSend();
+
     let editorData = inputEditorData;
     const { executeClientAgent, mainInputEditor } = this.#get();
     const { agentId } = context;

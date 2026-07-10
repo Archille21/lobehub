@@ -16,6 +16,7 @@ import type {
 import { AgentRuntimeErrorType } from '@lobechat/types';
 import { isRecord, pickNonEmptyString, toRecord } from '@lobechat/utils/object';
 
+import { chatTtftTrace } from '@/services/chatTtftTrace';
 import { messageService } from '@/services/message';
 import { emitClientAgentSignalSourceEvent } from '@/store/chat/slices/agentRun/actions/lifecycle/agentSignalBridge';
 import type {
@@ -454,6 +455,7 @@ export const createGatewayEventHandler = (
 
     switch (event.type) {
       case 'stream_start': {
+        chatTtftTrace.markFor(gatewayOperationId, 'stream_start');
         enqueue(async () => {
           const data = event.data as HeteroStreamStartData | undefined;
 
@@ -576,6 +578,7 @@ export const createGatewayEventHandler = (
           if (!data) return;
 
           if (data.chunkType === 'text' && data.content) {
+            chatTtftTrace.onFirstContent(gatewayOperationId);
             // Text after reasoning marks the end of the thinking pass — see
             // `StreamingHandler.handleText` for the same transition.
             endReasoningIfNeeded();
@@ -592,6 +595,7 @@ export const createGatewayEventHandler = (
           }
 
           if (data.chunkType === 'reasoning' && data.reasoning) {
+            chatTtftTrace.onFirstContent(gatewayOperationId);
             startReasoningIfNeeded();
             accumulatedReasoning += data.reasoning;
             hasStreamedContent = true;
@@ -705,6 +709,7 @@ export const createGatewayEventHandler = (
       }
 
       case 'step_start': {
+        chatTtftTrace.markFor(gatewayOperationId, 'step_start');
         const data = event.data as {
           pendingToolsCalling?: unknown[];
           phase?: string;

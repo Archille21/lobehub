@@ -18,6 +18,7 @@ import {
   type ResumeApprovalParam,
   type ResumeToolResultParam,
 } from '@/services/aiAgent';
+import { chatTtftTrace } from '@/services/chatTtftTrace';
 import { gatewayConnectionService } from '@/services/electron/gatewayConnection';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
@@ -176,6 +177,7 @@ export class GatewayActionImpl {
     // Disconnect existing connection for this operation if any
     this.disconnectFromGateway(operationId);
 
+    const connectStartAt = Date.now();
     const client = this.createClient({ gatewayUrl, operationId, resumeOnConnect, token });
 
     // Track connection in store
@@ -192,6 +194,8 @@ export class GatewayActionImpl {
 
     // Wire up status changes
     client.on('status_changed', (status) => {
+      if (status === 'connected')
+        chatTtftTrace.spanFor(operationId, 'gateway_connect', connectStartAt);
       this.#set(
         (state) => {
           const conn = state.gatewayConnections[operationId];
@@ -482,45 +486,48 @@ export class GatewayActionImpl {
       allowList: toolInterventionSelectors.allowList(useUserStore.getState()),
     };
 
-    const result = await aiAgentService.execAgentTask(
-      {
-        agentId: context.agentId,
-        appContext: {
-          agentDocumentId: context.agentDocumentId,
-          defaultTaskAssigneeAgentId: context.defaultTaskAssigneeAgentId,
-          documentId: context.documentId,
-          // When AgentBuilder runs, context.agentId is the builtin builder agent.
-          // The actual editing target is chatStore.activeAgentId (kept in sync by
-          // AgentBuilderProvider). Pass it so the server can route tool calls to
-          // the correct agent rather than the builder itself.
-          ...(context.scope === 'agent_builder' && {
-            editingAgentId: this.#get().activeAgentId ?? undefined,
-          }),
-          groupId: context.groupId,
-          ...(initialTopicMetadata && { initialTopicMetadata }),
-          // Forward the group orchestration role so the server can stamp it onto
-          // the assistant message metadata. Without this the gateway-created
-          // supervisor turn loses its role on the step_start snapshot / refetch
-          // and renders as a generic assistant.
-          orchestrationRole: context.orchestrationRole,
-          scope: context.scope,
-          taskId,
-          threadId: context.threadId,
-          topicId: context.topicId,
+    const result = await chatTtftTrace.time('exec_agent_rtt', () =>
+      aiAgentService.execAgentTask(
+        {
+          agentId: context.agentId,
+          appContext: {
+            agentDocumentId: context.agentDocumentId,
+            defaultTaskAssigneeAgentId: context.defaultTaskAssigneeAgentId,
+            documentId: context.documentId,
+            // When AgentBuilder runs, context.agentId is the builtin builder agent.
+            // The actual editing target is chatStore.activeAgentId (kept in sync by
+            // AgentBuilderProvider). Pass it so the server can route tool calls to
+            // the correct agent rather than the builder itself.
+            ...(context.scope === 'agent_builder' && {
+              editingAgentId: this.#get().activeAgentId ?? undefined,
+            }),
+            groupId: context.groupId,
+            ...(initialTopicMetadata && { initialTopicMetadata }),
+            // Forward the group orchestration role so the server can stamp it onto
+            // the assistant message metadata. Without this the gateway-created
+            // supervisor turn loses its role on the step_start snapshot / refetch
+            // and renders as a generic assistant.
+            orchestrationRole: context.orchestrationRole,
+            scope: context.scope,
+            taskId,
+            threadId: context.threadId,
+            topicId: context.topicId,
+          },
+          deviceId: localDeviceId,
+          fileIds,
+          mentionedAgents,
+          parentMessageId,
+          prompt: message,
+          resumeApproval,
+          resumeToolResult,
+          selectedToolIds,
+          trigger: metadata?.trigger,
+          userInterventionConfig,
         },
-        deviceId: localDeviceId,
-        fileIds,
-        mentionedAgents,
-        parentMessageId,
-        prompt: message,
-        resumeApproval,
-        resumeToolResult,
-        selectedToolIds,
-        trigger: metadata?.trigger,
-        userInterventionConfig,
-      },
-      { signal: abortSignal },
+        { signal: abortSignal },
+      ),
     );
+    chatTtftTrace.attachOperation(result.operationId);
 
     if (abortSignal?.aborted) {
       // Cancel arrived after execAgentTask resolved — server task exists.
@@ -532,6 +539,7 @@ export class GatewayActionImpl {
 
     // If server created a new topic, fetch messages first then switch topic
     // (same pattern as client mode: replaceMessages before switchTopic to avoid skeleton flash)
+    const topicSyncStartAt = Date.now();
     if (isCreateNewTopic && result.topicId) {
       // Topic created successfully — now safe to clear the pending repo selection.
       if (context.agentId) consumePendingTopicRepos(context.agentId);
@@ -561,6 +569,7 @@ export class GatewayActionImpl {
         clearNewKey: true,
         skipRefreshMessage: true,
       });
+      chatTtftTrace.span('topic_switch_sync', topicSyncStartAt);
 
       // Refresh the topic list so the new topic appears in topicDataMap (sidebar).
       // Unlike the direct-API sendMessage path (which receives topics[] in the

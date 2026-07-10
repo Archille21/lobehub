@@ -5,6 +5,7 @@ import type { Context } from 'hono';
 import { getServerDB } from '@/database/core/db-adaptor';
 import { agentOperations } from '@/database/schemas/agentOperations';
 import { AgentRuntimeCoordinator } from '@/server/modules/AgentRuntime';
+import { ttftTrace } from '@/server/modules/TtftTrace';
 import { AiAgentService } from '@/server/services/aiAgent';
 
 const log = debug('lobe-server:agent:run-step');
@@ -132,6 +133,19 @@ export async function runStep(c: Context): Promise<Response> {
     const aiAgentService = new AiAgentService(serverDB, metadata.userId, {
       workspaceId: metadata.workspaceId,
     });
+
+    // TTFT mini-trace: only the first step contributes to time-to-first-token.
+    // `body.timestamp` is stamped by the QStash publisher and anchors this
+    // writer's spans (see ttftTrace.beginRunStep).
+    if (stepIndex === 0 && typeof body.timestamp === 'number')
+      ttftTrace.beginRunStep({
+        db: serverDB,
+        operationId,
+        publishedAtMs: body.timestamp,
+        qstashMessageId: getQStashMessageId(c),
+        receivedAtMs: startTime,
+        userId: metadata.userId,
+      });
 
     const result = await aiAgentService.executeStep({
       approvedToolCall,

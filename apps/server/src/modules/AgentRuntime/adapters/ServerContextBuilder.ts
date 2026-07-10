@@ -4,6 +4,8 @@ import type {
   ContextBuildOutput,
 } from '@lobechat/agent-runtime';
 
+import { ttftTrace } from '@/server/modules/TtftTrace';
+
 import type { RuntimeExecutorContext } from '../context';
 import { buildServerCallLlmContext } from './serverCallLlmContextBuilder';
 import { resolveServerCallLlmTooling } from './serverCallLlmTooling';
@@ -17,14 +19,16 @@ export class ServerContextBuilder implements ContextBuilder {
       input.state,
       input.payload.allowedToolNames,
     );
-    const result = await buildServerCallLlmContext({
-      ctx: this.ctx,
-      llmPayload: input.payload,
-      model: input.model,
-      provider: input.provider,
-      state: input.state,
-      tooling,
-    });
+    const result = await ttftTrace.time('context_build', () =>
+      buildServerCallLlmContext({
+        ctx: this.ctx,
+        llmPayload: input.payload,
+        model: input.model,
+        provider: input.provider,
+        state: input.state,
+        tooling,
+      }),
+    );
 
     return {
       messages: result.processedMessages,

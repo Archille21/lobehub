@@ -1,6 +1,7 @@
 import debug from 'debug';
 
 import { OtelQstashClient } from '@/libs/qstash';
+import { ttftTrace } from '@/server/modules/TtftTrace';
 
 import { type HealthCheckResult, type QueueMessage, type QueueStats } from '../types';
 import { type QueueServiceImpl } from './type';
@@ -71,6 +72,9 @@ export class QStashQueueServiceImpl implements QueueServiceImpl {
         url: endpoint,
       };
       const response = await qstashClient.publishJSON(request);
+      // Span start = the body `timestamp` exactly: it doubles as the runStep
+      // TTFT writer's clock anchor (see CreateTtftTraceRecorderParams.anchorMs).
+      ttftTrace.span('qstash_publish', request.body.timestamp, Date.now(), { meta: { stepIndex } });
 
       log(
         `[${operationId}] Scheduled step %d to %s with %dms delay (messageId: %s)`,

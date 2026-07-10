@@ -2,6 +2,7 @@ import type { AgentEvent, BlobStore, LLMAttemptContentPart } from '@lobechat/age
 import type { Base64ImageData, ContentPartData } from '@lobechat/model-runtime';
 
 import { fileEnv } from '@/envs/file';
+import { ttftTrace } from '@/server/modules/TtftTrace';
 import { nanoid } from '@/utils/uuid';
 
 import type { RuntimeExecutorContext } from '../context';
@@ -147,6 +148,7 @@ export class ServerCallLlmStreamSink {
       });
 
       const publishStart = Date.now();
+      ttftTrace.current()?.onFirstContentFlush(publishStart);
       await this.streamManager.publishStreamChunk(this.operationId, this.stepIndex, {
         chunkType: 'reasoning',
         reasoning: delta,
@@ -175,6 +177,7 @@ export class ServerCallLlmStreamSink {
       });
 
       const publishStart = Date.now();
+      ttftTrace.current()?.onFirstContentFlush(publishStart);
       await this.streamManager.publishStreamChunk(this.operationId, this.stepIndex, {
         chunkType: 'text',
         content: delta,

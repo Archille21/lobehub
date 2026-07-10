@@ -14,6 +14,7 @@ import {
 } from '@lobechat/model-runtime';
 
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { ttftTrace } from '@/server/modules/TtftTrace';
 
 import type { RuntimeExecutorContext } from '../context';
 import { createServerCallLlmAttempt } from './serverCallLlmAttempt';
@@ -100,11 +101,9 @@ export class ServerLLMTransport implements LLMTransport {
   }
 
   private createModelRuntime(provider: string) {
-    return initModelRuntimeFromDB(
-      this.ctx.serverDB,
-      this.ctx.userId!,
-      provider,
-      this.ctx.workspaceId,
+    // Reads the user's keyVaults from the database; memoized per turn upstream
+    return ttftTrace.time('init_model_runtime', () =>
+      initModelRuntimeFromDB(this.ctx.serverDB, this.ctx.userId!, provider, this.ctx.workspaceId),
     );
   }
 

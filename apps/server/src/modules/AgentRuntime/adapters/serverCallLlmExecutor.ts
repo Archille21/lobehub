@@ -25,6 +25,8 @@ import {
   tracer as agentRuntimeTracer,
 } from '@lobechat/observability-otel/modules/agent-runtime';
 
+import { ttftTrace } from '@/server/modules/TtftTrace';
+
 import { type RuntimeExecutorContext } from '../context';
 import { isOperationInterrupted, log, sleep } from '../executorHelpers';
 import { formatErrorEventData } from '../formatErrorEventData';
@@ -109,7 +111,10 @@ class ServerCallLlmTurn {
       const llmStartTime = Date.now();
       let firstChunkAt: number | undefined;
       const onFirstChunk = () => {
-        if (firstChunkAt === undefined) firstChunkAt = Date.now() - llmStartTime;
+        if (firstChunkAt === undefined) {
+          firstChunkAt = Date.now() - llmStartTime;
+          ttftTrace.current()?.recordProviderFirstChunk(llmStartTime);
+        }
       };
       const chatSpan = agentRuntimeTracer.startSpan(chatSpanName(model), {
         attributes: buildChatRequestAttributes({

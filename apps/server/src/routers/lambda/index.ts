@@ -36,6 +36,7 @@ import { asrRouter } from './asr';
 import { botMessageRouter } from './botMessage';
 import { briefRouter } from './brief';
 import { changelogRouter } from './changelog';
+import { chatTtftMetricRouter } from './chatTtftMetric';
 import { chunkRouter } from './chunk';
 import { comfyuiRouter } from './comfyui';
 import { composioRouter } from './composio';
@@ -101,6 +102,7 @@ export const lambdaRouter = router({
   aiProvider: aiProviderRouter,
   apiKey: apiKeyRouter,
   asr: asrRouter,
+  chatTtftMetric: chatTtftMetricRouter,
   chunk: chunkRouter,
   comfyui: comfyuiRouter,
   config: configRouter,
