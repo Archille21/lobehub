@@ -39,6 +39,7 @@ interface FinalizeServerCallLlmResultInput {
   imageList: ChatImageItem[];
   messageModel: RuntimeExecutorContext['messageModel'];
   model: string;
+  operationId: string;
   provider: string;
   shouldReplayAssistantReasoning: boolean;
   state: AgentState;
@@ -127,6 +128,7 @@ export const finalizeServerCallLlmResult = async ({
   imageList,
   messageModel,
   model,
+  operationId,
   provider,
   shouldReplayAssistantReasoning,
   state,
@@ -147,11 +149,38 @@ export const finalizeServerCallLlmResult = async ({
     hasContentImages: streamOutput.hasContentImages,
   });
 
+  // Work display anchor: Work cards render on the FINAL assistant message of a
+  // turn (stable across the two-round tool flow), so stamp `metadata.work` only
+  // when this LLM step ends the turn — i.e. it emits no new tool calls AND at
+  // least one tool ran earlier in this operation (messages after
+  // sourceMessageId, the triggering user message). Without the prior-tool check
+  // every plain answer would get a work anchor; without the slice the scan
+  // would see other turns' tool messages.
+  const sourceMessageId = state.metadata?.sourceMessageId;
+  const sourceMessageIndex =
+    typeof sourceMessageId === 'string'
+      ? state.messages.findIndex((message) => message.id === sourceMessageId)
+      : -1;
+  const currentOperationMessages =
+    sourceMessageIndex >= 0 ? state.messages.slice(sourceMessageIndex + 1) : [];
+  const hasPriorToolInteraction = currentOperationMessages.some(
+    (message) =>
+      message.role === 'tool' ||
+      (Array.isArray(message.tool_calls) && message.tool_calls.length > 0),
+  );
+  const workAnchor =
+    toolsCalling.length === 0 && toolCalls.length === 0 && hasPriorToolInteraction
+      ? {
+          rootOperationId: operationId,
+          ...(typeof sourceMessageId === 'string' && { userMessageId: sourceMessageId }),
+        }
+      : undefined;
+
   try {
     await messageModel.update(assistantMessageId, {
       content: finalContent,
       imageList: imageList.length > 0 ? imageList : undefined,
-      metadata,
+      metadata: workAnchor ? { ...metadata, work: workAnchor } : metadata,
       reasoning: finalReasoning,
       search: grounding,
       tools: sanitizePersistedTools(toolsCalling),

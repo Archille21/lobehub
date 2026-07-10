@@ -185,6 +185,7 @@ class ServerCallLlmTurnSession implements LLMTurnSession {
         imageList,
         messageModel: ctx.messageModel,
         model,
+        operationId,
         provider,
         shouldReplayAssistantReasoning: prepared.context.replayAssistantReasoning,
         state,
