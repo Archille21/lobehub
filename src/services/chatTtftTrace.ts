@@ -18,17 +18,21 @@ interface ClientTtftSpan {
  *
  * One trace at a time: a new `beginSend` discards the previous unreported
  * trace (concurrent sends across topics are rare and the loser is dropped,
- * not corrupted). Reporting is fire-and-forget; failures only log.
+ * not corrupted — `sendToken` guards `attachOperation` against binding a
+ * stale send's operation to the newer trace). Reporting is fire-and-forget;
+ * failures only log.
  */
 class ChatTtftTraceCollector {
   private anchorMs?: number;
   private operationId?: string;
   private reported = false;
   private seenKeys = new Set<string>();
+  private sendSeq = 0;
   private spans: ClientTtftSpan[] = [];
 
   /** Anchor a new send at the Enter keypress. */
   beginSend() {
+    this.sendSeq += 1;
     this.anchorMs = Date.now();
     this.operationId = undefined;
     this.reported = false;
@@ -37,11 +41,21 @@ class ChatTtftTraceCollector {
   }
 
   /**
+   * Identifies the trace active right now. Capture it before an await and
+   * pass it to `attachOperation` so an overlapping send that reset the
+   * collector in between drops the stale attach instead of mixing traces.
+   */
+  get sendToken(): number | undefined {
+    return this.anchorMs === undefined ? undefined : this.sendSeq;
+  }
+
+  /**
    * Bind the server operation id once execAgent returns. A trace without an
    * operation (client-runtime or hetero run, failed send) is never reported.
    */
-  attachOperation(operationId: string) {
+  attachOperation(operationId: string, token?: number) {
     if (this.anchorMs === undefined || this.operationId) return;
+    if (token !== undefined && token !== this.sendSeq) return;
     this.operationId = operationId;
   }
 

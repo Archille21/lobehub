@@ -486,6 +486,10 @@ export class GatewayActionImpl {
       allowList: toolInterventionSelectors.allowList(useUserStore.getState()),
     };
 
+    // Captured before the RTT await: if an overlapping send resets the TTFT
+    // collector meanwhile, the stale token makes attachOperation a no-op
+    // instead of binding this send's operation to the newer trace.
+    const ttftSendToken = chatTtftTrace.sendToken;
     const result = await chatTtftTrace.time('exec_agent_rtt', () =>
       aiAgentService.execAgentTask(
         {
@@ -527,7 +531,7 @@ export class GatewayActionImpl {
         { signal: abortSignal },
       ),
     );
-    chatTtftTrace.attachOperation(result.operationId);
+    chatTtftTrace.attachOperation(result.operationId, ttftSendToken);
 
     if (abortSignal?.aborted) {
       // Cancel arrived after execAgentTask resolved — server task exists.
