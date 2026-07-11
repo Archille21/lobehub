@@ -1,9 +1,9 @@
 import type { ChatTtftClock } from '@/database/schemas/chatTtftMetrics';
 
 /**
- * QStash delivery lifecycle event, from `GET /v2/events?messageId=…`.
+ * QStash delivery lifecycle log entry, from `GET /v2/logs?messageId=…`.
  *
- * https://upstash.com/docs/qstash/api/events/list
+ * https://upstash.com/docs/qstash/api-reference/logs/list-logs
  */
 interface QStashEvent {
   messageId: string;
@@ -35,7 +35,7 @@ export const fetchQStashDispatchSpans = async (
   if (!token) return [];
 
   const res = await fetch(
-    `https://qstash.upstash.io/v2/events?messageId=${encodeURIComponent(messageId)}`,
+    `https://qstash.upstash.io/v2/logs?messageId=${encodeURIComponent(messageId)}`,
     {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(5000),
@@ -43,11 +43,13 @@ export const fetchQStashDispatchSpans = async (
   );
   if (!res.ok) return [];
 
-  const data = (await res.json()) as { events?: QStashEvent[] };
-  if (!Array.isArray(data.events)) return [];
+  // The endpoint was renamed events → logs; the API still returns both keys
+  // (`events` is deprecated), so accept either shape.
+  const data = (await res.json()) as { events?: QStashEvent[]; logs?: QStashEvent[] };
+  const entries = data.logs ?? data.events;
+  if (!Array.isArray(entries)) return [];
 
-  const timeOf = (state: string) =>
-    data.events!.find((e) => e.state?.toUpperCase() === state)?.time;
+  const timeOf = (state: string) => entries.find((e) => e.state?.toUpperCase() === state)?.time;
 
   const createdAt = timeOf('CREATED');
   const activeAt = timeOf('ACTIVE');

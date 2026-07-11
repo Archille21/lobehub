@@ -105,6 +105,18 @@ describe('ChatTtftMetricModel', () => {
       ]);
     });
 
+    it('keeps already-recorded scalars on retry instead of overwriting them', async () => {
+      const model = new ChatTtftMetricModel(serverDB, userId);
+
+      await model.upsert({ coldStart: true, operationId: 'op_retry', ttftMs: 2400 });
+      // QStash redelivery hits a warm instance and reports different scalars
+      await model.upsert({ coldStart: false, operationId: 'op_retry', ttftMs: 9999 });
+
+      const row = await findByOperationId('op_retry');
+      expect(row!.coldStart).toBe(true);
+      expect(row!.ttftMs).toBe(2400);
+    });
+
     it('does not let one user overwrite another user’s row for the same operationId', async () => {
       await new ChatTtftMetricModel(serverDB, userId).upsert({
         operationId: 'op_3',
