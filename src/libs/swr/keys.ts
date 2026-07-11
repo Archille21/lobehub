@@ -903,6 +903,8 @@ export const onboardingKeys = {
     'onboarding:agentHistoryTopics',
     agentId,
   ]),
+  analysisStatus: def('onboarding:analysisStatus', () => ['onboarding:analysisStatus']),
+  profile: def('onboarding:profile', () => ['onboarding:profile']),
 };
 
 // ---- agent home / profile / signal (kept off the `agent:` idb tier) -----
