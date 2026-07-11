@@ -81,6 +81,7 @@ export class TtftTraceRecorder {
   private providerFirstChunkAtMs?: number;
   private qstashEnriched = false;
   private qstashMessageId?: string;
+  private qstashReceivedAtMs?: number;
   private qstashWaitMs?: number;
 
   constructor(params: CreateTtftTraceRecorderParams) {
@@ -143,6 +144,7 @@ export class TtftTraceRecorder {
    */
   recordQStashWait(publishedAtMs: number, receivedAtMs: number) {
     this.qstashWaitMs = receivedAtMs - publishedAtMs;
+    this.qstashReceivedAtMs = receivedAtMs;
     this.span('qstash_wait', publishedAtMs, receivedAtMs, { clock: 'server-cross' });
   }
 
@@ -235,12 +237,12 @@ export class TtftTraceRecorder {
     const threshold = qstashLogsThresholdMs();
     if (this.qstashEnriched || threshold < 0) return;
     if (!this.qstashMessageId || this.qstashWaitMs === undefined) return;
-    if (this.qstashWaitMs < threshold) return;
+    if (this.qstashWaitMs < threshold || this.qstashReceivedAtMs === undefined) return;
 
     this.qstashEnriched = true;
     const messageId = this.qstashMessageId;
 
-    void fetchQStashDispatchSpans(messageId)
+    void fetchQStashDispatchSpans(messageId, this.qstashReceivedAtMs)
       .then((spans) => {
         if (spans.length === 0) return;
         for (const span of spans) this.span(span.key, span.startAtMs, span.endAtMs, span.options);

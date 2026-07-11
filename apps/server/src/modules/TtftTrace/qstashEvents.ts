@@ -22,14 +22,19 @@ export interface QStashDispatchSpan {
 /**
  * Break a slow `qstash_wait` down using QStash's own event log:
  * `qstash_queue` = CREATED → ACTIVE (waiting inside QStash, e.g. the delay
- * parameter or queue backlog) and `qstash_deliver` = ACTIVE → next-step lambda
- * accepting the request (HTTP dispatch + lambda cold boot). Timestamps come
- * from QStash's clock, so spans are tagged `server-cross`.
+ * parameter or queue backlog) and `qstash_deliver` = ACTIVE → `receivedAtMs`,
+ * the runStep handler's receipt time (HTTP dispatch + lambda cold boot).
+ * QStash's DELIVERED log entry is NOT usable as the deliver end: it is stamped
+ * only after the destination responds 2xx, and runStep responds only after the
+ * whole step executes — so ACTIVE → DELIVERED would swallow the entire step /
+ * LLM execution. Start and end sit on different clocks (QStash vs runStep
+ * lambda), hence `server-cross`.
  *
  * Best-effort: returns [] on missing token, HTTP failure, or unexpected shape.
  */
 export const fetchQStashDispatchSpans = async (
   messageId: string,
+  receivedAtMs: number,
 ): Promise<QStashDispatchSpan[]> => {
   const token = process.env.QSTASH_TOKEN;
   if (!token) return [];
@@ -53,7 +58,6 @@ export const fetchQStashDispatchSpans = async (
 
   const createdAt = timeOf('CREATED');
   const activeAt = timeOf('ACTIVE');
-  const deliveredAt = timeOf('DELIVERED');
 
   const spans: QStashDispatchSpan[] = [];
   const clock: ChatTtftClock = 'server-cross';
@@ -66,9 +70,9 @@ export const fetchQStashDispatchSpans = async (
       startAtMs: createdAt,
     });
   }
-  if (activeAt && deliveredAt) {
+  if (activeAt) {
     spans.push({
-      endAtMs: deliveredAt,
+      endAtMs: receivedAtMs,
       key: 'qstash_deliver',
       options: { clock, meta: { messageId } },
       startAtMs: activeAt,
