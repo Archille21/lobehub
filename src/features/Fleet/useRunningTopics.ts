@@ -1,3 +1,4 @@
+import { getWorkingDirEffectivePath } from '@lobechat/types';
 import { useMemo } from 'react';
 
 import { useClientDataSWR } from '@/libs/swr';
@@ -22,7 +23,12 @@ const toColumn = (topic: RunningTopic): FleetColumn | null => {
     key: fleetColumnKey(topic.agentId, topic.id),
     threadId: null,
     topicId: topic.id,
-    workingDirectory: topic.metadata?.workingDirectory ?? null,
+    // Prefer the structured config; the raw `workingDirectory` may be a malformed
+    // object (see #17050) and the board renders it with `.split('/')`.
+    workingDirectory:
+      getWorkingDirEffectivePath(
+        topic.metadata?.workingDirectoryConfig ?? topic.metadata?.workingDirectory,
+      ) ?? null,
   };
 };
 

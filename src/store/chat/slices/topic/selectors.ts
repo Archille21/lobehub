@@ -92,9 +92,8 @@ const currentTopicWorkingDirectory = (s: ChatStoreState): string | undefined => 
   if (!activeTopic) return;
 
   if (isDesktop) {
-    return (
-      getWorkingDirEffectivePath(activeTopic.metadata?.workingDirectoryConfig) ??
-      activeTopic.metadata?.workingDirectory
+    return getWorkingDirEffectivePath(
+      activeTopic.metadata?.workingDirectoryConfig ?? activeTopic.metadata?.workingDirectory,
     );
   }
 
@@ -102,8 +101,7 @@ const currentTopicWorkingDirectory = (s: ChatStoreState): string | undefined => 
   const meta = activeTopic.metadata;
   return (
     meta?.repos?.[0] ??
-    getWorkingDirEffectivePath(meta?.workingDirectoryConfig) ??
-    meta?.workingDirectory
+    getWorkingDirEffectivePath(meta?.workingDirectoryConfig ?? meta?.workingDirectory)
   );
 };
 

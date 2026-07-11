@@ -600,14 +600,19 @@ export class ConversationLifecycleActionImpl {
     // record. Non-hetero runtimes keep the effective (worktree) path.
     const resolveWorkingDirPath =
       runtimeType === 'hetero' ? getWorkingDirSourcePath : getWorkingDirEffectivePath;
+    // `workingDirectory` is typed as a string, but a malformed topic may carry a
+    // `WorkingDirConfig` object here (see #17050). Route it through the extractors
+    // so an object value yields a path instead of leaking into the cwd / config.
+    const rawWorkingDirectory = existingTopic?.metadata?.workingDirectory;
     const workingDirectory =
-      resolveWorkingDirPath(existingTopic?.metadata?.workingDirectoryConfig) ??
-      existingTopic?.metadata?.workingDirectory ??
-      agentWorkingDirectory;
+      resolveWorkingDirPath(
+        existingTopic?.metadata?.workingDirectoryConfig ?? rawWorkingDirectory,
+      ) ?? agentWorkingDirectory;
+    const rawWorkingDirectorySource = getWorkingDirSourcePath(rawWorkingDirectory);
     const workingDirectoryConfig =
       existingTopic?.metadata?.workingDirectoryConfig ??
-      (existingTopic?.metadata?.workingDirectory
-        ? { path: existingTopic.metadata.workingDirectory }
+      (rawWorkingDirectorySource
+        ? { path: rawWorkingDirectorySource }
         : agentWorkingDirectoryConfig);
     const pendingTopicRepos =
       runtimeType === 'gateway' && !operationContext.topicId && operationContext.agentId

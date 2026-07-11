@@ -1,4 +1,5 @@
 import type { ChatTopicMetadata } from '@lobechat/types';
+import { getWorkingDirEffectivePath } from '@lobechat/types';
 
 import { getHeteroSessionIdForWorkingDirectory } from '@/helpers/heteroSessionByWorkingDirectory';
 
@@ -31,7 +32,10 @@ export const resolveHeteroResume = (
   currentWorkingDirectory: string | undefined,
 ): HeteroResumeDecision => {
   const savedSessionId = metadata?.heteroSessionId;
-  const savedCwd = metadata?.workingDirectory;
+  // Tolerate a malformed object value (see #17050); keep this in sync with the
+  // caller that derives `currentWorkingDirectory` the same way, so the cwd
+  // equality check below doesn't spuriously reset the session.
+  const savedCwd = getWorkingDirEffectivePath(metadata?.workingDirectory);
   const cwd = currentWorkingDirectory ?? '';
   const scopedSessionId = getHeteroSessionIdForWorkingDirectory(metadata, cwd);
 

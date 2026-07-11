@@ -103,9 +103,11 @@ export const useCommitWorkingDirectory = (agentId: string) => {
       // agent's per-device choice so a new topic inherits it.
       if (activeTopicId) {
         const priorSessionCwd = isHetero
-          ? (getWorkingDirSourcePath(activeTopic?.metadata?.workingDirectoryConfig) ??
-            activeTopic?.metadata?.workingDirectory)
-          : activeTopic?.metadata?.workingDirectory;
+          ? getWorkingDirSourcePath(
+              activeTopic?.metadata?.workingDirectoryConfig ??
+                activeTopic?.metadata?.workingDirectory,
+            )
+          : getWorkingDirEffectivePath(activeTopic?.metadata?.workingDirectory);
         const scopedHeteroSessionId = getHeteroSessionIdForWorkingDirectory(
           activeTopic?.metadata,
           sessionCwd,
@@ -225,9 +227,11 @@ export const useCommitWorkingDirectory = (agentId: string) => {
       const priorSessionId = activeTopic?.metadata?.heteroSessionId;
       const sessionCwd = isHetero ? getWorkingDirSourcePath(normalizedEntry) : effectivePath;
       const priorSessionCwd = isHetero
-        ? (getWorkingDirSourcePath(activeTopic?.metadata?.workingDirectoryConfig) ??
-          activeTopic?.metadata?.workingDirectory)
-        : activeTopic?.metadata?.workingDirectory;
+        ? getWorkingDirSourcePath(
+            activeTopic?.metadata?.workingDirectoryConfig ??
+              activeTopic?.metadata?.workingDirectory,
+          )
+        : getWorkingDirEffectivePath(activeTopic?.metadata?.workingDirectory);
       if (priorSessionId && priorSessionCwd && priorSessionCwd !== sessionCwd) {
         confirmModal({
           cancelText: t('heteroAgent.switchCwd.cancel', { ns: 'chat' }),

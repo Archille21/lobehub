@@ -1,4 +1,4 @@
-import { type DynamicInterventionResolver } from '@lobechat/types';
+import { type DynamicInterventionResolver, getWorkingDirSourcePath } from '@lobechat/types';
 
 import { normalizePathForScope, resolvePathWithScope } from './utils/path';
 
@@ -78,7 +78,9 @@ export const createPathScopeAudit = (
     toolArgs: Record<string, any>,
     metadata?: Record<string, any>,
   ): Promise<boolean> => {
-    const workingDirectory = metadata?.workingDirectory as string | undefined;
+    // Tolerate a malformed object value (see #17050): the extractor accepts
+    // `string | WorkingDirConfig` and yields the path used for path-scope checks.
+    const workingDirectory = getWorkingDirSourcePath(metadata?.workingDirectory);
     const toolScope = toolArgs.scope as string | undefined;
 
     if (!workingDirectory) {

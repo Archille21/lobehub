@@ -5,6 +5,7 @@ import type {
   ConversationContext,
   HeterogeneousProviderConfig,
 } from '@lobechat/types';
+import { getWorkingDirEffectivePath } from '@lobechat/types';
 import { t } from 'i18next';
 import { type StateCreator } from 'zustand';
 
@@ -121,7 +122,10 @@ const runHeterogeneousFromExistingMessage = async (
     agentId,
     currentDeviceId,
   )(getAgentStoreState());
-  const workingDirectory = topic?.metadata?.workingDirectory || agentWorkingDirectory;
+  // Tolerate a malformed object value in `workingDirectory` (see #17050) by
+  // routing it through the extractor before it feeds resume + the CLI cwd.
+  const workingDirectory =
+    getWorkingDirEffectivePath(topic?.metadata?.workingDirectory) || agentWorkingDirectory;
 
   // Drops the saved sessionId when its bound cwd disagrees with the current
   // one — without this CC emits "No conversation found with session ID".

@@ -60,7 +60,7 @@ export const snapshotTopicWorkingDirGit = async (
   if (!topic) return;
 
   const currentConfig = topic.metadata?.workingDirectoryConfig;
-  const path = getWorkingDirEffectivePath(currentConfig) ?? topic.metadata?.workingDirectory;
+  const path = getWorkingDirEffectivePath(currentConfig ?? topic.metadata?.workingDirectory);
   if (!path) return;
 
   const { deviceId, isLocalDevice, targetDeviceId } = resolveTopicGitTransport(agentId);

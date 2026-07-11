@@ -816,7 +816,7 @@ export const recordWorktreeAdd = async (params: {
 
   const topic = topicSelectors.getTopicById(topicId)(state);
   const currentConfig = topic?.metadata?.workingDirectoryConfig;
-  const source = getWorkingDirSourcePath(currentConfig) ?? topic?.metadata?.workingDirectory;
+  const source = getWorkingDirSourcePath(currentConfig ?? topic?.metadata?.workingDirectory);
   if (!source) return;
 
   const worktreeInfo = await resolveWorktreeAddInfo(
@@ -848,7 +848,7 @@ export const recordGitCommandEffects = async (params: {
 
   const topic = topicSelectors.getTopicById(topicId)(state);
   const currentConfig = topic?.metadata?.workingDirectoryConfig;
-  const source = getWorkingDirSourcePath(currentConfig) ?? topic?.metadata?.workingDirectory;
+  const source = getWorkingDirSourcePath(currentConfig ?? topic?.metadata?.workingDirectory);
   if (!source) return;
 
   let nextConfig = currentConfig;
@@ -922,7 +922,7 @@ export const recordWorktreeEnter = async (params: {
 
   const topic = topicSelectors.getTopicById(topicId)(state);
   const currentConfig = topic?.metadata?.workingDirectoryConfig;
-  const source = getWorkingDirSourcePath(currentConfig) ?? topic?.metadata?.workingDirectory;
+  const source = getWorkingDirSourcePath(currentConfig ?? topic?.metadata?.workingDirectory);
 
   const worktreeInfo = parseWorktreeEnterInfo(content);
   if (!worktreeInfo || !source || worktreeInfo.path === source) return;
@@ -950,7 +950,7 @@ export const recordWorktreeExit = async (params: {
 
   const topic = topicSelectors.getTopicById(topicId)(state);
   const currentConfig = topic?.metadata?.workingDirectoryConfig;
-  const source = getWorkingDirSourcePath(currentConfig) ?? topic?.metadata?.workingDirectory;
+  const source = getWorkingDirSourcePath(currentConfig ?? topic?.metadata?.workingDirectory);
   if (!source) return;
 
   // Never in a worktree → nothing to clear, and don't materialize an empty `git`.

@@ -44,7 +44,7 @@ export const getTopicLinkedPullRequestBase = (
   const currentConfig = metadata?.workingDirectoryConfig;
   const git = currentConfig?.git;
   const branch = git?.branch;
-  const path = getWorkingDirEffectivePath(currentConfig) ?? metadata?.workingDirectory;
+  const path = getWorkingDirEffectivePath(currentConfig ?? metadata?.workingDirectory);
   const repoType =
     currentConfig?.repoType ??
     (git?.github ? 'github' : undefined) ??

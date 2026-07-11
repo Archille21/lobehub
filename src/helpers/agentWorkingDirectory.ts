@@ -59,7 +59,10 @@ export const resolveAgentWorkingDirectoryConfig = (params: {
     topicWorkingDirectoryConfig,
   } = params;
   if (topicWorkingDirectoryConfig) return topicWorkingDirectoryConfig;
-  if (topicWorkingDirectory) return { path: topicWorkingDirectory };
+  // `topicWorkingDirectory` is typed as a string, but a malformed topic may carry a
+  // `WorkingDirConfig` object (see #17050); coerce so an object yields a valid config.
+  const topicConfig = toWorkingDirConfig(topicWorkingDirectory);
+  if (topicConfig) return topicConfig;
 
   const targetDeviceId = resolveTargetDeviceId(agencyConfig, currentDeviceId);
   const agentChoice = toWorkingDirConfig(

@@ -18,6 +18,20 @@ describe('resolveDeviceWorkingDirectory', () => {
     ).toBe('/topic');
   });
 
+  it('tolerates a malformed object value in topicWorkingDirectory (#17050)', () => {
+    expect(
+      resolveDeviceWorkingDirectory({
+        // A corrupt topic persisted a WorkingDirConfig object into the string field.
+        topicWorkingDirectory: { path: '/repo', repoType: 'git' } as unknown as string,
+      }),
+    ).toBe('/repo');
+    expect(
+      resolveDeviceWorkingDirectoryConfig({
+        topicWorkingDirectory: { path: '/repo', repoType: 'git' } as unknown as string,
+      }),
+    ).toEqual({ path: '/repo', repoType: 'git' });
+  });
+
   it('falls back to the brand-new-topic initial metadata when no topic override', () => {
     expect(
       resolveDeviceWorkingDirectory({

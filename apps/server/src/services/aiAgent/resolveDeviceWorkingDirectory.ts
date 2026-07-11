@@ -37,9 +37,14 @@ export const resolveDeviceWorkingDirectoryConfig = (params: {
   workingDirByDevice?: Record<string, WorkingDirConfigValue> | null;
 }): WorkingDirConfig | undefined => {
   if (params.topicWorkingDirectoryConfig) return params.topicWorkingDirectoryConfig;
-  if (params.topicWorkingDirectory) return { path: params.topicWorkingDirectory };
+  // `topicWorkingDirectory` / `initialWorkingDirectory` are typed as strings, but a
+  // malformed topic may carry a `WorkingDirConfig` object (see #17050). Coerce via
+  // `toWorkingDirConfig` so an object yields a valid config instead of `{ path: {…} }`.
+  const topicConfig = toWorkingDirConfig(params.topicWorkingDirectory);
+  if (topicConfig) return topicConfig;
   if (params.initialWorkingDirectoryConfig) return params.initialWorkingDirectoryConfig;
-  if (params.initialWorkingDirectory) return { path: params.initialWorkingDirectory };
+  const initialConfig = toWorkingDirConfig(params.initialWorkingDirectory);
+  if (initialConfig) return initialConfig;
 
   const agentChoice = toWorkingDirConfig(
     params.deviceId ? params.workingDirByDevice?.[params.deviceId] : undefined,
