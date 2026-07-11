@@ -2654,7 +2654,7 @@ export class MessageModel {
    * persist the new turn with `parentId: undefined` — a second root that forks
    * the conversation tree. The renderer walks that forest depth-first, so an
    * earlier root's long-running subtree gets emitted before a later root and the
-   * newest reply surfaces ABOVE older messages (LOBE-11489).
+   * newest reply surfaces ABOVE older messages .
    *
    * `role:'tool'` stays excluded: tool results are inline children of their
    * assistant turn, and anchoring a normal turn onto one orphans it under the

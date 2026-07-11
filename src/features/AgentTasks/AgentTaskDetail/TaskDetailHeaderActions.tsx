@@ -152,7 +152,7 @@ const TaskDetailHeaderActions = memo(() => {
           }
         : null;
 
-    // Inverse transition (LOBE-11551): only the task creator or a workspace
+    // Inverse transition ) only the task creator or a workspace
     // owner can pull a published task back to private; other members don't see
     // the entry at all (the server enforces the same rule as a backstop).
     const canMakePrivate =

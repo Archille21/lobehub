@@ -350,7 +350,7 @@ describe('TaskLifecycleService.onTopicComplete', () => {
       expect(updateStatus).toHaveBeenCalledWith('task-1', 'paused', { error: 'boom' });
     });
 
-    it('LOBE-11388: manual run of a schedule task fails → restored to scheduled, NOT paused', async () => {
+    it('manual run of a schedule task fails → restored to scheduled, NOT paused', async () => {
       const task = baseTask({ automationMode: 'schedule', status: 'running' });
       findById.mockResolvedValue(task);
 
@@ -375,7 +375,7 @@ describe('TaskLifecycleService.onTopicComplete', () => {
       );
     });
 
-    it('LOBE-11388: undefined runTrigger defaults to manual (backward compat)', async () => {
+    it('undefined runTrigger defaults to manual (backward compat)', async () => {
       const task = baseTask({ automationMode: 'schedule' });
       findById.mockResolvedValue(task);
 
@@ -392,7 +392,7 @@ describe('TaskLifecycleService.onTopicComplete', () => {
       expect(updateStatus).toHaveBeenCalledWith('task-1', 'scheduled', { error: 'boom' });
     });
 
-    it('LOBE-11389: scheduled run fails below fuse → stays scheduled + increments failures', async () => {
+    it('scheduled run fails below fuse → stays scheduled + increments failures', async () => {
       const task = baseTask({
         automationMode: 'schedule',
         context: { scheduler: { consecutiveFailures: 1 } } as any,
@@ -418,7 +418,7 @@ describe('TaskLifecycleService.onTopicComplete', () => {
       );
     });
 
-    it('LOBE-11389: scheduled run fails AT fuse → pauses for human attention', async () => {
+    it('scheduled run fails AT fuse → pauses for human attention', async () => {
       const task = baseTask({
         automationMode: 'schedule',
         context: { scheduler: { consecutiveFailures: 2 } } as any,
@@ -437,7 +437,7 @@ describe('TaskLifecycleService.onTopicComplete', () => {
 
       // 2 prior + this one = 3 = fuse → pause.
       expect(updateStatus).toHaveBeenCalledWith('task-1', 'paused', { error: 'boom' });
-      // Audit trail records the pause reason durably (LOBE-11390).
+      // Audit trail records the pause reason durably.
       expect(updateContext).toHaveBeenCalledWith(
         'task-1',
         expect.objectContaining({
@@ -447,7 +447,7 @@ describe('TaskLifecycleService.onTopicComplete', () => {
       );
     });
 
-    it('LOBE-11390: every error appends to the durable lifecycle audit trail', async () => {
+    it('every error appends to the durable lifecycle audit trail', async () => {
       const task = baseTask({
         automationMode: 'schedule',
         context: { lifecycle: { errorCount: 4 } } as any,
@@ -495,7 +495,7 @@ describe('TaskLifecycleService.onTopicComplete', () => {
     });
   });
 
-  describe('reason=done recovery audit (LOBE-11390)', () => {
+  describe('reason=done recovery audit', () => {
     it('successful automation tick after an error stamps lastRecoveredAt + resets fuse', async () => {
       const task = baseTask({
         automationMode: 'schedule',

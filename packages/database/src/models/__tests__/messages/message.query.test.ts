@@ -3194,7 +3194,7 @@ describe('MessageModel Query Tests', () => {
 
   // Fallback anchor used when `getLatestSpineMessageId` comes back empty. Without
   // it a new user turn is persisted as a second root and the renderer emits the
-  // newest reply above older messages (LOBE-11489).
+  // newest reply above older messages .
   describe('getLatestNonToolMessageId', () => {
     it('returns a toolless signal turn that the spine query skips', async () => {
       await serverDB.insert(sessions).values([{ id: 'session1', userId }]);

@@ -1521,7 +1521,7 @@ export class AiAgentService {
     // undefined for a topic that already has messages: `parentId: undefined`
     // persists a second ROOT, and the renderer walks the parentId forest
     // depth-first — an earlier root's still-growing subtree is emitted before a
-    // later root, so the newest reply lands ABOVE older messages (LOBE-11489).
+    // later root, so the newest reply lands ABOVE older messages .
     //
     // `getLatestSpineMessageId` skips tool rows and toolless signal turns, so it
     // can come back empty on a topic built entirely from signal callbacks; fall
@@ -1710,7 +1710,7 @@ export class AiAgentService {
         agentConfig.agencyConfig?.heterogeneousProvider?.env?.GITHUB_CRED_KEY ?? 'github';
       try {
         // Inside a workspace, the GitHub cred must come from the workspace's shared
-        // organization credentials, not the operator's personal creds (LOBE-10978).
+        // organization credentials, not the operator's personal creds .
         const credsAccessor = this.workspaceId
           ? this.marketService.market.organizations.creds({ workspaceId: this.workspaceId })
           : this.marketService.market.creds;

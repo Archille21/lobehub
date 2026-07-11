@@ -257,7 +257,7 @@ export class TaskModel {
 
   /**
    * Move a task and its full subtree to a new visibility (both directions —
-   * LOBE-11551 added the `public → private` demotion; the router gates who
+   * added the `public → private` demotion; the router gates who
    * may call it).
    *
    * Cascades inside a single transaction:
