@@ -224,4 +224,18 @@ describe('ttftTrace ambient context', () => {
     expect(persisted[0].trigger).toBe('sendMessage');
     expect(persisted[0].spans?.map((s) => s.key)).toEqual(['history_load', 'tool_discovery']);
   });
+
+  it('isolate() hides the bound recorder from nested runs and restores it after', async () => {
+    const recorder = ttftTrace.begin({ db: fakeDb, userId: 'user-1' })!;
+
+    const seenInside = ttftTrace.isolate(() => ttftTrace.current());
+    const boundInside = await ttftTrace.isolate(async () => {
+      const child = ttftTrace.begin({ db: fakeDb, operationId: 'op_child', userId: 'user-1' });
+      return ttftTrace.current() === child;
+    });
+
+    expect(seenInside).toBeUndefined();
+    expect(boundInside).toBe(true);
+    expect(ttftTrace.current()).toBe(recorder);
+  });
 });

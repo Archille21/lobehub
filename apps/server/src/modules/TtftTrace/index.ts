@@ -306,6 +306,17 @@ export const ttftTrace = {
 
   current: () => storage.getStore(),
 
+  /**
+   * Run `fn` with no ambient recorder bound. Nested agent runs delegated from
+   * a running step (sub-agents, group members) re-enter execAgent inside the
+   * parent's async context — without isolation their `begin()` would clobber
+   * the parent's in-flight recorder and their spans/operationId would rewrite
+   * the parent's trace. The parent recorder is restored once `fn` returns.
+   */
+  isolate<T>(fn: () => T): T {
+    return storage.run(undefined as unknown as TtftTraceRecorder, fn);
+  },
+
   mark(key: string, atMs?: number, options?: SpanOptions) {
     storage.getStore()?.mark(key, atMs, options);
   },

@@ -1,6 +1,8 @@
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { ChatTtftMetricModel } from '@/database/models/chatTtftMetric';
+import { agentOperations } from '@/database/schemas';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { ttftTraceEnabled } from '@/server/modules/TtftTrace';
@@ -43,6 +45,18 @@ export const chatTtftMetricRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       if (!ttftTraceEnabled()) return { ok: true as const };
+
+      // Browser-reachable writer: accept the report only for an operation this
+      // user actually ran (the operation row exists before the client ever
+      // learns its id), so arbitrary operationIds can't seed junk rows.
+      const operation = await ctx.serverDB.query.agentOperations.findFirst({
+        columns: { id: true },
+        where: and(
+          eq(agentOperations.id, input.operationId),
+          eq(agentOperations.userId, ctx.userId),
+        ),
+      });
+      if (!operation) return { ok: true as const };
 
       await ctx.chatTtftMetricModel.upsert({
         operationId: input.operationId,

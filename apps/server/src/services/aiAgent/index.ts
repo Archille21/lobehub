@@ -512,10 +512,12 @@ export class AiAgentService {
       // capabilities the runtime calls into go in this `delegate` object.
       //
       // Arrow fields are auto-bound, so no `.bind(this)`.
+      // Delegated runs re-enter execAgent inside the parent step's async
+      // context — ttftTrace.isolate keeps them off the parent's TTFT recorder.
       delegate: {
-        execSubAgent: this.execSubAgent,
-        execVirtualSubAgent: this.execVirtualSubAgent,
-        execGroupMember: this.execGroupMember,
+        execSubAgent: (params) => ttftTrace.isolate(() => this.execSubAgent(params)),
+        execVirtualSubAgent: (params) => ttftTrace.isolate(() => this.execVirtualSubAgent(params)),
+        execGroupMember: (params) => ttftTrace.isolate(() => this.execGroupMember(params)),
       },
       workspaceId: wsId,
     });
