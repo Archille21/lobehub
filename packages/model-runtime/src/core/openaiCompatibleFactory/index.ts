@@ -121,8 +121,7 @@ type ChatCompletionCreateParamsWithPromptCacheKey = Omit<
   Pick<GenerateObjectPayload, 'reasoning_effort'>;
 type GenerateObjectReasoningParams = Pick<GenerateObjectPayload, 'reasoning_effort' | 'thinking'>;
 type ResponseCreateParamsWithPromptCacheKey = (
-  | OpenAI.Responses.ResponseCreateParamsStreaming
-  | OpenAI.Responses.ResponseCreateParams
+  OpenAI.Responses.ResponseCreateParamsStreaming | OpenAI.Responses.ResponseCreateParams
 ) &
   OpenAIExtraParams;
 // Exclude openai's own `provider` (added in openai SDK 6.45.0 as `provider?: Provider`
@@ -694,9 +693,12 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           const {
             apiMode: _,
             preserveThinking: _pt,
-            thinking: _thinking,
-            ...cleanedPayload
+            ...payloadWithoutInternalFields
           } = postPayload as any;
+          const { thinking: _thinking, ...payloadWithoutThinking } = payloadWithoutInternalFields;
+          const cleanedPayload = chatCompletion?.handlePayload
+            ? payloadWithoutInternalFields
+            : payloadWithoutThinking;
           const finalPayload = {
             ...cleanedPayload,
             messages,
@@ -979,8 +981,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       // Structural type keeps this compatible across openai SDK majors (v6
       // widened tool_calls to a function/custom union).
       const toolCalls = res.choices[0].message.tool_calls as
-        | { function?: { arguments: string; name: string } }[]
-        | undefined;
+        { function?: { arguments: string; name: string } }[] | undefined;
       const toolCall =
         toolCalls?.find((item) => item.function?.name === tool.function.name) ?? toolCalls?.[0];
 
