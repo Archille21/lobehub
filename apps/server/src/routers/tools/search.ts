@@ -1,20 +1,30 @@
-import type { LobeChatDatabase } from '@lobechat/database';
 import { z } from 'zod';
 
+import { getServerDB } from '@/database/core/db-adaptor';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
-import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { SearchService } from '@/server/services/search';
 import { getUserWebBrowsingConfig } from '@/server/services/search/userChannels';
 
-const searchProcedure = authedProcedure.use(serverDatabase);
+const searchProcedure = authedProcedure;
 
 /**
  * Build a per-request search service seeded with the caller's ordered channel
- * preferences (search providers / crawler impls). Reading preferences degrades
- * to the server default order on failure, so it never blocks the actual query.
+ * preferences (search providers / crawler impls).
+ *
+ * The per-user preference read is optional: deployments (or local/dev mode)
+ * with search/crawler env but no server database must keep web search usable.
+ * `getServerDB()` throws when `KEY_VAULTS_SECRET` / `DATABASE_URL` are unset, so
+ * we guard it here — a missing or failing database degrades to the server
+ * default channel order rather than making the whole search path DB-required.
  */
-const createUserSearchService = async (ctx: { serverDB: LobeChatDatabase; userId: string }) => {
-  const userChannels = await getUserWebBrowsingConfig(ctx.serverDB, ctx.userId);
+const createUserSearchService = async (userId: string) => {
+  let userChannels;
+  try {
+    const serverDB = await getServerDB();
+    userChannels = await getUserWebBrowsingConfig(serverDB, userId);
+  } catch {
+    // No server database configured — fall back to the server default order.
+  }
   return new SearchService({ userChannels });
 };
 
@@ -30,16 +40,16 @@ export const searchRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const searchService = await createUserSearchService(ctx);
+      const searchService = await createUserSearchService(ctx.userId);
       return searchService.crawlPages(input);
     }),
 
   /**
    * Server-enabled search providers / crawler impls in env default order, so
-   * the client can render a channel-ordering picker. This only reads env config,
-   * so it skips the `serverDatabase` middleware the other procedures need.
+   * the client can render a channel-ordering picker. This only reads env config
+   * and never touches the database.
    */
-  getAvailableChannels: authedProcedure.query(() => SearchService.getAvailableChannels()),
+  getAvailableChannels: searchProcedure.query(() => SearchService.getAvailableChannels()),
 
   query: searchProcedure
     .input(
@@ -55,7 +65,7 @@ export const searchRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const searchService = await createUserSearchService(ctx);
+      const searchService = await createUserSearchService(ctx.userId);
       return await searchService.query(input.query, input.optionalParams);
     }),
 
@@ -69,7 +79,7 @@ export const searchRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
-      const searchService = await createUserSearchService(ctx);
+      const searchService = await createUserSearchService(ctx.userId);
       return await searchService.webSearch(input);
     }),
 });
