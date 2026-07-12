@@ -26,10 +26,10 @@ export const confirmRemoveTopic = (onConfirm: (removeFiles: boolean) => Promise<
       />
     ),
     okButtonProps: { danger: true },
-    okText: t('delete', { ns: 'common' }),
+    okText: t('actions.removeTopic', { ns: 'topic' }),
     onOk: async () => {
       await onConfirm(state.removeFiles);
     },
-    title: t('delete', { ns: 'common' }),
+    title: t('actions.confirmRemoveTopicTitle', { ns: 'topic' }),
   });
 };
