@@ -293,11 +293,15 @@ export const useChatItemContextMenu = ({
             resendThreadMessage(id);
           } else if (role === 'assistant') {
             regenerateAssistantMessage(id);
+            // Only an errored ASSISTANT may be dropped here: the retry re-anchors on its
+            // parent user turn, so the pending insert keeps a live `parent_id`. Deleting a
+            // USER turn instead would race the regenerate that anchors on it — the new
+            // assistant fails its FK, never lands, and the entire turn disappears.
+            if (item.error) deleteMessage(id);
           } else {
             regenerateUserMessage(id);
           }
 
-          if (item.error) deleteMessage(id);
           break;
         }
         case 'delAndRegenerate': {
