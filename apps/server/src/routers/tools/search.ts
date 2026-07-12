@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { getServerDB } from '@/database/core/db-adaptor';
 import { authedProcedure, router } from '@/libs/trpc/lambda';
 import { SearchService } from '@/server/services/search';
-import { getUserWebBrowsingConfig } from '@/server/services/search/userChannels';
+import { getUserChannelPreferences } from '@/server/services/search/userChannels';
 
 const searchProcedure = authedProcedure;
 
@@ -21,7 +21,7 @@ const createUserSearchService = async (userId: string) => {
   let userChannels;
   try {
     const serverDB = await getServerDB();
-    userChannels = await getUserWebBrowsingConfig(serverDB, userId);
+    userChannels = await getUserChannelPreferences(serverDB, userId);
   } catch {
     // No server database configured — fall back to the server default order.
   }
