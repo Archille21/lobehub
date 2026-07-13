@@ -17,8 +17,8 @@ import { DEFAULT_MODEL_PROVIDER_LIST } from 'model-bank/modelProviders';
 import { type ReactNode } from 'react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router';
 
+import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { usePermission } from '@/hooks/usePermission';
 import { lambdaQuery } from '@/libs/trpc/client';
 import { useAgentStore } from '@/store/agent';
@@ -148,7 +148,8 @@ const OAuthDeviceFlowAuth = memo<OAuthDeviceFlowAuthProps>(
     const [isStartingChat, setIsStartingChat] = useState(false);
     const hasAutoClosedRef = useRef(false);
 
-    const navigate = useNavigate();
+    // Keep the post-OAuth handoff inside the active workspace.
+    const navigate = useWorkspaceAwareNavigate();
     const inboxAgentId = useAgentStore(builtinAgentSelectors.inboxAgentId);
     const [toggleProviderEnabled, isProviderEnabled] = useAiInfraStore((s) => [
       s.toggleProviderEnabled,
@@ -191,7 +192,7 @@ const OAuthDeviceFlowAuth = memo<OAuthDeviceFlowAuthProps>(
         // OAuth success only stores tokens — the provider must also be enabled
         // before it shows up in the chat model picker.
         if (!isProviderEnabled && canManageProvider) {
-          await toggleProviderEnabled(providerId as any, true);
+          await toggleProviderEnabled(providerId, true);
         }
 
         // Model priority: the provider's default check model when the user

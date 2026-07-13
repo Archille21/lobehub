@@ -1,7 +1,6 @@
 'use client';
 
 import { Flexbox } from '@lobehub/ui';
-import { DEFAULT_MODEL_PROVIDER_LIST } from 'model-bank/modelProviders';
 import { memo } from 'react';
 import { Outlet, useParams } from 'react-router';
 
@@ -11,6 +10,7 @@ import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwar
 import DesktopLayoutContainer from './_layout/Desktop/Container';
 import Footer from './(list)/Footer';
 import ProviderDetailPageComponent from './detail';
+import { shouldShowProviderFooter } from './features/providerSettings';
 import ProviderMenu from './ProviderMenu';
 
 // Layout component that wraps provider pages with navigation
@@ -20,9 +20,6 @@ export const ProviderLayout = memo(() => {
 
   // Subscription OAuth providers source models from the user's own account —
   // the "more providers coming" footer reads as a model roadmap there.
-  const isOAuthProvider =
-    DEFAULT_MODEL_PROVIDER_LIST.find((p) => p.id === providerId)?.settings?.authType ===
-    'oauthDeviceFlow';
 
   const handleProviderSelect = (providerKey: string) => {
     navigate(`/settings/provider/${providerKey}`);
@@ -39,7 +36,7 @@ export const ProviderLayout = memo(() => {
       <ProviderMenu mobile={false} onProviderSelect={handleProviderSelect} />
       <DesktopLayoutContainer>
         <Outlet />
-        {!isCustomBranding && !isOAuthProvider && <Footer />}
+        {shouldShowProviderFooter({ isCustomBranding, providerId }) && <Footer />}
       </DesktopLayoutContainer>
     </Flexbox>
   );

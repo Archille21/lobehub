@@ -3,7 +3,7 @@ import { Button, confirmModal } from '@lobehub/ui/base-ui';
 import { App } from 'antd';
 import { cssVar } from 'antd-style';
 import { CircleX, EllipsisVertical, LucideRefreshCcwDot, PlusIcon } from 'lucide-react';
-import { DEFAULT_MODEL_PROVIDER_LIST } from 'model-bank/modelProviders';
+import { isProviderOAuthDeviceFlow } from 'model-bank/modelProviders';
 import { memo, use, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -32,9 +32,7 @@ const ModelTitle = memo<ModelFetcherProps>(
     // Remote fetch needs the OAuth token, so gate it on connection state.
     // Same query key as OAuthDeviceFlowAuth — deduped by react-query and
     // invalidated on connect, so the button unlocks right after authorizing.
-    const isOAuthProvider =
-      DEFAULT_MODEL_PROVIDER_LIST.find((p) => p.id === provider)?.settings?.authType ===
-      'oauthDeviceFlow';
+    const isOAuthProvider = isProviderOAuthDeviceFlow(provider);
     const { data: oauthStatus } = lambdaQuery.oauthDeviceFlow.getAuthStatus.useQuery(
       { providerId: provider },
       { enabled: isOAuthProvider },
