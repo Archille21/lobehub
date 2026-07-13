@@ -6,13 +6,24 @@ import { CopyButton, Flexbox, Icon } from '@lobehub/ui';
 import { Button, confirmModal } from '@lobehub/ui/base-ui';
 import { Avatar, Typography } from 'antd';
 import { createStaticStyles, cssVar } from 'antd-style';
-import { ExternalLinkIcon, Loader2Icon, LogOutIcon, UnplugIcon } from 'lucide-react';
+import {
+  ExternalLinkIcon,
+  Loader2Icon,
+  LogOutIcon,
+  MessageSquareIcon,
+  UnplugIcon,
+} from 'lucide-react';
+import { DEFAULT_MODEL_PROVIDER_LIST } from 'model-bank/modelProviders';
 import { type ReactNode } from 'react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router';
 
 import { usePermission } from '@/hooks/usePermission';
 import { lambdaQuery } from '@/libs/trpc/client';
+import { useAgentStore } from '@/store/agent';
+import { builtinAgentSelectors } from '@/store/agent/selectors/builtinAgentSelectors';
+import { aiModelSelectors, aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
 
 import { useOAuthDeviceFlow } from './useOAuthDeviceFlow';
 
@@ -134,7 +145,15 @@ const OAuthDeviceFlowAuth = memo<OAuthDeviceFlowAuthProps>(
     const { t } = useTranslation('modelProvider');
     const { allowed: canManageProvider } = usePermission('manage_provider_key');
     const [isAuthenticating, setIsAuthenticating] = useState(false);
+    const [isStartingChat, setIsStartingChat] = useState(false);
     const hasAutoClosedRef = useRef(false);
+
+    const navigate = useNavigate();
+    const inboxAgentId = useAgentStore(builtinAgentSelectors.inboxAgentId);
+    const [toggleProviderEnabled, isProviderEnabled] = useAiInfraStore((s) => [
+      s.toggleProviderEnabled,
+      aiProviderSelectors.isProviderEnabled(providerId)(s),
+    ]);
 
     const utils = lambdaQuery.useUtils();
 
@@ -165,6 +184,49 @@ const OAuthDeviceFlowAuth = memo<OAuthDeviceFlowAuthProps>(
       onSuccess: handleSuccess,
       providerId,
     });
+
+    const handleStartChat = useCallback(async () => {
+      setIsStartingChat(true);
+      try {
+        // OAuth success only stores tokens — the provider must also be enabled
+        // before it shows up in the chat model picker.
+        if (!isProviderEnabled && canManageProvider) {
+          await toggleProviderEnabled(providerId as any, true);
+        }
+
+        // Model priority: the provider's default check model when the user
+        // has it enabled → first enabled chat model → check model as a last
+        // resort (enablement only affects the picker, not whether requests
+        // work). With none of these, skip presetting and let the user pick.
+        const checkModel = DEFAULT_MODEL_PROVIDER_LIST.find((p) => p.id === providerId)?.checkModel;
+        const enabledChatModels = aiModelSelectors
+          .enabledAiProviderModelList(useAiInfraStore.getState())
+          .filter((m) => m.type === 'chat');
+        const targetModel =
+          checkModel && enabledChatModels.some((m) => m.id === checkModel)
+            ? checkModel
+            : (enabledChatModels[0]?.id ?? checkModel);
+
+        if (inboxAgentId && targetModel) {
+          await useAgentStore
+            .getState()
+            .updateAgentConfigById(inboxAgentId, { model: targetModel, provider: providerId });
+        }
+      } catch {
+        // Presetting is best-effort — still take the user to chat
+      } finally {
+        setIsStartingChat(false);
+      }
+
+      navigate(inboxAgentId ? `/agent/${inboxAgentId}` : '/');
+    }, [
+      canManageProvider,
+      inboxAgentId,
+      isProviderEnabled,
+      navigate,
+      providerId,
+      toggleProviderEnabled,
+    ]);
 
     const handleDisconnect = useCallback(() => {
       if (!canManageProvider) return;
@@ -238,14 +300,25 @@ const OAuthDeviceFlowAuth = memo<OAuthDeviceFlowAuthProps>(
                 </div>
               </div>
             </Flexbox>
-            <Button
-              disabled={!canManageProvider}
-              icon={<Icon icon={LogOutIcon} />}
-              loading={revokeAuth.isPending}
-              onClick={handleDisconnect}
-            >
-              {t('providerModels.config.oauth.disconnect')}
-            </Button>
+            <Flexbox align={'center'} gap={12}>
+              <Button
+                icon={<Icon icon={MessageSquareIcon} />}
+                loading={isStartingChat}
+                size="large"
+                type="primary"
+                onClick={handleStartChat}
+              >
+                {t('providerModels.config.oauth.startChat')}
+              </Button>
+              <Button
+                disabled={!canManageProvider}
+                icon={<Icon icon={LogOutIcon} />}
+                loading={revokeAuth.isPending}
+                onClick={handleDisconnect}
+              >
+                {t('providerModels.config.oauth.disconnect')}
+              </Button>
+            </Flexbox>
             <div className={styles.serviceNote}>
               {t('providerModels.config.oauth.serviceNote', { name })}
             </div>

@@ -1,13 +1,15 @@
 import { ActionIcon, DropdownMenu, Flexbox, Skeleton, Text, Tooltip } from '@lobehub/ui';
 import { Button, confirmModal } from '@lobehub/ui/base-ui';
-import { App, Space } from 'antd';
+import { App } from 'antd';
 import { cssVar } from 'antd-style';
 import { CircleX, EllipsisVertical, LucideRefreshCcwDot, PlusIcon } from 'lucide-react';
+import { DEFAULT_MODEL_PROVIDER_LIST } from 'model-bank/modelProviders';
 import { memo, use, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { usePermission } from '@/hooks/usePermission';
+import { lambdaQuery } from '@/libs/trpc/client';
 import { useAiInfraStore } from '@/store/aiInfra';
 import { aiModelSelectors } from '@/store/aiInfra/selectors';
 
@@ -26,6 +28,18 @@ const ModelTitle = memo<ModelFetcherProps>(
     const { t } = useTranslation('modelProvider');
     const { message } = App.useApp();
     const { allowed: canManageProvider, reason } = usePermission('manage_provider_key');
+
+    // Remote fetch needs the OAuth token, so gate it on connection state.
+    // Same query key as OAuthDeviceFlowAuth — deduped by react-query and
+    // invalidated on connect, so the button unlocks right after authorizing.
+    const isOAuthProvider =
+      DEFAULT_MODEL_PROVIDER_LIST.find((p) => p.id === provider)?.settings?.authType ===
+      'oauthDeviceFlow';
+    const { data: oauthStatus } = lambdaQuery.oauthDeviceFlow.getAuthStatus.useQuery(
+      { providerId: provider },
+      { enabled: isOAuthProvider },
+    );
+    const oauthNotConnected = isOAuthProvider && oauthStatus?.status !== 'ACTIVE';
     const [
       searchKeyword,
       totalModels,
@@ -105,7 +119,7 @@ const ModelTitle = memo<ModelFetcherProps>(
           {isLoading ? (
             <Skeleton.Button active size={'small'} style={{ width: 120 }} />
           ) : isEmpty ? null : (
-            <Flexbox horizontal gap={8}>
+            <Flexbox horizontal align={'center'} gap={8}>
               {!mobile && (
                 <Search
                   value={searchKeyword}
@@ -114,59 +128,81 @@ const ModelTitle = memo<ModelFetcherProps>(
                   }}
                 />
               )}
-              <Space.Compact>
+              <Flexbox horizontal align={'center'} gap={4}>
                 {showModelFetcher && (
-                  <Tooltip title={canManageProvider ? '' : reason}>
-                    <Button
-                      disabled={!canManageProvider}
-                      icon={LucideRefreshCcwDot}
-                      loading={fetchRemoteModelsLoading}
-                      size={'small'}
-                      onClick={async () => {
-                        if (!canManageProvider) return;
-                        setFetchRemoteModelsLoading(true);
-                        try {
-                          await fetchRemoteModelList(provider);
-                        } catch (error) {
-                          console.error(error);
+                  <Tooltip
+                    title={
+                      !canManageProvider
+                        ? reason
+                        : oauthNotConnected
+                          ? t('providerModels.list.fetcher.oauthRequired')
+                          : ''
+                    }
+                  >
+                    {/* span keeps the tooltip working while the button is
+                        disabled — disabled buttons swallow pointer events */}
+                    <span style={{ display: 'inline-flex' }}>
+                      <Button
+                        disabled={!canManageProvider || oauthNotConnected}
+                        icon={LucideRefreshCcwDot}
+                        loading={fetchRemoteModelsLoading}
+                        size={'small'}
+                        onClick={async () => {
+                          if (!canManageProvider || oauthNotConnected) return;
+                          setFetchRemoteModelsLoading(true);
+                          try {
+                            await fetchRemoteModelList(provider);
+                          } catch (error) {
+                            console.error(error);
 
-                          const errorMessage =
-                            error instanceof Error
-                              ? error.message
-                              : t('providerModels.list.fetcher.errorFallback');
+                            const errorMessage =
+                              error instanceof Error
+                                ? error.message
+                                : t('providerModels.list.fetcher.errorFallback');
 
-                          message.error(
-                            t('providerModels.list.fetcher.error', {
-                              message: errorMessage,
-                            }),
-                          );
-                        } finally {
-                          setFetchRemoteModelsLoading(false);
-                        }
-                      }}
-                    >
-                      {fetchRemoteModelsLoading
-                        ? t('providerModels.list.fetcher.fetching')
-                        : t('providerModels.list.fetcher.fetch')}
-                    </Button>
+                            message.error(
+                              t('providerModels.list.fetcher.error', {
+                                message: errorMessage,
+                              }),
+                            );
+                          } finally {
+                            setFetchRemoteModelsLoading(false);
+                          }
+                        }}
+                      >
+                        {fetchRemoteModelsLoading
+                          ? t('providerModels.list.fetcher.fetching')
+                          : t('providerModels.list.fetcher.fetch')}
+                      </Button>
+                    </span>
                   </Tooltip>
                 )}
                 {showAddNewModel && (
-                  <Tooltip title={canManageProvider ? '' : reason}>
-                    <Button
-                      disabled={!canManageProvider}
-                      icon={PlusIcon}
-                      size={'small'}
-                      onClick={() => {
-                        if (!canManageProvider) return;
-                        createCreateNewModelModal({
-                          existingModelIds: useAiInfraStore
-                            .getState()
-                            .aiProviderModelList.map((model) => model.id),
-                          showDeployName,
-                        });
-                      }}
-                    />
+                  <Tooltip
+                    title={
+                      !canManageProvider
+                        ? reason
+                        : oauthNotConnected
+                          ? t('providerModels.list.addNew.oauthRequired')
+                          : ''
+                    }
+                  >
+                    <span style={{ display: 'inline-flex' }}>
+                      <Button
+                        disabled={!canManageProvider || oauthNotConnected}
+                        icon={PlusIcon}
+                        size={'small'}
+                        onClick={() => {
+                          if (!canManageProvider || oauthNotConnected) return;
+                          createCreateNewModelModal({
+                            existingModelIds: useAiInfraStore
+                              .getState()
+                              .aiProviderModelList.map((model) => model.id),
+                            showDeployName,
+                          });
+                        }}
+                      />
+                    </span>
                   </Tooltip>
                 )}
                 <DropdownMenu
@@ -191,7 +227,7 @@ const ModelTitle = memo<ModelFetcherProps>(
                 >
                   <Button icon={EllipsisVertical} size={'small'} />
                 </DropdownMenu>
-              </Space.Compact>
+              </Flexbox>
             </Flexbox>
           )}
         </Flexbox>

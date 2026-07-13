@@ -226,6 +226,7 @@ export default {
   'providerModels.config.oauth.polling': 'Waiting for authorization...',
   'providerModels.config.oauth.retry': 'Retry',
   'providerModels.config.oauth.serviceNote': 'Service provided by {{name}}',
+  'providerModels.config.oauth.startChat': 'Start chatting',
   'providerModels.config.oauth.title': 'OAuth Authorization',
   'providerModels.config.responsesApi.desc':
     "Uses OpenAI's next-generation request format specification to unlock advanced features like chain-of-thought (supported by OpenAI models only)",
@@ -401,6 +402,7 @@ export default {
   'providerModels.list.enabledActions.sort': 'Custom Model Sorting',
   'providerModels.list.enabledEmpty':
     'No enabled models available. Please enable your preferred models from the list below~',
+  'providerModels.list.addNew.oauthRequired': 'Connect first to add custom models',
   'providerModels.list.fetcher.clear': 'Clear fetched models',
   'providerModels.list.fetcher.error': 'Failed to fetch models: {{message}}',
   'providerModels.list.fetcher.errorFallback': 'Unknown error',
@@ -408,6 +410,7 @@ export default {
   'providerModels.list.fetcher.fetching': 'Fetching model list...',
   'providerModels.list.fetcher.latestTime': 'Last updated: {{time}}',
   'providerModels.list.fetcher.noLatestTime': 'Model list not yet fetched',
+  'providerModels.list.fetcher.oauthRequired': 'Connect first to fetch the model list',
   'providerModels.list.noModelsInCategory': 'No enabled models in this category',
   'providerModels.list.resetAll.conform':
     'Are you sure you want to reset all modifications to the current model? After resetting, the current model list will return to its default state.',
