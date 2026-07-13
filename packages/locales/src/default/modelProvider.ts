@@ -221,6 +221,7 @@ export default {
   'providerModels.config.oauth.disconnect': 'Disconnect',
   'providerModels.config.oauth.disconnectConfirm':
     'Are you sure you want to disconnect? You will need to re-authorize to use this provider.',
+  'providerModels.config.oauth.enableError': "Couldn't enable this provider. Please try again.",
   'providerModels.config.oauth.enterCode': 'Enter the code on the opened page:',
   'providerModels.config.oauth.openBrowser': 'Open browser to authorize',
   'providerModels.config.oauth.polling': 'Waiting for authorization...',

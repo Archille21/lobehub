@@ -4,7 +4,7 @@ import { CheckCircleFilled } from '@ant-design/icons';
 import { ProviderIcon } from '@lobehub/icons';
 import { CopyButton, Flexbox, Icon } from '@lobehub/ui';
 import { Button, confirmModal } from '@lobehub/ui/base-ui';
-import { Avatar, Typography } from 'antd';
+import { App, Avatar, Typography } from 'antd';
 import { createStaticStyles, cssVar } from 'antd-style';
 import {
   ExternalLinkIcon,
@@ -23,8 +23,9 @@ import { usePermission } from '@/hooks/usePermission';
 import { lambdaQuery } from '@/libs/trpc/client';
 import { useAgentStore } from '@/store/agent';
 import { builtinAgentSelectors } from '@/store/agent/selectors/builtinAgentSelectors';
-import { aiModelSelectors, aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
+import { aiProviderSelectors, useAiInfraStore } from '@/store/aiInfra';
 
+import { prepareOAuthProviderChat } from './startChat';
 import { useOAuthDeviceFlow } from './useOAuthDeviceFlow';
 
 const { Text, Link } = Typography;
@@ -143,7 +144,9 @@ export interface OAuthDeviceFlowAuthProps {
 const OAuthDeviceFlowAuth = memo<OAuthDeviceFlowAuthProps>(
   ({ providerId, name, onAuthChange, title, extra }) => {
     const { t } = useTranslation('modelProvider');
-    const { allowed: canManageProvider } = usePermission('manage_provider_key');
+    const { message } = App.useApp();
+    const { allowed: canManageProvider, reason: manageProviderDisabledReason } =
+      usePermission('manage_provider_key');
     const [isAuthenticating, setIsAuthenticating] = useState(false);
     const [isStartingChat, setIsStartingChat] = useState(false);
     const hasAutoClosedRef = useRef(false);
@@ -151,10 +154,17 @@ const OAuthDeviceFlowAuth = memo<OAuthDeviceFlowAuthProps>(
     // Keep the post-OAuth handoff inside the active workspace.
     const navigate = useWorkspaceAwareNavigate();
     const inboxAgentId = useAgentStore(builtinAgentSelectors.inboxAgentId);
-    const [toggleProviderEnabled, isProviderEnabled] = useAiInfraStore((s) => [
-      s.toggleProviderEnabled,
-      aiProviderSelectors.isProviderEnabled(providerId)(s),
-    ]);
+    const [toggleProviderEnabled, isProviderEnabled, useFetchAiProviderModels] = useAiInfraStore(
+      (s) => [
+        s.toggleProviderEnabled,
+        aiProviderSelectors.isProviderEnabled(providerId)(s),
+        s.useFetchAiProviderModels,
+      ],
+    );
+    // The SWR response is keyed by providerId, so data stays undefined until this provider's
+    // list is ready instead of exposing the shared store's previous-provider models.
+    const { data: providerModels, isLoading: isProviderModelsLoading } =
+      useFetchAiProviderModels(providerId);
 
     const utils = lambdaQuery.useUtils();
 
@@ -189,43 +199,51 @@ const OAuthDeviceFlowAuth = memo<OAuthDeviceFlowAuthProps>(
     const handleStartChat = useCallback(async () => {
       setIsStartingChat(true);
       try {
-        // OAuth success only stores tokens — the provider must also be enabled
-        // before it shows up in the chat model picker.
-        if (!isProviderEnabled && canManageProvider) {
-          await toggleProviderEnabled(providerId, true);
-        }
-
-        // Model priority: the provider's default check model when the user
-        // has it enabled → first enabled chat model → check model as a last
-        // resort (enablement only affects the picker, not whether requests
-        // work). With none of these, skip presetting and let the user pick.
         const checkModel = DEFAULT_MODEL_PROVIDER_LIST.find((p) => p.id === providerId)?.checkModel;
-        const enabledChatModels = aiModelSelectors
-          .enabledAiProviderModelList(useAiInfraStore.getState())
-          .filter((m) => m.type === 'chat');
-        const targetModel =
-          checkModel && enabledChatModels.some((m) => m.id === checkModel)
-            ? checkModel
-            : (enabledChatModels[0]?.id ?? checkModel);
+        const result = await prepareOAuthProviderChat({
+          canManageProvider,
+          checkModel,
+          inboxAgentId,
+          isProviderEnabled,
+          models: isProviderModelsLoading ? undefined : providerModels,
+          providerId,
+          toggleProviderEnabled,
+          updateInboxAgentConfig: useAgentStore.getState().updateAgentConfigById,
+        });
 
-        if (inboxAgentId && targetModel) {
-          await useAgentStore
-            .getState()
-            .updateAgentConfigById(inboxAgentId, { model: targetModel, provider: providerId });
+        if (result.status === 'enable-required') {
+          message.error(
+            manageProviderDisabledReason || t('providerModels.config.oauth.enableError'),
+          );
+          return;
         }
-      } catch {
-        // Presetting is best-effort — still take the user to chat
+
+        if (result.status === 'enable-failed') {
+          console.error('Failed to enable OAuth provider before starting chat', result.error);
+          message.error(t('providerModels.config.oauth.enableError'));
+          return;
+        }
+
+        if (result.presetError) {
+          // Model preset is best-effort; chat remains usable through the model picker.
+          console.error('Failed to preset the OAuth provider model', result.presetError);
+        }
+
+        navigate(inboxAgentId ? `/agent/${inboxAgentId}` : '/');
       } finally {
         setIsStartingChat(false);
       }
-
-      navigate(inboxAgentId ? `/agent/${inboxAgentId}` : '/');
     }, [
       canManageProvider,
       inboxAgentId,
       isProviderEnabled,
+      isProviderModelsLoading,
+      manageProviderDisabledReason,
+      message,
       navigate,
+      providerModels,
       providerId,
+      t,
       toggleProviderEnabled,
     ]);
 
@@ -303,10 +321,16 @@ const OAuthDeviceFlowAuth = memo<OAuthDeviceFlowAuthProps>(
             </Flexbox>
             <Flexbox align={'center'} gap={12}>
               <Button
+                disabled={!isProviderEnabled && !canManageProvider}
                 icon={<Icon icon={MessageSquareIcon} />}
                 loading={isStartingChat}
                 size="large"
                 type="primary"
+                title={
+                  !isProviderEnabled && !canManageProvider
+                    ? manageProviderDisabledReason
+                    : undefined
+                }
                 onClick={handleStartChat}
               >
                 {t('providerModels.config.oauth.startChat')}
