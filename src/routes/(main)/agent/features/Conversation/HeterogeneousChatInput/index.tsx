@@ -4,6 +4,7 @@ import {
   HETEROGENEOUS_TYPE_LABELS,
   isRemoteHeterogeneousType,
 } from '@lobechat/heterogeneous-agents';
+import { resolveAgencyConfig } from '@lobechat/types';
 import { type ChatInputActionsProps } from '@lobehub/editor/react';
 import { Alert, Flexbox } from '@lobehub/ui';
 import { Button } from '@lobehub/ui/base-ui';
@@ -20,10 +21,13 @@ import { ChatInput } from '@/features/Conversation';
 import { contextSelectors, useConversationStore } from '@/features/Conversation/store';
 import WideScreenContainer from '@/features/WideScreenContainer';
 import { resolveExecutionTarget } from '@/helpers/executionTarget';
+import { useIsGatewayModeEnabled } from '@/helpers/gatewayMode';
 import { useRemoteAgentDeviceGuard } from '@/hooks/useRemoteAgentDeviceGuard';
 import { useAgentStore } from '@/store/agent';
-import { agentByIdSelectors, agentSelectors } from '@/store/agent/selectors';
+import { agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
+import { useUserStore } from '@/store/user';
+import { workspaceUserSettingsSelectors } from '@/store/user/selectors';
 
 import HeteroControlBar from './HeteroControlBar';
 import { shouldShowHeteroModelSelector } from './shouldShowHeteroModelSelector';
@@ -87,15 +91,25 @@ const HeterogeneousChatInput = memo(() => {
   const params = useParams<{ aid: string }>();
   const navigate = useNavigate();
 
-  const agencyConfig = useAgentStore(
+  const sharedAgencyConfig = useAgentStore(
     (s) => agentSelectors.getAgentConfigById(agentId)(s)?.agencyConfig,
   );
+  // Merge the caller's per-agent device override (LOBE-11689) over the shared
+  // config — same read path as HeteroDeviceSwitcher and server dispatch, so the
+  // guard below validates the device this member actually selected instead of
+  // a stale shared binding (LOBE-11813).
+  const override = useUserStore(workspaceUserSettingsSelectors.agentDeviceOverrideById(agentId));
+  const agencyConfig = resolveAgencyConfig(sharedAgencyConfig, override);
   const providerType = agencyConfig?.heterogeneousProvider?.type;
-  const isWorkspaceAgent = useAgentStore(agentByIdSelectors.isWorkspaceAgentById(agentId));
+  // Same target resolution as the device switcher: no `workspaceScoped`
+  // coercion (per-user overrides made workspace `local` picks safe again), and
+  // `deviceRoutingAvailable` gates the web-display upgrade of a bound `local`
+  // to `device`.
+  const deviceRoutingAvailable = useIsGatewayModeEnabled(agentId);
   const executionTarget = resolveExecutionTarget(agencyConfig, {
     isHetero: !!providerType,
     clientExecutionAvailable: isDesktop,
-    workspaceScoped: isWorkspaceAgent,
+    deviceRoutingAvailable,
   });
   const isRemoteAgent = !!providerType && isRemoteHeterogeneousType(providerType);
 

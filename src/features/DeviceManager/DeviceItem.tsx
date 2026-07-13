@@ -38,6 +38,22 @@ import { openShareDeviceModal } from './ShareDeviceModal';
 import { useCanEditDevice } from './useCanEditDevice';
 
 const styles = createStaticStyles(({ css }) => ({
+  actionSlot: css`
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+
+    width: 36px;
+  `,
+  avatarSlot: css`
+    display: flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+
+    width: 20px;
+  `,
   // Code-font cwd line; truncates rather than wrapping so a deep path keeps the
   // row at one line.
   cwd: css`
@@ -142,6 +158,12 @@ const styles = createStaticStyles(({ css }) => ({
     &:hover {
       background: ${cssVar.colorFillSecondary};
     }
+  `,
+  trailingSlots: css`
+    display: flex;
+    flex: none;
+    gap: 8px;
+    align-items: center;
   `,
   statusOffline: css`
     width: 8px;
@@ -375,44 +397,48 @@ const DeviceItem = memo<DeviceItemProps>(
           )}
         </Flexbox>
 
-        <Flexbox horizontal align={'center'} gap={8} style={{ flex: 'none' }}>
-          {device.scope === 'workspace' && device.enroller && (
-            // Enroller avatar — the at-a-glance "who put this here" answer for
-            // shared workspace pools. Hidden in personal scope (always the
-            // caller) and for ghost rows (no row yet).
-            <Tooltip
-              title={t('workspaceSetting.devices.enrolledBy', {
-                name:
-                  device.enroller.fullName ||
-                  device.enroller.username ||
-                  t('workspaceSetting.devices.unknownEnroller'),
-              })}
-            >
-              <span onClick={(e) => e.stopPropagation()}>
-                <Avatar avatar={device.enroller.avatar ?? undefined} size={20} />
-              </span>
-            </Tooltip>
-          )}
-          {canEdit && (
-            <span onClick={(e) => e.stopPropagation()}>
-              <DropdownMenu
-                items={[
-                  ...visibilityItems,
-                  ...shareItems,
-                  {
-                    danger: true,
-                    icon: <Icon icon={Trash2Icon} />,
-                    key: 'remove',
-                    label: t('devices.actions.remove'),
-                    onClick: handleRemove,
-                  },
-                ]}
+        <div className={styles.trailingSlots}>
+          <span className={styles.avatarSlot}>
+            {device.scope === 'workspace' && device.enroller && (
+              // Enroller avatar — the at-a-glance "who put this here" answer for
+              // shared workspace pools. Hidden in personal scope (always the
+              // caller) and for ghost rows (no row yet).
+              <Tooltip
+                title={t('workspaceSetting.devices.enrolledBy', {
+                  name:
+                    device.enroller.fullName ||
+                    device.enroller.username ||
+                    t('workspaceSetting.devices.unknownEnroller'),
+                })}
               >
-                <ActionIcon icon={MoreVerticalIcon} />
-              </DropdownMenu>
-            </span>
-          )}
-        </Flexbox>
+                <span onClick={(e) => e.stopPropagation()}>
+                  <Avatar avatar={device.enroller.avatar ?? undefined} size={20} />
+                </span>
+              </Tooltip>
+            )}
+          </span>
+          <span className={styles.actionSlot}>
+            {canEdit && (
+              <span onClick={(e) => e.stopPropagation()}>
+                <DropdownMenu
+                  items={[
+                    ...visibilityItems,
+                    ...shareItems,
+                    {
+                      danger: true,
+                      icon: <Icon icon={Trash2Icon} />,
+                      key: 'remove',
+                      label: t('devices.actions.remove'),
+                      onClick: handleRemove,
+                    },
+                  ]}
+                >
+                  <ActionIcon icon={MoreVerticalIcon} />
+                </DropdownMenu>
+              </span>
+            )}
+          </span>
+        </div>
       </Flexbox>
     );
   },

@@ -24,7 +24,13 @@ const WorkspaceSkillList = memo<WorkspaceSkillListProps>(({ rows = 4, pageSize =
   const [submitModalOpen, setSubmitModalOpen] = useState(false);
 
   const prepareWorkspaceSubmit = useCallback(async () => {
-    const { marketAccountId } = await lambdaClient.workspace.ensureMarketOrganization.mutate();
+    // autoProvision keeps skill submission working on workspaces without a
+    // Community profile yet — the server derives a handle from the workspace
+    // name instead of failing the submit with PRECONDITION_FAILED. Mirrors the
+    // fork / install flows.
+    const { marketAccountId } = await lambdaClient.workspace.ensureMarketOrganization.mutate({
+      autoProvision: true,
+    });
     return { actAs: marketAccountId };
   }, []);
 
