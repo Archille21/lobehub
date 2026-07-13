@@ -511,6 +511,15 @@ export class HeterogeneousPersistenceHandler {
       state.heteroSessionId = snapshot.metadata.heteroSessionId;
     }
 
+    // Recover whether the in-flight turn was OPENED by a signal (its stream_start
+    // is long gone on a cold replica). The flush uses this to settle what the turn
+    // actually was — a reactive note, or a tool_use / answer that puts it back on
+    // the main chain (`metadata.signalPromoted`). Without the recovery the replica
+    // flushes the turn with no verdict, and the read side is back to guessing.
+    if (!state.main.turnSignal && snapshot.metadata.signal) {
+      state.main.turnSignal = snapshot.metadata.signal;
+    }
+
     if (snapshot.textSnapshotSeq > state.main.lastTextSnapshotSeq) {
       state.main.accContent = snapshot.content;
       state.main.lastTextSnapshotSeq = snapshot.textSnapshotSeq;

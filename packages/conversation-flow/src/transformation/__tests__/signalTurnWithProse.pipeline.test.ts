@@ -27,7 +27,7 @@ const toolArr = (id: string) => [
   { apiName: 'Bash', arguments: '{}', id, identifier: 'claude-code', type: 'default' as const },
 ];
 
-const stdout = (seq: number) =>
+const stdout = (seq: number, promoted?: boolean) =>
   ({
     signal: {
       sequence: seq,
@@ -35,6 +35,7 @@ const stdout = (seq: number) =>
       sourceToolName: 'Bash',
       type: 'tool-stdout',
     },
+    ...(promoted && { signalPromoted: true }),
   }) as any;
 
 const flatten = (messages: Message[]) => {
@@ -70,12 +71,16 @@ const groupOf = (flat: Message[]) =>
 // What the fix changes is `parentOfNext`: the spine advances onto the answer, so
 // the next normal turn continues FROM it (PLAN) instead of jumping back over it
 // to the pre-callback assistant (W) and forking the wire.
+//
+// `promoted` is the writer's persisted verdict. Rows recorded before it existed
+// carry none, so the reader falls back to reading the prose — hence a PLAN long
+// enough to trip that fallback either way.
 const plan = `PLANMARKER 探查回来了，方案可以落到文件级`.padEnd(
   SIGNAL_TURN_ANSWER_MIN_LENGTH + 1,
   '。',
 );
 
-const scenario = (parentOfNext: 'PLAN' | 'W'): Message[] => [
+const scenario = (parentOfNext: 'PLAN' | 'W', promoted = true): Message[] => [
   { content: 'go', createdAt: 0, id: 'u1', role: 'user', updatedAt: 0 },
   {
     agentId: 'a',
@@ -101,7 +106,7 @@ const scenario = (parentOfNext: 'PLAN' | 'W'): Message[] => [
     content: plan,
     createdAt: 120,
     id: 'PLAN',
-    metadata: stdout(1),
+    metadata: stdout(1, promoted),
     parentId: 'toolW',
     role: 'assistant',
     updatedAt: 120,
@@ -139,6 +144,18 @@ describe('signal turn that answers — main-chain promotion (tpc_MAA6wBdUN1gw)',
     expect(callbacks.map((c: any) => c.id)).toEqual(['ACK']);
     // … and the run continues past it.
     expect(JSON.stringify(flat)).toContain('TAILMARKER');
+  });
+
+  it('LEGACY rows (no persisted verdict): the answer is recovered from its prose', () => {
+    // Written before the writer settled the verdict, so the reader falls back to
+    // the content heuristic — the one place that is allowed to guess, and only
+    // for rows that predate the flag.
+    const flat = flatten(scenario('PLAN', false));
+    const group = groupOf(flat);
+
+    expect(JSON.stringify(group?.children ?? [])).toContain('PLANMARKER');
+    const callbacks = (group?.signalCallbacks ?? []).flatMap((b: any) => b.callbacks);
+    expect(callbacks.map((c: any) => c.id)).toEqual(['ACK']);
   });
 
   it('FORKED (pre-fix): the next turn re-mounts over the answer — reader DROPS the tail', () => {

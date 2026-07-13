@@ -22,7 +22,7 @@ import type {
   UpdateMessageParams,
   UpdateMessageRAGParams,
 } from '@lobechat/types';
-import { MessageGroupType, SIGNAL_TURN_ANSWER_MIN_LENGTH, ThreadType } from '@lobechat/types';
+import { MessageGroupType, ThreadType } from '@lobechat/types';
 import type { TimingSink } from '@lobechat/utils';
 import {
   getDurationMs,
@@ -2686,14 +2686,24 @@ export class MessageModel {
           eq(messages.topicId, topicId),
           not(eq(messages.role, 'tool')),
           threadId ? eq(messages.threadId, threadId) : isNull(messages.threadId),
-          // Exclude signal-tagged assistants — BUT only the ones that produced
-          // NOTHING. The writer tags a turn `signal` at stream_start before it
-          // knows what the turn will output; a woken turn that DOES emit a
-          // tool_use, or speaks to the user, is really back on the main chain
-          // (see `promoteTurnToMainChain` in the reducer), so it must stay a
-          // spine candidate or a cold replica re-forks the wire off the
-          // pre-signal turn. Match the read side, which defangs the tag on the
-          // same two conditions (`getMessageSignal`).
+          // Exclude signal-tagged assistants — BUT only the ones that stayed pure
+          // callbacks. The writer tags a turn `signal` at stream_start before it
+          // knows what the turn will output; a woken turn that emits a tool_use,
+          // or delivers an answer, is really back on the main chain and must stay
+          // a spine candidate or a cold replica re-forks the wire off the
+          // pre-signal turn.
+          //
+          // That verdict is NOT re-derived here: the writer settles it when the
+          // turn flushes and persists it as `metadata.signalPromoted`, so this
+          // query stays a dumb key check rather than a second copy of the rule
+          // (which would drift). A tools-bearing turn is also recognised
+          // structurally, since `tools` is on the row.
+          //
+          // The window where a promoted turn is still streaming — content
+          // written, verdict not yet flushed — is harmless: a cold replica that
+          // resumes there recovers the PRE-signal spine, then replays the batch's
+          // chunks, which re-promotes the turn in memory exactly as a warm replica
+          // would (see `promoteTurnToSpine`).
           //
           // Key existence (`jsonb_exists`) is used instead of `metadata -> 'signal'
           // IS NULL`, which crashes the serverless Postgres engine as a WHERE
@@ -2703,8 +2713,8 @@ export class MessageModel {
           // which is unproven on this engine as a qual.
           sql`NOT (
             COALESCE(jsonb_exists(${messages.metadata}, 'signal'), false)
+            AND NOT COALESCE(jsonb_exists(${messages.metadata}, 'signalPromoted'), false)
             AND (${messages.tools} IS NULL OR ${messages.tools} = '[]'::jsonb)
-            AND COALESCE(LENGTH(BTRIM(${messages.content})), 0) <= ${SIGNAL_TURN_ANSWER_MIN_LENGTH}
           )`,
           this.ownership(),
         ),

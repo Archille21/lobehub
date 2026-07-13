@@ -1,5 +1,4 @@
 import { INBOX_SESSION_ID } from '@lobechat/const';
-import { SIGNAL_TURN_ANSWER_MIN_LENGTH } from '@lobechat/types';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -3034,7 +3033,7 @@ describe('MessageModel Query Tests', () => {
       expect(await messageModel.getLastMainThreadSpineMessageId('topic1')).toBe('a1');
     });
 
-    it('keeps a signal-tagged turn that delivered an ANSWER as the spine', async () => {
+    it('keeps a signal-tagged turn the writer PROMOTED as the spine', async () => {
       await serverDB.insert(sessions).values([{ id: 'session1', userId }]);
       await serverDB.insert(topics).values([{ id: 'topic1', sessionId: 'session1', userId }]);
       await serverDB.insert(messages).values([
@@ -3057,16 +3056,18 @@ describe('MessageModel Query Tests', () => {
         },
         {
           // Woken by the tool's stdout push — but this is where the run's REAL
-          // reply arrives, so it is main-chain: a cold replica must resume from
-          // HERE, not from a1, or the next turn forks around the answer.
+          // reply arrived, so the writer settled it as main-chain at flush
+          // (`signalPromoted`). A cold replica must resume from HERE, not from a1,
+          // or the next turn forks around the answer.
           id: 'answer',
           userId,
           topicId: 'topic1',
           role: 'assistant',
           parentId: 'tool-1',
-          content: 'ANSWER'.padEnd(SIGNAL_TURN_ANSWER_MIN_LENGTH + 1, '.'),
+          content: 'the plan, in full',
           metadata: {
             signal: { sourceToolCallId: 'tc', sourceToolName: 'Bash', type: 'tool-stdout' },
+            signalPromoted: true,
           },
           createdAt: new Date('2023-01-01T00:00:02'),
         },

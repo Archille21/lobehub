@@ -146,18 +146,41 @@ const promoteTurnToSpine = (next: MainAgentRunState): void => {
   next.lastSpineMessageId = next.currentAssistantId;
 };
 
+/**
+ * The verdict on the turn being flushed, for `metadata.signalPromoted`.
+ *
+ * A wake-up that emitted a tool_use, or delivered an answer rather than a
+ * one-line note, was on the main chain after all. The WRITER is the only party
+ * that can settle this — it holds the turn's tools and prose — and a turn only
+ * settles when it flushes. Persisting the verdict is what stops the read side and
+ * the cold-replica spine query from each re-deriving it from message content:
+ * one rule, one place, no drift.
+ */
+const turnPromotionMetadata = (
+  state: MainAgentRunState,
+  content: string,
+): Record<string, any> | undefined => {
+  if (!state.turnSignal) return undefined;
+  const emittedTools = state.toolState.payloads.length > 0;
+  if (!emittedTools && !isSignalTurnAnswer(content)) return undefined;
+  return { signalPromoted: true };
+};
+
 // ─── Per-event handlers ───
 
 /** `stream_start { newStep: true }` — flush the prior turn, open a new assistant. */
 const openTurn = (state: MainAgentRunState, data: any, ctx: MainAgentReduceCtx): ReduceResult => {
   const intents: AnyIntent[] = [];
 
-  // 1. Durably flush the prior turn's accumulators + model/provider.
+  // 1. Durably flush the prior turn's accumulators + model/provider + the verdict
+  //    on what that turn turned out to be (`turnPromotionMetadata`).
   const flush: Record<string, any> = {};
   if (state.accContent) flush.content = state.accContent;
   if (state.accReasoning) flush.reasoning = state.accReasoning;
   if (state.turnModel) flush.model = state.turnModel;
   if (state.turnProvider) flush.provider = state.turnProvider;
+  const promotion = turnPromotionMetadata(state, state.accContent);
+  if (promotion) flush.metadata = promotion;
   if (Object.keys(flush).length > 0) {
     intents.push({ kind: 'persistAssistant', messageId: state.currentAssistantId, ...flush });
   }
@@ -189,6 +212,7 @@ const openTurn = (state: MainAgentRunState, data: any, ctx: MainAgentReduceCtx):
   // chain; `promoteTurnToSpine` advances the spine onto it at that point (derived
   // from `currentAssistantId`, so it holds on a cold replica too).
   if (!isSignalTurn) next.lastSpineMessageId = messageId;
+  next.turnSignal = data?.externalSignal;
   next.currentMainMessageId = mainMessageId;
   next.accContent = '';
   next.accReasoning = '';
@@ -396,6 +420,10 @@ const reduceTerminal = (
   if (state.accReasoning) flush.reasoning = state.accReasoning;
   if (state.turnModel) flush.model = state.turnModel;
   if (state.turnProvider) flush.provider = state.turnProvider;
+  // The run's LAST turn settles here — and when the agent has been parked on a
+  // background tool, that turn is precisely where its answer lands.
+  const promotion = turnPromotionMetadata(state, suppress ? '' : state.accContent);
+  if (promotion) flush.metadata = promotion;
   if (Object.keys(flush).length > 0) {
     intents.push({ kind: 'persistAssistant', messageId: state.currentAssistantId, ...flush });
   }

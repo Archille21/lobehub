@@ -404,6 +404,25 @@ export interface MessageMetadata {
    */
   signal?: MessageSignal;
   /**
+   * Set on a `signal`-tagged turn that turned out to be on the MAIN CHAIN: it
+   * emitted a tool_use, or delivered an answer rather than a one-line reactive
+   * note (see `isSignalTurnAnswer`). Readers must treat it as a normal step and
+   * NOT fold it into the SignalCallbacks accordion.
+   *
+   * The writer stamps `signal` at stream_start, before the turn's output is
+   * known, so the verdict can only be reached once the turn flushes — and it is
+   * the WRITER that reaches it (it holds the turn's tools and prose). Persisting
+   * the verdict is what keeps the read side and the cold-replica spine query from
+   * each re-deriving it from message content, three copies of one rule that would
+   * drift.
+   *
+   * Deliberately TOP-LEVEL rather than nested under `signal`: the spine query
+   * filters on it, and nested access (`metadata -> 'signal'`) crashes the
+   * serverless Postgres engine as a WHERE predicate — only `jsonb_exists` on a
+   * top-level key survives there.
+   */
+  signalPromoted?: boolean;
+  /**
    * Sub Agent ID - behavior depends on scope
    * - scope: 'sub_agent': conversation-flow will transform message.agentId to this value for display
    * - scope: 'group' | 'group_agent': indicates the agent that generated this message in group mode

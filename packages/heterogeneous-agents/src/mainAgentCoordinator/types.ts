@@ -122,6 +122,22 @@ export interface MainAgentRunState {
   turnModel: string | undefined;
   /** Latest provider for the run (carried across turns until overwritten). */
   turnProvider: string | undefined;
+  /**
+   * The signal that OPENED the current turn, if any — i.e. was this turn a
+   * reactive wake-up (Monitor stdout push) rather than a fresh step?
+   *
+   * Only the writer can settle what such a turn actually was, and only once it
+   * flushes: `signal` is stamped at stream_start, before the output is known, so
+   * a wake-up that goes on to call a tool or deliver an answer is really back on
+   * the main chain. Holding the opening signal here lets the flush persist that
+   * verdict (`metadata.signalPromoted`) instead of leaving every reader to
+   * re-derive it from message content.
+   *
+   * Rehydrated on a cold replica from the current assistant's `metadata.signal`
+   * (`refreshMainStateFromDb`) — it must NOT be a write-only in-memory flag, or a
+   * non-sticky replica would flush the turn without the verdict.
+   */
+  turnSignal: ExternalSignalContext | undefined;
 }
 
 /**
@@ -144,6 +160,7 @@ export const createMainAgentRunState = (seedAssistantId: string): MainAgentRunSt
   turnMetadata: {},
   turnModel: undefined,
   turnProvider: undefined,
+  turnSignal: undefined,
 });
 
 // ─── Reduce context (per event) ───

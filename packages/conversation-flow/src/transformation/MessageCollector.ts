@@ -49,8 +49,18 @@ const getMessageSignal = (msg: Message): MessageSignal | undefined => {
   // property read — the defanging below only pays off for a tagged message.
   const signal = getWakeSignal(msg);
   if (!signal) return undefined;
+
+  const metadata = msg.metadata as { signalPromoted?: boolean } | undefined | null;
+  if (metadata?.signalPromoted) return undefined;
   if (msg.tools && msg.tools.length > 0) return undefined;
+
+  // Legacy fallback, and ONLY that: messages written before the writer persisted
+  // its verdict carry no `signalPromoted`, so an answer of theirs would still be
+  // buried in the callbacks accordion. Re-deriving it from content here is a
+  // heuristic — which is exactly why it does not run the classification for new
+  // messages, and why nothing else in the codebase re-derives it at all.
   if (isSignalTurnAnswer(msg.content)) return undefined;
+
   return signal;
 };
 

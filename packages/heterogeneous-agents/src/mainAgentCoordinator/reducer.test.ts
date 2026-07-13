@@ -269,6 +269,61 @@ describe('main agent reducer', () => {
       { messageId: 'msg_3', parentId: 'msg_2' },
     ]);
     expect(state.lastSpineMessageId).toBe('msg_3');
+
+    // …and the verdict is PERSISTED on the flush, so no reader has to re-derive
+    // "was this a callback or an answer?" from the message content.
+    const flush = steps.flatMap((s) => ofKind(s, 'persistAssistant'));
+    expect(flush).toContainEqual(
+      expect.objectContaining({ messageId: 'msg_2', metadata: { signalPromoted: true } }),
+    );
+  });
+
+  it('persists the verdict for a woken turn that emitted a tool_use', () => {
+    const { steps } = run([
+      toolsEvent([tool('t1')]), // → msg_1
+      newStepEvent(stdoutSignal(1)), // woken → msg_2
+      toolsEvent([tool('t2')]), // it kept working → main-chain
+      newStepEvent(), // flush msg_2
+    ]);
+
+    const flush = steps.flatMap((s) => ofKind(s, 'persistAssistant'));
+    expect(flush).toContainEqual(
+      expect.objectContaining({ messageId: 'msg_2', metadata: { signalPromoted: true } }),
+    );
+  });
+
+  it('does NOT mark a progress note as promoted', () => {
+    const { steps } = run([
+      toolsEvent([tool('t1')]), // → msg_1
+      newStepEvent(stdoutSignal(1)), // woken → msg_2
+      textEvent('100/84842 全 skip…'), // a note, not an answer
+      newStepEvent(), // flush msg_2
+    ]);
+
+    for (const intent of steps.flatMap((s) => ofKind(s, 'persistAssistant'))) {
+      expect(intent.metadata).toBeUndefined();
+    }
+  });
+
+  // The verdict is reached at FLUSH, and on a non-sticky replica the turn's
+  // stream_start is long gone — so `turnSignal` is rehydrated from the message's
+  // own `metadata.signal` (`refreshMainStateFromDb`). Without that, the replica
+  // flushes the answer with no verdict and the reader is back to guessing.
+  it('settles a promoted turn on a rehydrated cold replica', () => {
+    const rehydrated: MainAgentRunState = {
+      ...createMainAgentRunState('SEED'),
+      currentAssistantId: 'SIG',
+      lastSpineMessageId: 'SPINE0',
+      turnSignal: stdoutSignal(1) as any, // recovered from the row's metadata.signal
+    };
+
+    let r = reduceMainAgent(rehydrated, textEvent(answer), makeCtx());
+    r = reduceMainAgent(r.state, { data: {}, type: 'agent_runtime_end' }, makeCtx());
+
+    expect(ofKind(r.intents, 'persistAssistant')[0]).toMatchObject({
+      messageId: 'SIG',
+      metadata: { signalPromoted: true },
+    });
   });
 
   // A progress note is NOT an answer: it stays a pure callback and must not
