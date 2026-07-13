@@ -33,12 +33,20 @@ import type { ExternalSignalContext, ToolCallPayload } from '../types';
  * so the persisted shape is `user → asst → asst …` with tools as inline
  * children. The read side (`conversation-flow`) reconstructs the
  * `asst → tool → asst` zigzag from this. The one exception is signal-tagged
- * reactive turns (Monitor stdout pushes), which parent off the run's most
- * recent tool (`lastToolMsgIdEver`) so the reader renders them as tool-child
- * callbacks rather than spine turns. On a cold serverless replica the spine
- * pointer is recovered from the DB (most recent non-tool main message), which
- * is fork-resistant — it does NOT depend on the in-memory current-assistant
- * pointer that can regress mid-run.
+ * reactive turns (Monitor stdout pushes), which parent off the run's most recent
+ * tool (`lastToolMsgIdEver`) so the reader renders them as tool-child callbacks
+ * rather than spine turns. On a cold serverless replica the spine pointer is
+ * recovered from the DB (most recent non-tool main message), which is
+ * fork-resistant — it does NOT depend on the in-memory current-assistant pointer
+ * that can regress mid-run.
+ *
+ * `signal` is TRIGGER PROVENANCE, not structure: it is stamped at `stream_start`,
+ * before the turn's output is known. A woken turn that goes on to PRODUCE
+ * something — a tool_use, or an ANSWER rather than a one-line progress note
+ * (`isSignalTurnAnswer`) — is back on the main chain, and the SPINE advances onto
+ * it so the next normal turn continues from it instead of forking around it (see
+ * `promoteTurnToSpine`). It keeps hanging off the tool that woke it either way,
+ * so the reader can still attribute it.
  */
 
 // ─── Reducer state ───
@@ -82,23 +90,26 @@ export interface MainAgentRunState {
   /** Set once a terminal event has been reduced (idempotent finalize). */
   ended: boolean;
   /**
-   * Chain rule: the most recent NON-tool, NON-signal
-   * main-thread message — the run's spine. The next NORMAL turn's assistant
-   * parents off this (signal-tagged reactive turns parent off `lastToolMsgIdEver`
-   * instead). Advances on every normal turn; a signal turn does NOT advance it,
-   * so a normal continuation after a Monitor-callback burst re-mounts on the
-   * pre-callback spine assistant, not on a callback. Seeded to the placeholder
-   * assistant; recovered from the DB on a cold replica (fork-resistant).
+   * Chain rule: the most recent NON-tool main-thread message that is on the main
+   * chain — the run's spine. The next NORMAL turn's assistant parents off this
+   * (signal-tagged reactive turns parent off `lastToolMsgIdEver` instead).
+   * Advances on every normal turn; a signal turn advances it only once it
+   * PRODUCES something (a tool_use, or an answer rather than a progress note),
+   * which puts it back on the main chain. A pure callback does not advance it, so
+   * a normal continuation re-mounts on the pre-callback spine assistant. Seeded to
+   * the placeholder assistant; recovered from the DB on a cold replica
+   * (fork-resistant).
    */
   lastSpineMessageId: string;
   /** Highest seen text snapshot sequence (replace-mode de-dup). */
   lastTextSnapshotSeq: number;
   /**
-   * Run-lifetime id of the most recent main-agent tool message. Since
-   * this anchors ONLY signal-tagged reactive turns (Monitor
-   * stdout pushes) onto a tool, so the reader renders them as tool-child
-   * callbacks; normal turns parent off `lastSpineMessageId`. Only advances on
-   * tool batches; never reset across turns.
+   * Run-lifetime id of the most recent main-agent tool message. This anchors ONLY
+   * signal-tagged reactive turns (Monitor stdout pushes) onto a tool, so the
+   * reader renders them as tool-child callbacks — including a woken turn that gets
+   * promoted onto the spine, which keeps every one of them attributable to the
+   * tool that woke it. Normal turns parent off `lastSpineMessageId`. Only advances
+   * on tool batches; never reset across turns.
    */
   lastToolMsgIdEver: string | undefined;
   /** Nested subagent runs — delegated to `reduceSubagentRuns`. */

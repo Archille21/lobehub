@@ -1,3 +1,5 @@
+import { isSignalTurnAnswer } from '@lobechat/types';
+
 import type { ContextNode, IdNode, Message, MessageNode, SignalCallbacksNode } from '../types';
 import { BranchResolver } from './BranchResolver';
 
@@ -20,20 +22,45 @@ interface MessageSignal {
 }
 
 /**
- * Read the external-signal lineage from a message. Returns undefined
- * when the message has tools (LLM was on the main chain, not reacting
- * to a signal) — the writer attaches the tag at stream_start before it
- * knows whether the step will end up using tools, so the collector
- * must defang that mismatch here.
+ * Read the external-signal lineage from a message. `signal` is TRIGGER
+ * PROVENANCE — the writer stamps it at stream_start, before it knows what the
+ * turn will output — so the collector defangs the two mismatches where a woken
+ * turn is really back on the MAIN CHAIN and must render as a normal step:
+ *
+ * - it emitted TOOLS (the LLM kept working), or
+ * - it emitted an ANSWER (prose past `SIGNAL_TURN_ANSWER_MIN_LENGTH`, as opposed
+ *   to a one-line progress note).
+ *
+ * The answer case is what makes a parked agent readable: when it waits on a
+ * long-running background tool, the stdout push that wakes it is exactly how its
+ * real reply arrives. Slotted as a callback, that reply is buried in the
+ * collapsed SignalCallbacks accordion while the throwaway acks around it render
+ * inline — the run looks like it trailed off mid-thought.
+ *
+ * A short reactive note stays a callback, which is what the accordion is for.
  *
  * Phase 2 compat seam (): when the `messages.signal` column
  * lands, prefer it over `metadata.signal`.
  */
 const getMessageSignal = (msg: Message): MessageSignal | undefined => {
   if (msg.role !== 'assistant') return undefined;
+  // Read the tag FIRST and bail: this runs inside the chain-walk's per-step
+  // candidate filter, so for a topic with no signals at all it must stay a
+  // property read — the defanging below only pays off for a tagged message.
+  const signal = getWakeSignal(msg);
+  if (!signal) return undefined;
   if (msg.tools && msg.tools.length > 0) return undefined;
-  return (msg.metadata as { signal?: MessageSignal } | undefined | null)?.signal;
+  if (isSignalTurnAnswer(msg.content)) return undefined;
+  return signal;
 };
+
+/**
+ * The raw provenance tag, WITHOUT the main-chain defanging above: was this turn
+ * woken by a tool signal at all? Used to tell consecutive wake-ups apart from
+ * regenerated branches — see {@link MessageCollector.resolveActiveContinuationId}.
+ */
+const getWakeSignal = (msg: Message): MessageSignal | undefined =>
+  (msg.metadata as { signal?: MessageSignal } | undefined | null)?.signal;
 
 /** `tool-stdout` / `tool-callback` — reactive callback turns rendered inside the SignalCallbacks accordion. */
 const isCallbackSignal = (sig: MessageSignal | undefined): boolean =>
@@ -216,7 +243,11 @@ export class MessageCollector {
 
       toollessContinuation = this.findFlatChainContinuation(
         toollessContinuation,
-        [], // a toolless step owns no tool results
+        // A toolless step owns no tool results of its own, but it may BE a turn a
+        // tool woke — and a tool that pushes repeatedly hangs every wake-up off
+        // itself. Keep the step's tools as candidate parents so the walk picks up
+        // the remaining wake-ups instead of stopping at the first one.
+        toolMessages,
         allMessages,
         processedIds,
         groupAgentId,
@@ -264,8 +295,11 @@ export class MessageCollector {
     let hasFanOutTool = false;
     for (const toolMsg of toolMessages) {
       const isCouncil = (toolMsg.metadata as any)?.agentCouncil === true;
-      const toolChildren = allMessages.filter((m) => m.parentId === toolMsg.id);
-      const hasTaskChild = toolChildren.some((m) => m.role === 'task');
+      // Via childrenMap, not a scan of allMessages: this runs on every step of
+      // every chain, so an O(all messages) probe here is an O(n²) walk.
+      const hasTaskChild = (this.childrenMap.get(toolMsg.id) ?? []).some(
+        (id) => this.messageMap.get(id)?.role === 'task',
+      );
       if (isCouncil || hasTaskChild) {
         hasFanOutTool = true;
         continue;
@@ -306,6 +340,14 @@ export class MessageCollector {
     const eligibleIds = new Set(sortedCandidates.map((m) => m.id));
     const siblingIds = (this.childrenMap.get(parentId) ?? []).filter((id) => eligibleIds.has(id));
     if (siblingIds.length <= 1) return earliest.id;
+
+    // Sequential wake-ups, not regenerations: a background tool that pushes
+    // several times wakes one turn per push, and every one of them anchors on
+    // that same tool message. They are consecutive steps of ONE run, so walk
+    // them in createdAt order — branch-resolving would render the first and hide
+    // the rest, and the run's real answer is rarely the first.
+    const siblings = siblingIds.map((id) => this.messageMap.get(id));
+    if (siblings.every((m) => m && getWakeSignal(m))) return earliest.id;
 
     const parentMsg = this.messageMap.get(parentId);
     if (!parentMsg) return earliest.id;

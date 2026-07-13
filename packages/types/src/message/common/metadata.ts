@@ -495,3 +495,32 @@ export interface MessageSignal {
    */
   type: 'tool-stdout' | 'tool-callback' | 'task-completion';
 }
+
+/**
+ * Prose length (trimmed characters) above which a signal-triggered turn counts as
+ * an ANSWER rather than a reactive note — and is therefore treated as a
+ * main-chain step instead of a callback.
+ *
+ * `signal` is trigger provenance, stamped at stream_start before the turn's
+ * output is known, so the two sides of the wire have to tell the cases apart
+ * after the fact. A tool_use settles it outright (the LLM kept working). Prose
+ * does not: a Monitor push and a finished background agent both wake the LLM,
+ * and both replies are prose. What separates them is scale — a progress note is
+ * a line ("100/84842 全 skip…"), an answer is the reply the user was waiting for.
+ *
+ * The threshold is the deliberate part of that trade: it keeps the
+ * SignalCallbacks accordion useful for chatty tools while stopping it from
+ * swallowing the run's real reply (which is how the answer arrives whenever the
+ * agent parks on a long-running background tool). Borderline prose either way is
+ * mis-slotted, so it is set well clear of observed progress notes (5–50 chars)
+ * and observed answers (1000+).
+ *
+ * Consumed by all three places that must agree on the classification: the write
+ * side (`promoteTurnToMainChain`), the cold-replica spine query
+ * (`getLatestSpineMessageId`), and the read side (`getMessageSignal`).
+ */
+export const SIGNAL_TURN_ANSWER_MIN_LENGTH = 200;
+
+/** True when a signal-triggered turn's prose is long enough to be an answer. */
+export const isSignalTurnAnswer = (content: string | null | undefined): boolean =>
+  (content?.trim().length ?? 0) > SIGNAL_TURN_ANSWER_MIN_LENGTH;

@@ -1,3 +1,5 @@
+import { isSignalTurnAnswer } from '@lobechat/types';
+
 import type { SubagentIntent, SubagentReduceCtx } from '../subagentCoordinator';
 import { getEventScope, reduceSubagentRuns } from '../subagentCoordinator';
 import type { ToolCallPayload } from '../types';
@@ -106,15 +108,42 @@ const delegateSubagent = (
  * `user → asst → asst …` with tools as inline children; the read side
  * reconstructs the zigzag.
  *
- * Signal / reactive toolless turns (Monitor stdout pushes etc.) are the one
- * exception: they parent off the run's most recent tool (`lastToolMsgIdEver`)
- * so the reader renders them as tool-child callbacks (`collectFlatSignalCallbacks`)
- * instead of spine turns. They fall back to the spine only before any tool has
- * been seen.
+ * Signal / reactive turns (Monitor stdout pushes etc.) are the one exception:
+ * they parent off the run's most recent tool (`lastToolMsgIdEver`) so the reader
+ * renders them as tool-child callbacks (`collectFlatSignalCallbacks`) instead of
+ * spine turns — including the ones that get promoted onto the spine below, which
+ * keeps every woken turn attributable to the tool that woke it. They fall back to
+ * the spine only before any tool has been seen.
  */
 const computeTurnParentId = (state: MainAgentRunState, data: any): string => {
   if (data?.externalSignal) return state.lastToolMsgIdEver ?? state.lastSpineMessageId;
   return state.lastSpineMessageId;
+};
+
+/**
+ * Put the current turn back on the SPINE — i.e. make the next NORMAL turn chain
+ * off it.
+ *
+ * `signal` is trigger provenance stamped at `stream_start`, before the turn's
+ * output is known. A turn that PRODUCES something — a tool_use, or an answer
+ * rather than a one-line progress note (`isSignalTurnAnswer`) — is on the main
+ * chain no matter what woke it. Leave it off the spine and the next normal turn
+ * mounts on the PRE-callback assistant instead, forking the wire around it: the
+ * read side then walks into one branch and drops the other.
+ *
+ * This does NOT move the callback anchor: a woken turn keeps hanging off the tool
+ * that woke it, so the reader can still attribute it (and a short note stays in
+ * the accordion). For a normal turn the advance is a no-op — `openTurn` already
+ * pointed the spine here.
+ *
+ * Deriving this from `currentAssistantId` (not a per-turn "opened as signal" flag)
+ * is what keeps it correct on a cold / non-sticky serverless replica: an
+ * in-memory flag is NOT rehydrated by `refreshMainStateFromDb`, but
+ * `currentAssistantId` and `lastSpineMessageId` ARE — and replaying this batch's
+ * chunks promotes the turn exactly as a warm replica would.
+ */
+const promoteTurnToSpine = (next: MainAgentRunState): void => {
+  next.lastSpineMessageId = next.currentAssistantId;
 };
 
 // ─── Per-event handlers ───
@@ -153,12 +182,12 @@ const openTurn = (state: MainAgentRunState, data: any, ctx: MainAgentReduceCtx):
   // 3. Advance: model/provider carry across (a fresh turn_metadata overwrites).
   const next = copyState(state);
   next.currentAssistantId = messageId;
-  // The spine only advances on NORMAL turns — a signal/reactive turn is a
-  // tool-child callback, so the next normal turn re-mounts on the pre-callback
-  // spine assistant, not on the callback. A signal turn that then emits a
-  // tool_use is really back on the main chain; `reduceToolsChunk` advances the
-  // spine onto it at that point (derived from `currentAssistantId`, so it holds
-  // on a cold replica too — see there).
+  // The spine advances here only for NORMAL turns — a signal/reactive turn opens
+  // as a tool-child callback, so until it produces something the next normal turn
+  // re-mounts on the pre-callback spine assistant, not on the callback. A signal
+  // turn that goes on to emit a tool_use or an answer is really back on the main
+  // chain; `promoteTurnToSpine` advances the spine onto it at that point (derived
+  // from `currentAssistantId`, so it holds on a cold replica too).
   if (!isSignalTurn) next.lastSpineMessageId = messageId;
   next.currentMainMessageId = mainMessageId;
   next.accContent = '';
@@ -212,6 +241,12 @@ const reduceTextChunk = (state: MainAgentRunState, data: any): ReduceResult => {
     if (!data?.content) return { intents: [], state };
     next.accContent = state.accContent + data.content;
   }
+
+  // An ANSWER puts this turn back on the spine — a one-line progress note does
+  // not (see `isSignalTurnAnswer`). Whenever the agent parks on a background tool,
+  // the stdout push that wakes it is how its real reply arrives; left off the
+  // spine, that reply is a dead-end branch the next normal turn forks around.
+  if (isSignalTurnAnswer(next.accContent)) promoteTurnToSpine(next);
 
   return {
     intents: [
@@ -270,25 +305,14 @@ const reduceToolsChunk = (
     },
   ];
 
-  // Advance the chain fallback to this turn's last tool message.
+  // Advance the callback anchor to this turn's last tool message.
   const lastToolMsgId = newToolMsgIds.at(-1);
   if (lastToolMsgId) next.lastToolMsgIdEver = lastToolMsgId;
 
-  // Any assistant that emits a tool_use is on the main chain, so it is a spine
-  // message — advance the spine onto it. For a normal turn this is a no-op
-  // (`openTurn` already pointed the spine here). For a turn OPENED as a
-  // signal/reactive callback that then called a tool, this promotes it so the
-  // NEXT normal turn chains off THIS turn instead of the pre-signal assistant —
+  // Any assistant that emits a tool_use is on the main chain — promote it so the
+  // NEXT normal turn chains off THIS turn instead of the pre-signal assistant;
   // otherwise the wire forks and the read side drops everything after the fork.
-  //
-  // Deriving the promotion from `currentAssistantId` (not a per-turn "opened as
-  // signal" flag) is what keeps it correct on a cold / non-sticky serverless
-  // replica: an in-memory flag is NOT rehydrated by `refreshMainStateFromDb`,
-  // but `currentAssistantId` and `lastSpineMessageId` ARE — and a mid-flight
-  // signal turn is still toolless in the DB, so the recovered spine is the
-  // pre-signal assistant (≠ currentAssistantId) and this batch's `tools_calling`
-  // promotes it exactly as a warm replica would.
-  next.lastSpineMessageId = next.currentAssistantId;
+  promoteTurnToSpine(next);
 
   return { intents, state: next };
 };

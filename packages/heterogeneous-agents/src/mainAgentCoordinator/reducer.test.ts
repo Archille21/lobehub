@@ -1,3 +1,4 @@
+import { SIGNAL_TURN_ANSWER_MIN_LENGTH } from '@lobechat/types';
 import { describe, expect, it } from 'vitest';
 
 import type { SubagentIntent } from '../subagentCoordinator';
@@ -175,7 +176,7 @@ describe('main agent reducer', () => {
       textEvent('watching build'),
       toolsEvent([tool('t1')]), // Monitor → msg_1
       newStepEvent(stdoutSignal(1)), // reactive toolless turn A → msg_2
-      textEvent('build started'),
+      textEvent('build started'), // a progress note, not an answer
       newStepEvent(stdoutSignal(2)), // reactive toolless turn B → msg_3
       textEvent('still compiling'),
       newStepEvent(), // natural continuation back to main work → msg_4
@@ -196,7 +197,7 @@ describe('main agent reducer', () => {
       { messageId: 'msg_3', parentId: 'msg_1', signalType: 'tool-stdout' },
       { messageId: 'msg_4', parentId: 'A0', signalType: undefined },
     ]);
-    // Signal turns did NOT advance the spine; the next real tool advances the
+    // Progress notes did NOT advance the spine; the next real tool advances the
     // signal anchor forward.
     expect(state.lastSpineMessageId).toBe('msg_4');
     expect(state.lastToolMsgIdEver).toBe('msg_5');
@@ -233,6 +234,55 @@ describe('main agent reducer', () => {
       { messageId: 'msg_4', parentId: 'msg_2', signalType: undefined },
     ]);
     expect(state.lastSpineMessageId).toBe('msg_4');
+  });
+
+  // ─── A signal turn that delivers an ANSWER is back on the main chain (tpc_MAA6wBdUN1gw) ───
+  // The agent parked on background Bash agents, so the stdout push that woke it
+  // is exactly how its real answer arrived: a toolless signal turn carrying the
+  // whole plan. Tagged `signal` and never promoted, it stayed a tool-child
+  // callback — the reader buried it in the collapsed SignalCallbacks accordion,
+  // under two throwaway acks that DID render — and the next wake-up re-anchored
+  // on the same tool, landing beside it as a second assistant child. Same-parent
+  // assistant siblings read as regen branches, so only one survives. An answer
+  // promotes the turn just like a tool_use does.
+  const answer = 'ANSWER'.padEnd(SIGNAL_TURN_ANSWER_MIN_LENGTH + 1, '。');
+
+  it('promotes an answer-bearing signal turn onto the spine so the next turn continues from it', () => {
+    const { steps, state } = run([
+      textEvent('waiting on the agents'),
+      toolsEvent([tool('t1')]), // background Bash → msg_1
+      newStepEvent(stdoutSignal(1)), // woken by its stdout → msg_2 (parent msg_1)
+      textEvent(answer), // the run's REAL answer, no tools
+      newStepEvent(), // the next normal turn → msg_3
+    ]);
+
+    const created = steps
+      .flatMap((s) => ofKind(s, 'createAssistant'))
+      .map((c) => ({ messageId: c.messageId, parentId: c.parentId }));
+
+    expect(created).toEqual([
+      // The answer still MOUNTS on the source tool — that is how the reader
+      // attributes a woken turn to the tool that woke it.
+      { messageId: 'msg_2', parentId: 'msg_1' },
+      // …but the spine advanced onto it, so the next turn continues FROM the
+      // answer instead of jumping back to A0 and forking the wire around it.
+      { messageId: 'msg_3', parentId: 'msg_2' },
+    ]);
+    expect(state.lastSpineMessageId).toBe('msg_3');
+  });
+
+  // A progress note is NOT an answer: it stays a pure callback and must not
+  // hijack the chain, or a normal continuation would mount on a passing remark.
+  it('leaves the spine alone for a short progress note', () => {
+    const { state } = run([
+      textEvent('working'),
+      toolsEvent([tool('t1')]), // → msg_1
+      newStepEvent(stdoutSignal(1)), // woken → msg_2
+      textEvent('100/84842 全 skip…'), // a note, well under the answer threshold
+    ]);
+
+    expect(state.lastSpineMessageId).toBe('A0');
+    expect(state.lastToolMsgIdEver).toBe('msg_1');
   });
 
   // ─── The promotion must survive a cold / non-sticky serverless replica ───

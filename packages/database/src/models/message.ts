@@ -22,7 +22,7 @@ import type {
   UpdateMessageParams,
   UpdateMessageRAGParams,
 } from '@lobechat/types';
-import { MessageGroupType, ThreadType } from '@lobechat/types';
+import { MessageGroupType, SIGNAL_TURN_ANSWER_MIN_LENGTH, ThreadType } from '@lobechat/types';
 import type { TimingSink } from '@lobechat/utils';
 import {
   getDurationMs,
@@ -2642,11 +2642,12 @@ export class MessageModel {
    * needed: a topic runs at most one operation at a time, so the latest spine
    * message IS this run's continuation point.
    *
-   * Excludes `role:'tool'` (inline children) and TOOLLESS signal-tagged
-   * assistants (`metadata->'signal'` with no tools), which are tool-child
-   * callbacks — anchoring a normal turn onto a callback would orphan it under
-   * the read side's tool-only signal collection. A signal turn that DID emit
-   * tools is back on the main chain and stays a spine candidate.
+   * Excludes `role:'tool'` (inline children) and signal-tagged assistants that
+   * produced NOTHING (`metadata->'signal'`, no tools, no content), which are
+   * tool-child callbacks — anchoring a normal turn onto a callback would orphan
+   * it under the read side's tool-only signal collection. A woken turn that DID
+   * emit tools, or spoke to the user, is back on the main chain and stays a
+   * spine candidate.
    */
   getLastMainThreadSpineMessageId = async (topicId: string): Promise<string | undefined> =>
     this.getLatestSpineMessageId({ topicId, threadId: null });
@@ -2657,11 +2658,11 @@ export class MessageModel {
    * NOT a signal-tagged reactive turn) in a topic, scoped to the main thread
    * (`threadId IS NULL`) or to a specific thread.
    *
-   * Like the main-thread query it EXCLUDES `role:'tool'` and TOOLLESS
-   * signal-tagged assistants: tools are inline children of their assistant turn,
-   * so the conversation head a new turn parents off is the assistant, never the
-   * tool result that landed under it. A tools-bearing signal turn is main-chain
-   * and remains a spine candidate.
+   * Like the main-thread query it EXCLUDES `role:'tool'` and signal-tagged
+   * assistants that produced nothing: tools are inline children of their
+   * assistant turn, so the conversation head a new turn parents off is the
+   * assistant, never the tool result that landed under it. A woken turn that
+   * emitted tools or content is main-chain and remains a spine candidate.
    *
    * Used by `sendMessageInServer` to make `parentId` server-authoritative and
    * close the concurrent-append race: the client computes `parentId` from a
@@ -2685,13 +2686,14 @@ export class MessageModel {
           eq(messages.topicId, topicId),
           not(eq(messages.role, 'tool')),
           threadId ? eq(messages.threadId, threadId) : isNull(messages.threadId),
-          // Exclude signal-tagged assistants — BUT only the toolless ones. The
-          // writer tags a turn `signal` at stream_start before it knows the turn
-          // will call tools; a signal turn that DOES emit a tool_use is really
-          // back on the main chain (see `reduceToolsChunk`'s spine promotion),
-          // so it must stay a spine candidate or a cold replica re-forks the
-          // wire off the pre-signal turn. Match the read side, which likewise
-          // treats a tools-bearing message as non-signal (`getMessageSignal`).
+          // Exclude signal-tagged assistants — BUT only the ones that produced
+          // NOTHING. The writer tags a turn `signal` at stream_start before it
+          // knows what the turn will output; a woken turn that DOES emit a
+          // tool_use, or speaks to the user, is really back on the main chain
+          // (see `promoteTurnToMainChain` in the reducer), so it must stay a
+          // spine candidate or a cold replica re-forks the wire off the
+          // pre-signal turn. Match the read side, which defangs the tag on the
+          // same two conditions (`getMessageSignal`).
           //
           // Key existence (`jsonb_exists`) is used instead of `metadata -> 'signal'
           // IS NULL`, which crashes the serverless Postgres engine as a WHERE
@@ -2702,6 +2704,7 @@ export class MessageModel {
           sql`NOT (
             COALESCE(jsonb_exists(${messages.metadata}, 'signal'), false)
             AND (${messages.tools} IS NULL OR ${messages.tools} = '[]'::jsonb)
+            AND COALESCE(LENGTH(BTRIM(${messages.content})), 0) <= ${SIGNAL_TURN_ANSWER_MIN_LENGTH}
           )`,
           this.ownership(),
         ),
