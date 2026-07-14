@@ -1237,3 +1237,8 @@ nodeintegration, plugins, disablewebsecurity, allowpopups, preload, …`). The h
   ```
   Tag the resolved element with a `data-probe` attribute and drive it with `agent-browser click '[data-probe=...]'` (trusted CDP input, D18).
 - **Corollary**: the phantom also owns the tooltip text of whatever component it duplicates, so an `innerText`/aria grep can "find" a control that the user cannot see. Assert on `getBoundingClientRect()` before believing a control is present.
+
+### E23. Vite throws `EMFILE` — terminate Agent Testing and ask the user for help
+
+- **Situation**: an isolated frontend-only Vite surface exits at startup with `EMFILE: too many open files, watch`, while the intended port is free and the shell can successfully create thousands of `fs.watch` handles in a control process.
+- **Required action**: immediately terminate Agent Testing and ask the user for help. Do not fall back to a one-shot static build or publish a Verify report from a degraded test surface.
