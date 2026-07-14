@@ -22,4 +22,21 @@ describe('MessageMetadataSchema', () => {
 
     expect(parsed).toEqual({ heteroMessageId: 'cc-1', heteroSessionId: 'sess-A' });
   });
+
+  // The renderer executor flushes the main-chain verdict through
+  // UpdateMessageParamsSchema. Strip it here and the desktop path persists no
+  // verdict at all — silently, and only on that path — leaving every reader to
+  // guess from message content forever.
+  it('preserves the signal main-chain verdict so it is not stripped on writes', () => {
+    const parsed = MessageMetadataSchema.parse({
+      signal: { sourceToolCallId: 'tc', sourceToolName: 'Bash', type: 'tool-stdout' },
+      signalPromoted: true,
+      unknown: 'stripped',
+    });
+
+    expect(parsed).toEqual({
+      signal: { sourceToolCallId: 'tc', sourceToolName: 'Bash', type: 'tool-stdout' },
+      signalPromoted: true,
+    });
+  });
 });

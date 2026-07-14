@@ -202,6 +202,11 @@ export const MessageMetadataSchema = ModelUsageSchema.merge(ModelPerformanceSche
   scope: z.string().optional(),
   // External-signal lineage for Monitor-style callback turns ().
   signal: MessageSignalSchema.optional(),
+  // The writer's verdict that a woken turn was main-chain after all. MUST stay
+  // listed: the renderer executor flushes it through UpdateMessageParamsSchema, so
+  // an unlisted key is silently stripped and the desktop path would persist no
+  // verdict at all — leaving the reader to guess from content forever.
+  signalPromoted: z.boolean().optional(),
   subAgentId: z.string().optional(),
   // role='taskCallback' card: which task delivered its handoff back to this
   // conversation, and the run outcome. The card header + jump link read this.
