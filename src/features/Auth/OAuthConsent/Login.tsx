@@ -5,6 +5,7 @@ import { Button } from '@lobehub/ui/base-ui';
 import React, { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { submitNativeFormWithLoading } from '@/features/Auth/utils/submitNativeForm';
 import AuthCard from '@/features/AuthCard';
 import { useSession } from '@/libs/better-auth/auth-client';
 import type { OidcClientMetadata } from '@/types/oidc';
@@ -43,12 +44,7 @@ const LoginConfirmClient = memo<LoginConfirmProps>(({ uid, clientMetadata }) => 
         subtitle={descriptionText}
         title={titleText}
         footer={
-          <form
-            action="/oidc/consent"
-            method="post"
-            style={{ width: '100%' }}
-            onSubmit={() => setIsLoading(true)}
-          >
+          <form action="/oidc/consent" method="post" style={{ width: '100%' }}>
             {/* Adjust action URL */}
             <input name="uid" type="hidden" value={uid} />
             <input name="choice" type="hidden" value={'accept'} />
@@ -62,6 +58,7 @@ const LoginConfirmClient = memo<LoginConfirmProps>(({ uid, clientMetadata }) => 
               size="large"
               type="primary"
               value="accept"
+              onClick={(event) => submitNativeFormWithLoading(event, setIsLoading)}
             >
               {buttonText}
             </Button>

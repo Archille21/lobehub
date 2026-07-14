@@ -5,6 +5,7 @@ import { Button } from '@lobehub/ui/base-ui';
 import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { submitNativeFormWithLoading } from '@/features/Auth/utils/submitNativeForm';
 import AuthCard from '@/features/AuthCard';
 
 interface DeviceCodeConfirmProps {
@@ -33,7 +34,7 @@ const DeviceCodeConfirm = memo<DeviceCodeConfirmProps>(({ xsrf, userCode, client
               loading={isLoading}
               size="large"
               type="primary"
-              onClick={() => setIsLoading(true)}
+              onClick={(event) => submitNativeFormWithLoading(event, setIsLoading)}
             >
               {t('device.confirm.authorize')}
             </Button>

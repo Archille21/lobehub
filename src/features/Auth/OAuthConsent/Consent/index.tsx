@@ -5,6 +5,7 @@ import { Button } from '@lobehub/ui/base-ui';
 import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { submitNativeFormWithLoading } from '@/features/Auth/utils/submitNativeForm';
 import AuthCard from '@/features/AuthCard';
 import type { OidcClientMetadata } from '@/types/oidc';
 
@@ -60,9 +61,7 @@ const ConsentClient = memo<ClientProps>(({ uid, clientId, scopes, clientMetadata
                 size={'large'}
                 type="primary"
                 value="accept"
-                onClick={() => {
-                  setIsLoading(true);
-                }}
+                onClick={(event) => submitNativeFormWithLoading(event, setIsLoading)}
               >
                 {t('consent.buttons.accept')}
               </Button>
