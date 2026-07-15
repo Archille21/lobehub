@@ -82,10 +82,11 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
   tabActive: css`
     font-weight: 500;
     color: ${cssVar.colorText};
-    background: ${cssVar.colorFillSecondary};
+    background: ${cssVar.colorBgElevated};
+    box-shadow: inset 0 0 0 1px ${cssVar.colorBorderSecondary};
 
     &:hover {
-      background: ${cssVar.colorFillSecondary};
+      background: ${cssVar.colorBgElevated};
     }
   `,
   tabIcon: css`
@@ -182,6 +183,7 @@ const ToolTabs = memo<ToolTabsProps>(({ activeKey, availableTabs, onChange }) =>
             <div
               aria-selected={active}
               className={`${styles.tab} ${active ? styles.tabActive : ''}`}
+              data-active={active ? 'true' : undefined}
               key={tab.key}
               role="tab"
               tabIndex={0}
@@ -209,20 +211,20 @@ const ToolTabs = memo<ToolTabsProps>(({ activeKey, availableTabs, onChange }) =>
             </div>
           );
         })}
+        <DropdownMenu
+          iconSpaceMode="group"
+          items={menuItems}
+          placement="bottomRight"
+          popupProps={{ style: { minWidth: 200 } }}
+        >
+          <ActionIcon
+            className={styles.addButton}
+            icon={Plus}
+            size={DESKTOP_HEADER_ICON_SMALL_SIZE}
+            title={t('workingPanel.tabs.add')}
+          />
+        </DropdownMenu>
       </div>
-      <DropdownMenu
-        iconSpaceMode="group"
-        items={menuItems}
-        placement="bottomRight"
-        popupProps={{ style: { minWidth: 200 } }}
-      >
-        <ActionIcon
-          className={styles.addButton}
-          icon={Plus}
-          size={DESKTOP_HEADER_ICON_SMALL_SIZE}
-          title={t('workingPanel.tabs.add')}
-        />
-      </DropdownMenu>
     </>
   );
 });

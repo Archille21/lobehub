@@ -50,6 +50,11 @@ describe('WorkingSidebar ToolTabs', () => {
 
     expect(screen.getAllByRole('tab')).toHaveLength(1);
     expect(screen.getByRole('tab', { name: 'Space' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Space' })).toHaveAttribute('data-active', 'true');
+    expect(screen.getByTitle('workingPanel.tabs.add').parentElement?.parentElement).toHaveAttribute(
+      'role',
+      'tablist',
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Files' }));
 
