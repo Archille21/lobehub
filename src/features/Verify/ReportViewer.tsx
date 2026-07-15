@@ -93,12 +93,6 @@ const styles = createStaticStyles(({ css }) => ({
   `,
 
   /* hero */
-  heroLine: css`
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    align-items: center;
-  `,
   pill: css`
     display: inline-flex;
     gap: 6px;
@@ -115,6 +109,14 @@ const styles = createStaticStyles(({ css }) => ({
   summary: css`
     max-width: 100%;
     color: ${cssVar.colorText};
+  `,
+  /* The conclusion is normally ≤3 sentences; older reports carry walls of text,
+     so anything past 3 lines is simply cut — the detail lives in the checks. */
+  summaryClamped: css`
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
   `,
   meta: css`
     display: flex;
@@ -485,10 +487,10 @@ const styles = createStaticStyles(({ css }) => ({
       color: ${cssVar.colorTextQuaternary};
     }
   `,
-  /* The command / URL under test. Can be long; it must never push the rest of
-     the provenance line onto a second row. */
+  /* The command / URL under test. It owns the surface line together with the
+     surface chips, so it can spend the remaining width before ellipsizing. */
   scopeEntry: css`
-    max-width: 260px;
+    flex: 0 1 auto;
   `,
   originLink: css`
     cursor: pointer;
@@ -1749,56 +1751,66 @@ const CodingScopeCard = memo<{
         </div>
       )}
 
-      <div className={styles.scopeMetaLine}>
-        {branch && (
-          <span className={styles.branchChip} title={branch}>
-            <Icon icon={GitBranch} size={15} />
-            <code>{branch}</code>
-          </span>
-        )}
-        {commit && (
-          <span className={styles.commitChip} title={commit}>
-            <Icon icon={GitCommit} size={14} />
-            <code>{shortCommit}</code>
-          </span>
-        )}
-        {date && (
-          <span className={styles.scopeMetaItem}>
-            <Icon icon={CalendarClock} size={13} />
-            <span>{date}</span>
-          </span>
-        )}
-        {surfaces.length > 0 && (
-          <span className={styles.surfaceList}>
-            {surfaces.map((surface) => (
-              <span className={styles.surfaceChip} key={surface}>
-                <Icon icon={SURFACE_ICON[surface]} size={12} />
-                {t(`report.surface.${surface}`)}
-              </span>
-            ))}
-          </span>
-        )}
-        {entry && (
-          <span className={cx(styles.scopeMetaItem, styles.scopeEntry)} title={entry}>
-            <Icon icon={Terminal} size={13} />
-            <code>{entry}</code>
-          </span>
-        )}
-        {/* Only ever rendered for the report's author — the server redacts `origin`
-            from a bundle fetched by anyone else holding the shared link. */}
-        {originTopicId && (
-          <a
-            className={cx(styles.scopeMetaItem, styles.originLink)}
-            href={`/chat?topic=${originTopicId}`}
-            rel="noreferrer"
-            target="_blank"
-            title={t('report.scope.origin')}
-          >
-            <Icon icon={MessagesSquare} size={13} />
-            <Icon icon={ExternalLink} size={11} />
-          </a>
-        )}
-      </div>
+      {(branch || commit || date) && (
+        <div className={styles.scopeMetaLine}>
+          {branch && (
+            <span className={styles.branchChip} title={branch}>
+              <Icon icon={GitBranch} size={15} />
+              <code>{branch}</code>
+            </span>
+          )}
+          {commit && (
+            <span className={styles.commitChip} title={commit}>
+              <Icon icon={GitCommit} size={14} />
+              <code>{shortCommit}</code>
+            </span>
+          )}
+          {date && (
+            <span className={styles.scopeMetaItem}>
+              <Icon icon={CalendarClock} size={13} />
+              <span>{date}</span>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Where the run was exercised (surface + entry URL / command) sits on its
+          own line: the entry can be long, and sharing a row with the git scope
+          truncated it into noise. */}
+      {(surfaces.length > 0 || entry || originTopicId) && (
+        <div className={styles.scopeMetaLine}>
+          {surfaces.length > 0 && (
+            <span className={styles.surfaceList}>
+              {surfaces.map((surface) => (
+                <span className={styles.surfaceChip} key={surface}>
+                  <Icon icon={SURFACE_ICON[surface]} size={12} />
+                  {t(`report.surface.${surface}`)}
+                </span>
+              ))}
+            </span>
+          )}
+          {entry && (
+            <span className={cx(styles.scopeMetaItem, styles.scopeEntry)} title={entry}>
+              <Icon icon={Terminal} size={13} />
+              <code>{entry}</code>
+            </span>
+          )}
+          {/* Only ever rendered for the report's author — the server redacts `origin`
+              from a bundle fetched by anyone else holding the shared link. */}
+          {originTopicId && (
+            <a
+              className={cx(styles.scopeMetaItem, styles.originLink)}
+              href={`/chat?topic=${originTopicId}`}
+              rel="noreferrer"
+              target="_blank"
+              title={t('report.scope.origin')}
+            >
+              <Icon icon={MessagesSquare} size={13} />
+              <Icon icon={ExternalLink} size={11} />
+            </a>
+          )}
+        </div>
+      )}
     </div>
   );
 });
@@ -1927,11 +1939,8 @@ const ReportViewer = memo<ReportViewerProps>(({ runId: explicitRunId }) => {
       <div className={styles.page}>
         <main>
           <Flexbox gap={12}>
-            <div className={styles.heroLine}>
-              <Text as={'h1'} style={{ fontSize: 24, lineHeight: 1.3, margin: 0 }}>
-                {run.title || t('report.titleFallback')}
-              </Text>
-              {verdict && (
+            {verdict && (
+              <div>
                 <span
                   className={styles.pill}
                   style={{
@@ -1942,11 +1951,16 @@ const ReportViewer = memo<ReportViewerProps>(({ runId: explicitRunId }) => {
                   <Icon icon={VERDICT_META[verdict].icon} size={15} />
                   {t(`report.verdict.${verdict}`)}
                 </span>
-              )}
-            </div>
+              </div>
+            )}
+            <Text as={'h1'} style={{ fontSize: 24, lineHeight: 1.3, margin: 0 }}>
+              {run.title || t('report.titleFallback')}
+            </Text>
 
             {!isCodingReport && run.goal && <Text className={styles.summary}>{run.goal}</Text>}
-            {report?.summary && <Text className={styles.summary}>{report.summary}</Text>}
+            {report?.summary && (
+              <Text className={cx(styles.summary, styles.summaryClamped)}>{report.summary}</Text>
+            )}
 
             {isCodingReport && <CodingScopeCard context={run.context} origin={origin} />}
 
