@@ -495,19 +495,21 @@ const ReportListPanel = memo<ReportPanelExpand>(({ expand, isNarrow, setExpand }
 
   // Infinite scroll: load the next page when a sentinel near the list's end
   // scrolls into view (rootMargin pre-fetches before the user hits the bottom).
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  // The sentinel is held in state (not a ref): it only mounts after the initial
+  // skeleton gives way to the list, and none of the other deps change at that
+  // moment — a plain ref would leave the observer permanently unattached.
+  const [sentinel, setSentinel] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el || !hasMore) return;
+    if (!sentinel || !hasMore) return;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting && hasMore && !isLoadingMore) loadMore();
       },
       { rootMargin: '200px' },
     );
-    io.observe(el);
+    io.observe(sentinel);
     return () => io.disconnect();
-  }, [hasMore, isLoadingMore, loadMore]);
+  }, [sentinel, hasMore, isLoadingMore, loadMore]);
 
   return (
     <DraggablePanel
@@ -598,7 +600,7 @@ const ReportListPanel = memo<ReportPanelExpand>(({ expand, isNarrow, setExpand }
               ))}
               {/* Sentinel drives infinite scroll; keep it mounted so the observer
                   can re-fire after each page appends. */}
-              <div aria-hidden ref={sentinelRef} style={{ height: 1 }} />
+              <div aria-hidden ref={setSentinel} style={{ height: 1 }} />
               {isLoadingMore ? (
                 <SkeletonList rows={2} style={{ paddingBlock: 6, paddingInline: 8 }} />
               ) : error ? (
