@@ -612,24 +612,23 @@ inline screenshot/text evidence). On production that resolves to
 `https://app.lobehub.com/verify/<verifyRunId>`. **Include that full production
 link in the final chat reply** alongside the local report dir.
 
-#### Re-verifying the same case updates the report in place (don't spawn a new one)
+#### Every ingest publishes a fresh session (create-only, never update)
 
-When you iterate on one change — fix → re-verify → fix again — **keep reusing the
-same report dir (`$DIR`)**. `ingest-report` records the session it created in a
-`.verify-run.json` sidecar inside `$DIR`, so re-ingesting the **same dir**
-**updates that session in place** (same `/verify/<id>` URL) instead of creating a
-new list entry every round. The update is a full replace: cases are overwritten
-by their stable `id`, each case's evidence is re-attached (old screenshots
-cleared, not stacked), and cases the new report dropped are pruned.
+`ingest-report` never modifies an existing `/verify/<id>` — each invocation
+creates a **new, immutable session** with its own URL. A re-verification round is
+a new report, not a rewrite of the previous one: earlier rounds stay intact as
+the audit trail of how the change evolved.
 
-So the rule for an iterative case: `report-init.sh` **once**, then re-run
-`ingest-report "$DIR"` after each fix — the report accretes value at one stable
-URL rather than flooding the list with near-duplicate runs. Only scaffold a fresh
-`$DIR` when you start verifying a genuinely different case.
+Two consequences:
 
-Escape hatches: `--new` forces a fresh session even if the dir already made one;
-`--run <verifyRunId>` targets an existing session explicitly (e.g. to update from
-a different machine/checkout where the sidecar is absent).
+- **Publish once per verification round**, after the report dir is complete —
+  don't ingest a half-finished dir "to check how it looks" and then ingest again,
+  or the list gets a near-duplicate.
+- **Always hand the user the URL the ingest just printed** — an earlier round's
+  link points at the earlier round's results.
+
+Iterating on one change (fix → re-verify → fix again) may reuse the same `$DIR`
+on disk; each `ingest-report "$DIR"` still publishes a separate session.
 
 Notes:
 

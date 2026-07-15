@@ -124,9 +124,14 @@ table — those double up on the page. It carries only the non-duplicate narrati
    one entry in `cases[]` (`{ id, name, result, observation, evidence }`), where
    `evidence` is a path under `assets/` (screenshot / GIF / transcript). Set the
    scope fields (`scenario: "coding"`, `branch`, `commit`, `surfaces`, `entry`)
-   and write the one-paragraph verdict into `summary.conclusion`. The page pairs
-   each check with its evidence inline, so you don't hand-build a table.
-   `report.md` holds only the narrative tail (跟进 / 本轮验证 / 评分).
+   and write the verdict into `summary.conclusion` — **3–5 sentences, hard cap**:
+   the overall verdict, what passed/failed at the headline level, and at most one
+   caveat. Per-check measurements, pixel values, and console noise belong in each
+   case's `observation` (or the `report.md` tail), NOT in the conclusion — the
+   page shows it directly under the title, and a wall of text there buries the
+   verdict. The page pairs each check with its evidence inline, so you don't
+   hand-build a table. `report.md` holds only the narrative tail
+   (跟进 / 本轮验证 / 评分).
 
 5. **Set the verdict** in both `report.md` and `result.json`, then link the
    report directory in your final answer to the user. If UI evidence exists,

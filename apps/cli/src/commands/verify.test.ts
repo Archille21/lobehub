@@ -421,14 +421,8 @@ describe('planFromResult — plan item normalization', () => {
     expect(planFromResult({ plan: [{ id: '1' }] })).toEqual([]);
   });
 
-  it('distinguishes "no plan field" from "an empty plan", so a re-ingest can CLEAR a stale one', () => {
-    // Absent → undefined → `updateRun` omits it → whatever is stored stays.
+  it('distinguishes "no plan field" (undefined) from "an empty plan" ([])', () => {
     expect(planFromResult({})).toBeUndefined();
-
-    // Present but empty → `[]` → the stored plan is overwritten with nothing.
-    // Without this, re-ingesting a reused report dir whose plan was emptied
-    // would leave the PREVIOUS round's plan attached, and every one of its items
-    // would render as "not run" against a report that never planned them.
     expect(planFromResult({ plan: [] })).toEqual([]);
   });
 });
