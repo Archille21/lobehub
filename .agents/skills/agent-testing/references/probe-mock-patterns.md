@@ -1591,3 +1591,9 @@ ingest-report <dir> --subject topic:<id> …` — and verify attachment in the D
   continuation only runs when an external event arrives (a CDP poll, mouse move), the cause is the
   native-callback context not draining microtasks on an idle loop — fix by deferring the handler
   body via `setImmediate` at the registration site, then verify variance collapses.
+
+### E39. Electron dev instance ids are numeric pool indexes
+
+- **Situation**: starting an isolated Electron test instance with `electron-dev.sh start <id>`.
+- **Doesn't work**: a descriptive string id; the script rejects it before allocating ports.
+- **Works**: use a non-negative integer pool index (for example `start 1`) and use the port printed by the script for the CDP session.
