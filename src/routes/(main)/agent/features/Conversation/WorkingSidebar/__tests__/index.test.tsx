@@ -97,7 +97,8 @@ vi.mock('@/hooks/useEffectiveWorkingDirectory', () => ({
   useEffectiveWorkingDirectory: () => reviewState.workingDirectory,
 }));
 vi.mock('@/hooks/useLocalStorageState', () => ({
-  useLocalStorageState: () => [reviewState.showTree, vi.fn()],
+  useLocalStorageState: (key: string, defaultValue: unknown) =>
+    key === 'lobechat-review-tree' ? [reviewState.showTree, vi.fn()] : [defaultValue, vi.fn()],
 }));
 vi.mock('@/helpers/agentWorkingDirectory', () => ({ resolveTargetDeviceId: () => undefined }));
 vi.mock('@/helpers/executionTarget', () => ({ resolveExecutionTarget: () => 'local' }));
@@ -110,6 +111,11 @@ vi.mock('react-i18next', () => ({
 vi.mock('@lobehub/ui', () => ({
   ActionIcon: () => <button type="button" />,
   Flexbox: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  Icon: () => <span />,
+}));
+
+vi.mock('@lobehub/ui/base-ui', () => ({
+  DropdownMenu: ({ children }: { children?: ReactNode }) => <>{children}</>,
 }));
 
 vi.mock('antd-style', () => ({

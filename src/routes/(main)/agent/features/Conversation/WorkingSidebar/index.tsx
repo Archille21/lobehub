@@ -1,7 +1,16 @@
 import { ActionIcon, Flexbox } from '@lobehub/ui';
 import { createStaticStyles } from 'antd-style';
-import { PanelRightCloseIcon } from 'lucide-react';
-import { lazy, memo, useEffect, useState } from 'react';
+import {
+  ClipboardListIcon,
+  FileText,
+  FolderOpen,
+  GitCompareArrows,
+  Globe,
+  PanelRightCloseIcon,
+  PanelsTopLeft,
+  SlidersHorizontal,
+} from 'lucide-react';
+import { lazy, memo, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useBusinessWorkingSidebarTabs } from '@/business/client/features/WorkingSidebarTabs';
@@ -32,11 +41,12 @@ import ProgressSection from './ProgressSection';
 import ResourcesSection from './ResourcesSection';
 import Review from './Review';
 import WorksSection from './WorksSection';
+import ToolTabs, { type WorkingSidebarToolTab } from './ToolTabs';
 
 const ParamsSection = lazy(() => import('./ParamsSection'));
 const BrowserPane = lazy(() => import('./Browser'));
 
-const styles = createStaticStyles(({ css, cssVar }) => ({
+const styles = createStaticStyles(({ css }) => ({
   body: css`
     overflow-y: auto;
     flex: 1;
@@ -52,36 +62,6 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
   `,
   paneHidden: css`
     display: none;
-  `,
-  tab: css`
-    cursor: pointer;
-
-    padding-block: 4px;
-    padding-inline: 10px;
-    border: none;
-    border-radius: 6px;
-
-    font-size: 13px;
-    color: ${cssVar.colorTextTertiary};
-
-    background: transparent;
-
-    transition:
-      color 0.15s,
-      background 0.15s;
-
-    &:hover {
-      color: ${cssVar.colorText};
-    }
-  `,
-  tabActive: css`
-    color: ${cssVar.colorText};
-    background: ${cssVar.colorFillTertiary};
-  `,
-  tabs: css`
-    display: flex;
-    gap: 4px;
-    align-items: center;
   `,
 }));
 
@@ -199,6 +179,32 @@ const AgentWorkingSidebar = memo(() => {
     return 'resources';
   };
   const activeTab = resolveActiveTab();
+  const toolTabs = useMemo<WorkingSidebarToolTab[]>(
+    () => [
+      ...businessTabs.map((tab) => ({ icon: PanelsTopLeft, key: tab.key, label: tab.label })),
+      { icon: FileText, key: 'resources', label: t('workingPanel.space') },
+      { icon: ClipboardListIcon, key: 'works', label: t('workingPanel.works.title') },
+      ...(reviewAvailable
+        ? [{ icon: GitCompareArrows, key: 'review', label: t('workingPanel.review.title') }]
+        : []),
+      ...(filesAvailable
+        ? [{ icon: FolderOpen, key: 'files', label: t('workingPanel.files.title') }]
+        : []),
+      ...(browserAvailable
+        ? [{ icon: Globe, key: 'browser', label: t('workingPanel.browser.title') }]
+        : []),
+      ...(paramsAvailable
+        ? [
+            {
+              icon: SlidersHorizontal,
+              key: 'params',
+              label: t('settingModel.params.panel.tab', { ns: 'setting' }),
+            },
+          ]
+        : []),
+    ],
+    [businessTabs, browserAvailable, filesAvailable, paramsAvailable, reviewAvailable, t],
+  );
 
   // Review's tree-nav rail lives here (not inside Review) so the panel can widen
   // when the two-pane layout is on. Hidden by default — the panel shows only the
@@ -242,68 +248,11 @@ const AgentWorkingSidebar = memo(() => {
           justify={'space-between'}
           paddingInline={4}
         >
-          <div className={styles.tabs}>
-            {businessTabs.map((tab) => (
-              <button
-                className={`${styles.tab} ${activeTab === tab.key ? styles.tabActive : ''}`}
-                key={tab.key}
-                type="button"
-                onClick={() => setWorkingSidebarTab(tab.key)}
-              >
-                {tab.label}
-              </button>
-            ))}
-            <button
-              className={`${styles.tab} ${activeTab === 'resources' ? styles.tabActive : ''}`}
-              type="button"
-              onClick={() => setWorkingSidebarTab('resources')}
-            >
-              {t('workingPanel.space')}
-            </button>
-            <button
-              className={`${styles.tab} ${activeTab === 'works' ? styles.tabActive : ''}`}
-              type="button"
-              onClick={() => setWorkingSidebarTab('works')}
-            >
-              {t('workingPanel.works.title')}
-            </button>
-            {reviewAvailable && (
-              <button
-                className={`${styles.tab} ${activeTab === 'review' ? styles.tabActive : ''}`}
-                type="button"
-                onClick={() => setWorkingSidebarTab('review')}
-              >
-                {t('workingPanel.review.title')}
-              </button>
-            )}
-            {filesAvailable && (
-              <button
-                className={`${styles.tab} ${activeTab === 'files' ? styles.tabActive : ''}`}
-                type="button"
-                onClick={() => setWorkingSidebarTab('files')}
-              >
-                {t('workingPanel.files.title')}
-              </button>
-            )}
-            {browserAvailable && (
-              <button
-                className={`${styles.tab} ${activeTab === 'browser' ? styles.tabActive : ''}`}
-                type="button"
-                onClick={() => setWorkingSidebarTab('browser')}
-              >
-                {t('workingPanel.browser.title')}
-              </button>
-            )}
-            {paramsAvailable && (
-              <button
-                className={`${styles.tab} ${activeTab === 'params' ? styles.tabActive : ''}`}
-                type="button"
-                onClick={() => setWorkingSidebarTab('params')}
-              >
-                {t('settingModel.params.panel.tab', { ns: 'setting' })}
-              </button>
-            )}
-          </div>
+          <ToolTabs
+            activeKey={activeTab}
+            availableTabs={toolTabs}
+            onChange={setWorkingSidebarTab}
+          />
           <ActionIcon
             icon={PanelRightCloseIcon}
             size={DESKTOP_HEADER_ICON_SMALL_SIZE}

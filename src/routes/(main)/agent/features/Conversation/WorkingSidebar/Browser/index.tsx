@@ -89,7 +89,10 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
     width: 100%;
     min-height: 0;
 
-    background: ${cssVar.colorBgLayout};
+    /* Stay on the same surface as the conversation and the rest of the working
+       sidebar. colorBgLayout becomes almost black in dark mode and made the
+       browser empty state read like a detached canvas. */
+    background: ${cssVar.colorBgContainer};
   `,
   toolbar: css`
     position: relative;
@@ -144,7 +147,13 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
      nothing renders inside it. It exists to be measured. */
   viewport: css`
     position: absolute;
-    inset: 0;
+    inset-block: 0;
+
+    /* WebContentsView paints above renderer DOM and captures pointer events.
+       Keep it clear of DraggablePanel's left resize handle (which straddles the
+       panel edge), otherwise the native page makes the panel impossible to
+       resize while Browser is active. */
+    inset-inline: 8px 0;
   `,
 }));
 
