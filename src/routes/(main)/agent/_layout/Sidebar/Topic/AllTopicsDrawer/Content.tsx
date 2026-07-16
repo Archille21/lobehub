@@ -185,6 +185,7 @@ const Content = memo<ContentProps>(({ open, searchKeyword }) => {
         <Flexbox gap={1} key={topic.id} paddingInline={4}>
           <TopicItem
             active={activeTopicId === topic.id}
+            author={topic.author}
             fav={topic.favorite}
             id={topic.id}
             metadata={topic.metadata}

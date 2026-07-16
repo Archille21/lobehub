@@ -1,11 +1,11 @@
 import { AGENT_CHAT_TOPIC_URL } from '@lobechat/const';
-import type { ChatTopicMetadata, ChatTopicStatus } from '@lobechat/types';
+import type { ChatTopicAuthor, ChatTopicMetadata, ChatTopicStatus } from '@lobechat/types';
 import { formatElapsedClockTime } from '@lobechat/utils';
 import {
   getTopicMetadataWorkingDirectoryEffectivePath,
   getTopicMetadataWorkingDirectorySourcePath,
 } from '@lobechat/utils/client/topic';
-import { Flexbox, Icon, Popover, Skeleton, Tag, Text, Tooltip } from '@lobehub/ui';
+import { Avatar, Flexbox, Icon, Popover, Skeleton, Tag, Text, Tooltip } from '@lobehub/ui';
 import { createStaticStyles, cssVar, useTheme } from 'antd-style';
 import dayjs from 'dayjs';
 import { HashIcon, MessageSquareDashed } from 'lucide-react';
@@ -13,6 +13,7 @@ import type { CSSProperties, DragEvent } from 'react';
 import { memo, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import DotsLoading from '@/components/DotsLoading';
 import { TOPIC_STATUS_VISUALS } from '@/components/ExecutionStatus';
@@ -25,6 +26,7 @@ import { startTopicDrag } from '@/features/ChatInput/InputEditor/ReferTopic/topi
 import NavItem from '@/features/NavPanel/components/NavItem';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
 import { getWorkingDirectoryName } from '@/helpers/workingDirectoryPath';
+import { useUserAvatar } from '@/hooks/useUserAvatar';
 import { getPlatformIcon } from '@/routes/(main)/agent/channel/const';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
@@ -32,6 +34,8 @@ import { useChatStore } from '@/store/chat';
 import { operationSelectors } from '@/store/chat/selectors';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { useElectronStore } from '@/store/electron';
+import { useUserStore } from '@/store/user';
+import { userProfileSelectors } from '@/store/user/selectors';
 
 import { useTopicNavigation } from '../../hooks/useTopicNavigation';
 import ThreadList from '../../TopicListContent/ThreadList';
@@ -131,8 +135,43 @@ const RunningElapsedTime = memo<RunningElapsedTimeProps>(({ agentId, topicId }) 
 
 RunningElapsedTime.displayName = 'RunningElapsedTime';
 
+interface AuthorAvatarProps {
+  author?: ChatTopicAuthor | null;
+}
+
+// In workspaces the sidebar mixes every member's topics, so each row carries
+// its author's avatar on the far right for at-a-glance attribution. Personal
+// mode renders nothing — every topic there is the viewer's. Rows without a
+// hydrated `author` (optimistic creates, deleted accounts) fall back to the
+// viewer, mirroring the user message bubble's sender fallback.
+const AuthorAvatar = memo<AuthorAvatarProps>(({ author }) => {
+  const activeWorkspaceId = useActiveWorkspaceId();
+  const selfAvatar = useUserAvatar();
+  const selfName = useUserStore(userProfileSelectors.displayUserName);
+
+  if (!activeWorkspaceId) return null;
+
+  const authorName = author?.fullName || author?.username || '';
+  const title = authorName || selfName || '';
+
+  return (
+    <Tooltip title={title}>
+      <Avatar
+        alt={title}
+        avatar={author?.avatar || authorName || selfAvatar}
+        size={20}
+        style={{ flex: 'none' }}
+        title={title}
+      />
+    </Tooltip>
+  );
+});
+
+AuthorAvatar.displayName = 'AuthorAvatar';
+
 interface TopicItemProps {
   active?: boolean;
+  author?: ChatTopicAuthor | null;
   fav?: boolean;
   id?: string;
   metadata?: ChatTopicMetadata;
@@ -148,7 +187,7 @@ interface TopicItemProps {
 }
 
 const TopicItem = memo<TopicItemProps>(
-  ({ id, title, fav, active, threadId, metadata, status, showWorkingDirectory }) => {
+  ({ id, title, fav, active, author, threadId, metadata, status, showWorkingDirectory }) => {
     const { t } = useTranslation('topic');
     const { isDarkMode } = useTheme();
     const activeAgentId = useAgentStore((s) => s.activeAgentId);
@@ -357,11 +396,16 @@ const TopicItem = memo<TopicItemProps>(
         description={workingDirectoryNode}
         disabled={editing}
         draggable={!editing}
-        extra={<RunningElapsedTime agentId={activeAgentId} topicId={id} />}
         href={href}
         slots={{ titlePrefix: draftPrefix }}
         title={title === '...' ? <DotsLoading gap={3} size={4} /> : title}
         titleColor={cssVar.colorText}
+        extra={
+          <>
+            <RunningElapsedTime agentId={activeAgentId} topicId={id} />
+            <AuthorAvatar author={author} />
+          </>
+        }
         icon={(() => {
           // A scheduled topic hasn't run yet — nothing else can be true of it,
           // so its clock outranks the other states.

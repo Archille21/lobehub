@@ -15,8 +15,12 @@ const topicUnreadCompletedMock = vi.hoisted(() => ({ value: false }));
 const topicMetaCardMock = vi.hoisted(() => ({
   value: undefined as { pullRequest?: { state: string } } | undefined,
 }));
+const activeWorkspaceIdMock = vi.hoisted(() => ({ value: null as string | null }));
 
 vi.mock('@lobehub/ui', () => ({
+  Avatar: ({ avatar, title }: { avatar?: string; title?: string }) => (
+    <div data-avatar={avatar} data-testid="author-avatar" data-title={title} />
+  ),
   Flexbox: ({ children, ...props }: { children?: ReactNode; [key: string]: unknown }) => (
     <div {...props}>{children}</div>
   ),
@@ -97,8 +101,22 @@ vi.mock('@/components/RingLoading', () => ({
 vi.mock('@/features/ChatInput/ControlBar/DirIcon', () => ({
   default: () => <span data-testid="dir-icon" />,
 }));
+vi.mock('@/business/client/hooks/useActiveWorkspaceId', () => ({
+  useActiveWorkspaceId: () => activeWorkspaceIdMock.value,
+}));
 vi.mock('@/business/client/hooks/useActiveWorkspaceSlug', () => ({
   useActiveWorkspaceSlug: () => 'team',
+}));
+vi.mock('@/hooks/useUserAvatar', () => ({
+  useUserAvatar: () => 'https://example.com/self.png',
+}));
+vi.mock('@/store/user', () => ({
+  useUserStore: (selector: (state: unknown) => unknown) => selector({}),
+}));
+vi.mock('@/store/user/selectors', () => ({
+  userProfileSelectors: {
+    displayUserName: () => 'Viewer',
+  },
 }));
 vi.mock('@/routes/(main)/agent/channel/const', () => ({
   getPlatformIcon: () => null,
@@ -167,7 +185,65 @@ describe('TopicItem active state', () => {
     runningStartTimeMock.value = undefined;
     topicUnreadCompletedMock.value = false;
     topicMetaCardMock.value = undefined;
+    activeWorkspaceIdMock.value = null;
     vi.useRealTimers();
+  });
+
+  it('renders the topic author avatar in workspace context', () => {
+    activeWorkspaceIdMock.value = 'ws_test';
+    useTopicNavigationMock.mockReturnValue({
+      isInAgentSubRoute: false,
+      isInTopicContextRoute: false,
+      navigateToTopic: vi.fn(),
+      routeTopicId: undefined,
+    });
+
+    render(
+      <TopicItem
+        author={{ avatar: 'https://example.com/alice.png', fullName: 'Alice', id: 'user-alice' }}
+        id="tpc_test"
+        title="Topic"
+      />,
+    );
+
+    const avatar = screen.getByTestId('author-avatar');
+    expect(avatar).toHaveAttribute('data-avatar', 'https://example.com/alice.png');
+    expect(avatar).toHaveAttribute('data-title', 'Alice');
+  });
+
+  it('falls back to the viewer for workspace rows without a hydrated author', () => {
+    activeWorkspaceIdMock.value = 'ws_test';
+    useTopicNavigationMock.mockReturnValue({
+      isInAgentSubRoute: false,
+      isInTopicContextRoute: false,
+      navigateToTopic: vi.fn(),
+      routeTopicId: undefined,
+    });
+
+    render(<TopicItem id="tpc_test" title="Topic" />);
+
+    const avatar = screen.getByTestId('author-avatar');
+    expect(avatar).toHaveAttribute('data-avatar', 'https://example.com/self.png');
+    expect(avatar).toHaveAttribute('data-title', 'Viewer');
+  });
+
+  it('hides the author avatar outside workspaces', () => {
+    useTopicNavigationMock.mockReturnValue({
+      isInAgentSubRoute: false,
+      isInTopicContextRoute: false,
+      navigateToTopic: vi.fn(),
+      routeTopicId: undefined,
+    });
+
+    render(
+      <TopicItem
+        author={{ avatar: 'https://example.com/alice.png', fullName: 'Alice', id: 'user-alice' }}
+        id="tpc_test"
+        title="Topic"
+      />,
+    );
+
+    expect(screen.queryByTestId('author-avatar')).not.toBeInTheDocument();
   });
 
   it('keeps the current topic highlighted on topic page sub-routes', () => {

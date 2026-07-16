@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../../core/getTestDB';
@@ -94,6 +95,67 @@ describe('TopicModel - Query', () => {
       ).resolves.toMatchObject({
         items: [expect.objectContaining({ id: 'workspace-topic' })],
         total: 1,
+      });
+    });
+
+    describe('author hydration', () => {
+      it('should attach each author profile to workspace topics', async () => {
+        await serverDB.insert(workspaces).values({
+          id: 'author-workspace',
+          name: 'Workspace',
+          primaryOwnerId: userId,
+          slug: 'author-workspace',
+        });
+        await serverDB
+          .update(users)
+          .set({ avatar: 'https://example.com/alice.png', fullName: 'Alice' })
+          .where(eq(users.id, userId));
+        await serverDB.update(users).set({ username: 'bob' }).where(eq(users.id, userId2));
+        await serverDB.insert(agents).values([{ id: 'author-agent', title: 'Agent', userId }]);
+        await serverDB.insert(topics).values([
+          {
+            agentId: 'author-agent',
+            id: 'author-mine',
+            updatedAt: new Date('2024-01-02'),
+            userId,
+            workspaceId: 'author-workspace',
+          },
+          {
+            agentId: 'author-agent',
+            id: 'author-teammate',
+            updatedAt: new Date('2024-01-01'),
+            userId: userId2,
+            workspaceId: 'author-workspace',
+          },
+        ]);
+
+        const result = await new TopicModel(serverDB, userId, 'author-workspace').query({
+          agentId: 'author-agent',
+        });
+
+        expect(result.items).toHaveLength(2);
+        expect(result.items[0]).toMatchObject({
+          author: {
+            avatar: 'https://example.com/alice.png',
+            fullName: 'Alice',
+            id: userId,
+            username: null,
+          },
+          id: 'author-mine',
+        });
+        expect(result.items[1]).toMatchObject({
+          author: { avatar: null, fullName: null, id: userId2, username: 'bob' },
+          id: 'author-teammate',
+        });
+      });
+
+      it('should skip author hydration in personal mode', async () => {
+        await serverDB.insert(topics).values([{ id: 'author-personal', sessionId, userId }]);
+
+        const result = await topicModel.query({ containerId: sessionId });
+
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0]).not.toHaveProperty('author');
       });
     });
 

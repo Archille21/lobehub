@@ -45,6 +45,7 @@ const GroupItem = memo<GroupItemComponentProps>(({ group, activeTopicId, activeT
           <TopicItem
             showWorkingDirectory
             active={activeTopicId === topic.id}
+            author={topic.author}
             fav={topic.favorite}
             id={topic.id}
             key={topic.id}

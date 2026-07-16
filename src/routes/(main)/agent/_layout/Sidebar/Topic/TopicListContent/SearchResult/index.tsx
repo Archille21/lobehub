@@ -33,6 +33,7 @@ const SearchResult = memo(() => {
       {topics.map((topic) => (
         <TopicItem
           active={activeTopicId === topic.id}
+          author={topic.author}
           fav={topic.favorite}
           id={topic.id}
           key={topic.id}

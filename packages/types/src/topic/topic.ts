@@ -461,7 +461,23 @@ export const chatTopicStatusSchema = z.enum(TOPIC_STATUSES);
 
 export type ChatTopicStatus = z.infer<typeof chatTopicStatusSchema>;
 
+/**
+ * Profile of the workspace member who created a topic. Hydrated server-side
+ * (LEFT-JOIN semantics: `null` when the author account was deleted) only in
+ * workspace mode — personal lists skip it, every topic there is the viewer's.
+ *
+ * Mirrors {@link MessageSender} for the user message bubble.
+ */
+export interface ChatTopicAuthor {
+  avatar?: string | null;
+  fullName?: string | null;
+  id: string;
+  username?: string | null;
+}
+
 export interface ChatTopic extends Omit<BaseDataModel, 'meta'> {
+  /** Workspace-only: profile of the member who created the topic. */
+  author?: ChatTopicAuthor | null;
   completedAt?: Date | null;
   /** Server-side mock until real cost aggregation lands. */
   cost?: number | null;

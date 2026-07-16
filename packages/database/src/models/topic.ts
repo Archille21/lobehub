@@ -1,4 +1,5 @@
 import type {
+  ChatTopicAuthor,
   ChatTopicMetadata,
   ChatTopicStatus,
   DBMessageItem,
@@ -32,7 +33,15 @@ import {
 } from 'drizzle-orm';
 
 import type { TopicItem } from '../schemas';
-import { agents, messagePlugins, messages, threads, topicDocuments, topics } from '../schemas';
+import {
+  agents,
+  messagePlugins,
+  messages,
+  threads,
+  topicDocuments,
+  topics,
+  users,
+} from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import { sanitizeBm25Query } from '../utils/bm25';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
@@ -231,6 +240,44 @@ export class TopicModel {
 
   private messageOwnership = () =>
     buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, messages);
+
+  /**
+   * Workspace topic lists mix rows from every member, so hydrate each row with
+   * its author's profile (avatar / names) for at-a-glance attribution — the
+   * topic-list counterpart of the message model's `sender` join. Personal mode
+   * returns rows untouched: every topic there belongs to the viewer, and the
+   * sidebar list is a hot path that shouldn't pay an extra lookup.
+   */
+  private attachAuthors = async <T extends { userId?: string | null }>(
+    items: T[],
+  ): Promise<(T & { author?: ChatTopicAuthor | null })[]> => {
+    if (!this.workspaceId || items.length === 0) return items;
+
+    const userIds = Array.from(
+      new Set(items.map((item) => item.userId).filter((id): id is string => !!id)),
+    );
+    if (userIds.length === 0) return items;
+
+    const authors = await this.db
+      .select({
+        avatar: users.avatar,
+        fullName: users.fullName,
+        id: users.id,
+        username: users.username,
+      })
+      .from(users)
+      .where(inArray(users.id, userIds));
+    const authorMap = new Map(authors.map((author) => [author.id, author]));
+
+    // LEFT-JOIN semantics: a deleted author collapses to `null` so the client
+    // can rely on `author?.id` as the presence check (same contract as the
+    // message model's `sender`).
+    return items.map((item) => ({
+      ...item,
+      author: item.userId ? (authorMap.get(item.userId) ?? null) : null,
+    }));
+  };
+
   // **************** Query *************** //
 
   query = async ({
@@ -365,6 +412,8 @@ export class TopicModel {
                 // rename/favorite edit still shows its real edit time. See rankTopics for
                 // the same activity-time pattern. (LOBE-11543)
                 sortUpdatedAt: topicActivityAt,
+                // Author attribution for workspace lists — see attachAuthors.
+                userId: topics.userId,
                 ...detailColumns,
               } as any)
               .from(topics)
@@ -387,7 +436,7 @@ export class TopicModel {
         stageMs: getDurationMs(queryStartedAt),
         total: totalResult[0].count,
       });
-      return { items, total: totalResult[0].count };
+      return { items: await this.attachAuthors(items), total: totalResult[0].count };
     }
 
     // If agentId is provided, match topics by `topics.agentId` directly. The
@@ -435,6 +484,8 @@ export class TopicModel {
                 // rename/favorite edit still shows its real edit time. See rankTopics for
                 // the same activity-time pattern. (LOBE-11543)
                 sortUpdatedAt: topicActivityAt,
+                // Author attribution for workspace lists — see attachAuthors.
+                userId: topics.userId,
                 ...detailColumns,
               } as any)
               .from(topics)
@@ -461,7 +512,7 @@ export class TopicModel {
         stageMs: getDurationMs(queryStartedAt),
         total: totalResult[0].count,
       });
-      return { items, total: totalResult[0].count };
+      return { items: await this.attachAuthors(items), total: totalResult[0].count };
     }
 
     // Fallback to containerId-based query (backward compatibility)
@@ -501,6 +552,8 @@ export class TopicModel {
               // rename/favorite edit still shows its real edit time. See rankTopics for
               // the same activity-time pattern. (LOBE-11543)
               sortUpdatedAt: topicActivityAt,
+              // Author attribution for workspace lists — see attachAuthors.
+              userId: topics.userId,
               ...detailColumns,
             } as any)
             .from(topics)
@@ -528,7 +581,7 @@ export class TopicModel {
       total: totalResult[0].count,
     });
 
-    return { items: cleanItems, total: totalResult[0].count };
+    return { items: await this.attachAuthors(cleanItems), total: totalResult[0].count };
   };
 
   findById = async (id: string) => {
@@ -696,7 +749,7 @@ export class TopicModel {
     ]);
     // If no topics found by message content, return topics matching by title
     if (topicIdsByMessages.length === 0) {
-      return topicsByTitle;
+      return this.attachAuthors(topicsByTitle);
     }
 
     // Query topics found by message content
@@ -720,8 +773,8 @@ export class TopicModel {
     }
 
     // Sort by update time
-    return allTopics.sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+    return this.attachAuthors(
+      allTopics.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()),
     );
   };
   count = async (params?: {
