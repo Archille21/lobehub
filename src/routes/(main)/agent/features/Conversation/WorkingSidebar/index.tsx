@@ -5,7 +5,7 @@ import {
   FolderOpen,
   GitCompareArrows,
   Globe,
-  LibraryBig,
+  Orbit,
   PanelRightCloseIcon,
   PanelsTopLeft,
   SlidersHorizontal,
@@ -182,7 +182,7 @@ const AgentWorkingSidebar = memo(() => {
   const toolTabs = useMemo<WorkingSidebarToolTab[]>(
     () => [
       ...businessTabs.map((tab) => ({ icon: PanelsTopLeft, key: tab.key, label: tab.label })),
-      { icon: LibraryBig, key: 'resources', label: t('workingPanel.space') },
+      { icon: Orbit, key: 'resources', label: t('workingPanel.space') },
       { icon: ClipboardListIcon, key: 'works', label: t('workingPanel.works.title') },
       ...(reviewAvailable
         ? [{ icon: GitCompareArrows, key: 'review', label: t('workingPanel.review.title') }]
