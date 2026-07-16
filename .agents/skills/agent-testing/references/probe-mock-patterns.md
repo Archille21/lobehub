@@ -1396,3 +1396,36 @@ nodeintegration, plugins, disablewebsecurity, allowpopups, preload, …`). The h
 - **Works**: use client observables (`messages.model`, thread ids, and chat-store operations) for web;
   use CLI/server execution and `agent_operations` for the server runtime. A change affecting both paths
   needs evidence from both paths.
+
+### D21. Headed web-session `agent-browser screenshot` HANGS when the display is asleep — wake it; raw-CDP fallback can't attach past the daemon
+
+- **Situation**: `agent-browser --session <s> screenshot` on a HEADED web session hangs past the
+  command timeout and eventually fails with the D8 fingerprint (`Resource temporarily
+unavailable (os error 35)`), repeatedly, while `eval`/`get`/`open` on the same session work
+  fine. Restarting the daemon (`close --all` + re-seed) does not help — the fresh session's
+  screenshot hangs the same way.
+- **Cause (measured)**: the display was asleep. `check-screen-recording.sh` returned BLACK FRAME
+  with permission OK. A headed Chrome stops producing compositor frames when the display sleeps,
+  and the daemon's screenshot path waits on a fresh frame. D9's "CDP capture is immune to
+  display sleep" was verified for the Electron raw-CDP one-shot, and does NOT extend to the
+  daemon's screenshot on a headed web browser.
+- **Doesn't work**: raw-CDP fallback against the same browser. Both the `/devtools/page/<id>`
+  endpoint and the `/devtools/browser/<uuid>` endpoint accept the WebSocket but never answer
+  commands — the playwright daemon holds the (single-client) debugger connection. `Target.getTargets`
+  via a fresh browser-endpoint connection also stays silent.
+- **Works**: wake and hold the display — `caffeinate -u -t 3` then keep `caffeinate -dimsu &`
+  running for the capture session. The previously-hung screenshot RPC completes within seconds
+  of the display waking. Gate long headed-web capture runs on `check-screen-recording.sh` even
+  though no OS capture is involved.
+
+### D22. Hovering a nav row shifts its `extra`-slot targets — re-measure coordinates AFTER the row hover
+
+- **Situation**: hovering a small element (e.g. an avatar) sitting in a NavItem-style row's
+  `extra` slot via pre-measured coordinates. The row's hover-revealed actions expand from width
+  0 on hover, pushing the `extra` content leftward — so coordinates (and even a
+  covered-element check on the tagged node) measured before the hover point at the actions
+  button instead, and tooltip/hover assertions come back empty.
+- **Works**: two-step hover — first `mouse move` onto the row body (actions expand), then
+  re-read the target's `getBoundingClientRect()` and move to the fresh center. Note the app's
+  tooltips may render without `role=tooltip`; assert by scanning for the expected text node
+  (TreeWalker) rather than a role query.
