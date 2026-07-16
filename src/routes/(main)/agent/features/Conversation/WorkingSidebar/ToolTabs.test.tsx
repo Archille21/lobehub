@@ -86,4 +86,23 @@ describe('WorkingSidebar ToolTabs', () => {
 
     expect(onChange).toHaveBeenCalledWith('resources');
   });
+
+  it('does not select the tab when its close button is activated from the keyboard', () => {
+    const onChange = vi.fn();
+    window.localStorage.setItem(
+      'lobechat-working-sidebar-open-tabs',
+      JSON.stringify(['resources', 'files']),
+    );
+
+    render(<ToolTabs activeKey="resources" availableTabs={tabs} onChange={onChange} />);
+
+    const closeButton = screen.getAllByTitle('workingPanel.tabs.close')[1];
+    fireEvent.keyDown(closeButton, { key: 'Enter' });
+
+    expect(onChange).not.toHaveBeenCalled();
+
+    // Browsers synthesize this click after keyboard activation of a button.
+    fireEvent.click(closeButton);
+    expect(screen.getAllByRole('tab')).toHaveLength(1);
+  });
 });

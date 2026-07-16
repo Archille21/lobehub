@@ -189,6 +189,7 @@ const ToolTabs = memo<ToolTabsProps>(({ activeKey, availableTabs, onChange }) =>
               tabIndex={0}
               onClick={() => onChange(tab.key)}
               onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+                if (event.target !== event.currentTarget) return;
                 if (event.key !== 'Enter' && event.key !== ' ') return;
                 event.preventDefault();
                 onChange(tab.key);
