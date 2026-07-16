@@ -31,6 +31,63 @@ export interface FileStorePort {
   createS3PreSignedUrl: (input: { pathname: string }) => Promise<string | { url: string }>;
 }
 
+export interface UploadBufferToFileStoreParams {
+  buffer: Buffer;
+  /** File name recorded on the file record (display name, not the S3 key). */
+  fileName: string;
+  mimeType: string;
+}
+
+/**
+ * Content-addressed upload of a buffer through a {@link FileStorePort}:
+ * SHA-256 hash → `checkFileHash` dedup → presigned PUT → `createFile`.
+ * Returns the created file record's `{ fileId, url }` (`url` is the stored
+ * pathname, resolvable server-side via FileService).
+ */
+export const uploadBufferToFileStore = async (
+  port: FileStorePort,
+  { buffer, fileName, mimeType }: UploadBufferToFileStoreParams,
+): Promise<{ fileId: string; url: string }> => {
+  const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+  const ext = fileName.includes('.') ? fileName.split('.').pop()! : 'bin';
+  const date = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
+
+  // Dedup: if the same bytes are already stored (and the object still
+  // exists), skip the S3 upload entirely and reuse the existing pathname.
+  const existing = await port.checkFileHash({ hash });
+
+  let pathname: string;
+  if (existing?.isExist && existing.url) {
+    pathname = existing.url;
+  } else {
+    pathname = `files/${date}/${hash}.${ext}`;
+    const presigned = await port.createS3PreSignedUrl({ pathname });
+    const presignedUrl = typeof presigned === 'string' ? presigned : presigned.url;
+
+    const uploadRes = await fetch(presignedUrl, {
+      // Buffer<ArrayBufferLike> isn't assignable to BodyInit, but a Buffer is
+      // always a valid fetch body at runtime.
+      body: buffer as unknown as BodyInit,
+      headers: { 'Content-Type': mimeType },
+      method: 'PUT',
+    });
+    if (!uploadRes.ok) {
+      throw new Error(`Upload failed: ${uploadRes.status} ${uploadRes.statusText}`);
+    }
+  }
+
+  const record = await port.createFile({
+    fileType: mimeType,
+    hash,
+    metadata: { date, dirname: '', filename: fileName, path: pathname },
+    name: fileName,
+    size: buffer.length,
+    url: pathname,
+  });
+
+  return { fileId: record.id, url: record.url };
+};
+
 /**
  * Build the {@link UploadHeterogeneousImage} hook `AgentStreamPipeline` calls
  * for each base64 image a tool_result echoes (CC `Read` on an image file).
@@ -46,41 +103,11 @@ export const createFileStoreImageUploader =
     if (!port) return undefined;
 
     const buffer = Buffer.from(data, 'base64');
-    const hash = crypto.createHash('sha256').update(buffer).digest('hex');
     const ext = IMAGE_EXT_BY_MEDIA_TYPE[mediaType] ?? 'png';
-    const fileName = `cc-read-image.${ext}`;
-    const date = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
 
-    // Dedup: if the same bytes are already stored (and the object still
-    // exists), skip the S3 upload entirely and reuse the existing pathname.
-    const existing = await port.checkFileHash({ hash });
-
-    let pathname: string;
-    if (existing?.isExist && existing.url) {
-      pathname = existing.url;
-    } else {
-      pathname = `files/${date}/${hash}.${ext}`;
-      const presigned = await port.createS3PreSignedUrl({ pathname });
-      const presignedUrl = typeof presigned === 'string' ? presigned : presigned.url;
-
-      const uploadRes = await fetch(presignedUrl, {
-        body: buffer,
-        headers: { 'Content-Type': mediaType },
-        method: 'PUT',
-      });
-      if (!uploadRes.ok) {
-        throw new Error(`Upload failed: ${uploadRes.status} ${uploadRes.statusText}`);
-      }
-    }
-
-    const record = await port.createFile({
-      fileType: mediaType,
-      hash,
-      metadata: { date, dirname: '', filename: fileName, path: pathname },
-      name: fileName,
-      size: buffer.length,
-      url: pathname,
+    return uploadBufferToFileStore(port, {
+      buffer,
+      fileName: `cc-read-image.${ext}`,
+      mimeType: mediaType,
     });
-
-    return { fileId: record.id, url: record.url };
   };

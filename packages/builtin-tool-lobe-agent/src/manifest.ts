@@ -27,7 +27,8 @@ export const LobeAgentManifest: BuiltinToolManifest = {
             type: 'array',
           },
           urls: {
-            description: 'Direct image or video URLs to analyze when no message file ref exists.',
+            description:
+              'Direct image or video URLs to analyze when no message file ref exists. When the run has an active device, absolute local file paths or file:// URLs on that device are also accepted — they are uploaded automatically.',
             items: {
               type: 'string',
             },

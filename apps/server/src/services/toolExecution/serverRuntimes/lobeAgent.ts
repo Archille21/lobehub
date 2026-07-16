@@ -9,12 +9,21 @@ import {
   createVisualFileItems,
   formatVisualMediaUrlValidationError,
   hasUserVisualFiles,
+  inferVisualTypeFromMimeType,
   LobeAgentIdentifier,
+  MAX_VISUAL_MEDIA_URLS,
   normalizeAnalyzeVisualMediaInput,
+  partitionLocalVisualMediaUrls,
   PlanExecutionRuntime,
   selectVisualFileItems,
+  toLocalVisualMediaPath,
   validateVisualMediaUrls,
 } from '@lobechat/builtin-tool-lobe-agent';
+import {
+  LocalSystemApiName,
+  LocalSystemIdentifier,
+  type UploadLocalFilesState,
+} from '@lobechat/builtin-tool-local-system';
 import { UserInteractionExecutionRuntime } from '@lobechat/builtin-tool-user-interaction/executionRuntime';
 import type { LobeChatDatabase } from '@lobechat/database';
 import type { ChatStreamPayload } from '@lobechat/model-runtime';
@@ -25,10 +34,12 @@ import { RequestTrigger } from '@lobechat/types';
 import { MessageModel } from '@/database/models/message';
 import { toolsEnv } from '@/envs/tools';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { deviceGateway } from '@/server/services/deviceGateway';
 import { FileService } from '@/server/services/file';
 
 import type { ToolExecutionContext } from '../types';
 import { createServerPlanRuntimeService } from './lobeAgentPlan';
+import { resolveRunWorkspaceId } from './resolveWorkspaceScope';
 import type { ServerRuntimeRegistration } from './types';
 
 interface AnalyzeVisualMediaParams {
@@ -60,6 +71,12 @@ const buildError = (content: string, code: string): BuiltinServerRuntimeOutput =
   error: { code, message: content },
   success: false,
 });
+
+/**
+ * Media uploads move whole files off the device, so give them more headroom
+ * than a regular tool round-trip regardless of the step's own timeout.
+ */
+const DEVICE_VISUAL_UPLOAD_TIMEOUT_MS = 120_000;
 
 const getModelAbilities = async (model: string, provider: string) => {
   const { loadModels } = await import('@/business/client/model-bank/loadModels');
@@ -236,8 +253,90 @@ class LobeAgentExecutionRuntime {
     return Promise.resolve([sourceMessage]);
   };
 
+  /**
+   * Bridge device-local media into the file store so the vision model can see
+   * it: tunnel an `uploadFiles` call to the run's active device (which reads
+   * the bytes and pushes them through the presign/PUT/createFile flow), then
+   * swap each local path for the uploaded file's access URL. Without this,
+   * every route from a server-side tool to a device file is a dead end —
+   * `file://` is unfetchable, the device's localhost is SSRF-blocked, and
+   * data-URL round-trips blow up tool-call payloads.
+   */
+  private uploadLocalVisualMedia = async (
+    localPaths: string[],
+    ctx?: ToolExecutionContext,
+  ): Promise<{ error: BuiltinServerRuntimeOutput } | { items: VisualFileItem[] }> => {
+    if (!ctx?.activeDeviceId) {
+      return {
+        error: buildError(
+          `Local file paths (${localPaths.join(', ')}) can only be analyzed when this run has an active device, and none is active. ` +
+            'Pass http(s) URLs or visual file refs instead, or ask the user to connect their device.',
+          'LOCAL_VISUAL_MEDIA_NO_DEVICE',
+        ),
+      };
+    }
+
+    const uploadError = (detail: string) => ({
+      error: buildError(
+        `Failed to upload local visual media from the device: ${detail}`,
+        'LOCAL_VISUAL_MEDIA_UPLOAD_FAILED',
+      ),
+    });
+
+    let result;
+    try {
+      result = await deviceGateway.executeToolCall(
+        {
+          deviceId: ctx.activeDeviceId,
+          operationId: ctx.operationId,
+          userId: this.userId,
+          workspaceId: await resolveRunWorkspaceId(ctx),
+        },
+        {
+          apiName: LocalSystemApiName.uploadFiles,
+          arguments: JSON.stringify({ paths: localPaths.map(toLocalVisualMediaPath) }),
+          identifier: LocalSystemIdentifier,
+        },
+        Math.max(ctx.executionTimeoutMs ?? 0, DEVICE_VISUAL_UPLOAD_TIMEOUT_MS),
+      );
+    } catch (e) {
+      return uploadError(e instanceof Error ? e.message : String(e));
+    }
+
+    const files = (result.state as UploadLocalFilesState | undefined)?.files;
+
+    if (!files || files.length === 0) {
+      return uploadError(
+        typeof result.content === 'string' && result.content ? result.content : 'unknown error',
+      );
+    }
+
+    const failed = files.filter((file) => file.error || !file.fileId);
+    if (failed.length > 0) {
+      return uploadError(
+        failed.map((file) => `${file.path} (${file.error ?? 'no file record'})`).join('; '),
+      );
+    }
+
+    const fileService = new FileService(this.db, this.userId, this.workspaceId);
+    const items = await Promise.all(
+      files.map(async (file, index): Promise<VisualFileItem> => ({
+        description: file.name,
+        id: file.fileId,
+        localRef: `local_${index + 1}`,
+        name: file.name,
+        ref: `local_${index + 1}`,
+        type: inferVisualTypeFromMimeType(file.mimeType),
+        uri: await fileService.getFileAccessUrl({ id: file.fileId, url: file.url ?? null }),
+      })),
+    );
+
+    return { items };
+  };
+
   analyzeVisualMedia = async (
     params: AnalyzeVisualMediaParams,
+    ctx?: ToolExecutionContext,
   ): Promise<BuiltinServerRuntimeOutput> => {
     const provider = toolsEnv.VISUAL_UNDERSTANDING_PROVIDER;
     const model = toolsEnv.VISUAL_UNDERSTANDING_MODEL;
@@ -263,13 +362,30 @@ class LobeAgentExecutionRuntime {
       );
     }
 
-    const urlValidation = validateVisualMediaUrls(requestedUrls);
+    // Device-local entries (file://, absolute or ~/ paths) can never be
+    // fetched from the server — split them off and bridge them through the
+    // run's active device instead of failing URL validation.
+    const { localPaths, remoteUrls } = partitionLocalVisualMediaUrls(requestedUrls);
+
+    const urlValidation = validateVisualMediaUrls(remoteUrls);
+    urlValidation.totalUrls = requestedUrls.length;
+    urlValidation.tooManyUrls = requestedUrls.length > MAX_VISUAL_MEDIA_URLS;
     const urlValidationError = formatVisualMediaUrlValidationError(urlValidation);
     if (urlValidationError) {
       return buildError(urlValidationError, 'UNSUPPORTED_VISUAL_MEDIA_URLS');
     }
 
-    const selectedUrlItems = createUrlVisualFileItems(urlValidation.validUrls);
+    let localFileItems: VisualFileItem[] = [];
+    if (localPaths.length > 0) {
+      const bridged = await this.uploadLocalVisualMedia(localPaths, ctx);
+      if ('error' in bridged) return bridged.error;
+      localFileItems = bridged.items;
+    }
+
+    const selectedUrlItems = [
+      ...createUrlVisualFileItems(urlValidation.validUrls),
+      ...localFileItems,
+    ];
     let selectedRefItems: VisualFileItem[] = [];
 
     if (requestedRefs.length > 0) {

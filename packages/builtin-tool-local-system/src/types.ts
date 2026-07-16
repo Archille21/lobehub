@@ -25,8 +25,34 @@ export const LocalSystemApiName = {
   readFile: 'readFile',
   runCommand: 'runCommand',
   searchFiles: 'searchFiles',
+  // Server-internal API (not in the LLM-facing manifest): uploads device-local
+  // files to the LobeHub file store so server-side tools (e.g. visual analysis)
+  // can access them by URL. Dispatched directly via the device gateway.
+  uploadFiles: 'uploadFiles',
   writeFile: 'writeFile',
 } as const;
+
+// ==================== uploadFiles (server-internal) ====================
+
+export interface UploadLocalFilesParams {
+  paths: string[];
+}
+
+export interface UploadedLocalFileResult {
+  /** Per-file failure reason; the other fields are unset when present. */
+  error?: string;
+  fileId?: string;
+  mimeType?: string;
+  name: string;
+  path: string;
+  size?: number;
+  /** The stored file record's url (S3 pathname), resolvable via FileService. */
+  url?: string;
+}
+
+export interface UploadLocalFilesState {
+  files: UploadedLocalFileResult[];
+}
 
 export interface FileResult {
   contentType?: string;

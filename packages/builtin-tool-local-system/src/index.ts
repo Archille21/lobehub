@@ -15,4 +15,7 @@ export {
   LocalSystemApiName,
   LocalSystemIdentifier,
   type RunCommandState,
+  type UploadedLocalFileResult,
+  type UploadLocalFilesParams,
+  type UploadLocalFilesState,
 } from './types';

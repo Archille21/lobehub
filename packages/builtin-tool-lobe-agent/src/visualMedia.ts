@@ -23,6 +23,8 @@ const VIDEO_URL_PATTERN = /\.(?:mp4|m4v|mov|webm|mpeg|mpg|avi|mkv)(?:[?#]|$)/i;
 const VISUAL_DATA_URL_PATTERN = /^data:(?:image|video)\//i;
 const ALLOWED_REMOTE_VISUAL_MEDIA_URL_PROTOCOLS = new Set(['http:', 'https:']);
 const ANALYZE_VISUAL_MEDIA_ARGUMENT_KEYS = new Set(['question', 'refs', 'urls']);
+const WINDOWS_DRIVE_PATH_PATTERN = /^[A-Z]:[\\/]/i;
+const FILE_URL_WINDOWS_PATH_PATTERN = /^\/(?=[A-Z]:[\\/])/i;
 
 export const MAX_VISUAL_MEDIA_URLS = 8;
 export const MAX_VISUAL_MEDIA_URL_LENGTH = 2_000_000;
@@ -61,6 +63,44 @@ export const normalizeAnalyzeVisualMediaInput = (
 
 export const getUnexpectedAnalyzeVisualMediaArgumentKeys = (params: Record<PropertyKey, unknown>) =>
   Object.keys(params).filter((key) => !ANALYZE_VISUAL_MEDIA_ARGUMENT_KEYS.has(key));
+
+/**
+ * A "local" visual media entry points at the executing device's disk instead of
+ * a fetchable URL: `file://` URLs, POSIX absolute / home-relative paths, or
+ * Windows drive paths. These can never be fetched by the server — they must be
+ * uploaded from the device first (see the server runtime's device bridge).
+ */
+export const isLocalVisualMediaPath = (value: string) => {
+  if (value.startsWith('file://')) return true;
+  if (value.startsWith('/') || value.startsWith('~/')) return true;
+
+  return WINDOWS_DRIVE_PATH_PATTERN.test(value);
+};
+
+/** Convert a `file://` URL into the plain absolute path the device expects. */
+export const toLocalVisualMediaPath = (value: string) => {
+  if (!value.startsWith('file://')) return value;
+
+  try {
+    const pathname = decodeURIComponent(new URL(value).pathname);
+
+    // `file:///C:/...` parses to a pathname of `/C:/...` — drop the leading slash.
+    return pathname.replace(FILE_URL_WINDOWS_PATH_PATTERN, '');
+  } catch {
+    return value.replace(/^file:\/\//, '');
+  }
+};
+
+export const partitionLocalVisualMediaUrls = (urls: string[]) => {
+  const localPaths: string[] = [];
+  const remoteUrls: string[] = [];
+
+  for (const url of urls) {
+    (isLocalVisualMediaPath(url) ? localPaths : remoteUrls).push(url);
+  }
+
+  return { localPaths, remoteUrls };
+};
 
 export const isAllowedVisualMediaUrl = (url: string) => {
   try {
@@ -189,6 +229,9 @@ export const createVisualFileItems = (
     };
   }),
 ];
+
+export const inferVisualTypeFromMimeType = (mimeType?: string): VisualFileItem['type'] =>
+  mimeType?.toLowerCase().startsWith('video/') ? 'video' : 'image';
 
 export const inferVisualTypeFromUrl = (url: string): VisualFileItem['type'] => {
   if (/^data:video\//i.test(url)) return 'video';

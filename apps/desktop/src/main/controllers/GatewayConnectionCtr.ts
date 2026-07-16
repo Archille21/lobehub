@@ -24,8 +24,10 @@ import type {
   RunCommandParams,
   WriteLocalFileParams,
 } from '@lobechat/electron-client-ipc';
+import { uploadBufferToFileStore } from '@lobechat/heterogeneous-agents/spawn';
 import { type ILocalSystemService, LocalSystemExecutionRuntime } from '@lobechat/tool-runtime';
 
+import { createLambdaFileStorePort } from '@/modules/heterogeneousAgent/fileStorePort';
 import GatewayConnectionService from '@/services/gatewayConnectionSrv';
 import ImessageBridgeService from '@/services/imessageBridgeSrv';
 import { createLogger } from '@/utils/logger';
@@ -103,6 +105,53 @@ interface BuiltinServerRuntimeOutput {
   state?: unknown;
   success: boolean;
 }
+
+/**
+ * Local mirrors of the `uploadFiles` shapes in
+ * `@lobechat/builtin-tool-local-system` (server-internal API — see the zero
+ * builtin-tool-deps note on `BrowserIdentifier` above for why not imported).
+ */
+interface UploadLocalFilesParams {
+  paths?: string[];
+}
+
+interface UploadedLocalFileResult {
+  error?: string;
+  fileId?: string;
+  mimeType?: string;
+  name: string;
+  path: string;
+  size?: number;
+  url?: string;
+}
+
+/** Per-file cap for server-requested media uploads (matches vision use cases). */
+const UPLOAD_LOCAL_FILE_MAX_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Media types the server-side visual bridge can consume. Deliberately narrow:
+ * this API exists so server tools can look at device media, not as a generic
+ * file exfiltration channel.
+ */
+const UPLOAD_LOCAL_FILE_MIME_BY_EXT: Record<string, string> = {
+  avi: 'video/x-msvideo',
+  bmp: 'image/bmp',
+  gif: 'image/gif',
+  heic: 'image/heic',
+  jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  m4v: 'video/x-m4v',
+  mkv: 'video/x-matroska',
+  mov: 'video/quicktime',
+  mp4: 'video/mp4',
+  mpeg: 'video/mpeg',
+  mpg: 'video/mpeg',
+  png: 'image/png',
+  svg: 'image/svg+xml',
+  tiff: 'image/tiff',
+  webm: 'video/webm',
+  webp: 'image/webp',
+};
 
 /**
  * Legacy API name aliases used by older gateway versions. Normalized to the
@@ -596,12 +645,115 @@ export default class GatewayConnectionCtr extends ControllerModule {
         return { content: json, state: safeJsonParse(json), success: true };
       }
 
+      case 'uploadFiles': {
+        return this.uploadLocalFilesForServer(args as UploadLocalFilesParams);
+      }
+
       default: {
         throw new Error(
           `Tool "${apiName}" is not available on this device. It may not be supported in the current desktop version. Please skip this tool and try alternative approaches.`,
         );
       }
     }
+  }
+
+  /**
+   * Upload device-local media files into the LobeHub file store, on behalf of
+   * a server-side tool (the visual-analysis local-media bridge). The server
+   * can't reach this disk, so it tunnels an `uploadFiles` call here; we read
+   * the bytes, push them through the presign/PUT/createFile flow, and hand
+   * back `{ fileId, url }` refs the server resolves into access URLs.
+   *
+   * Per-file failures land as `error` entries so the model can fix a single
+   * bad path without the whole batch failing.
+   */
+  private async uploadLocalFilesForServer(
+    params: UploadLocalFilesParams,
+  ): Promise<BuiltinServerRuntimeOutput> {
+    const paths = Array.isArray(params?.paths)
+      ? params.paths.filter((p): p is string => typeof p === 'string' && p.length > 0)
+      : [];
+
+    if (paths.length === 0) {
+      const message = 'uploadFiles requires a non-empty "paths" array.';
+      return { content: message, error: { code: 'INVALID_ARGUMENTS', message }, success: false };
+    }
+
+    const remoteServerConfigCtr = this.app.getController(RemoteServerConfigCtr);
+    const port = await createLambdaFileStorePort({
+      getAccessToken: () => remoteServerConfigCtr.getAccessToken(),
+      getServerUrl: async () => (await remoteServerConfigCtr.getRemoteServerUrl()) ?? null,
+    });
+
+    if (!port) {
+      const message =
+        'This device is not signed in to a remote LobeHub server, so it cannot upload files.';
+      return { content: message, error: { code: 'NO_FILE_STORE', message }, success: false };
+    }
+
+    const files: UploadedLocalFileResult[] = await Promise.all(
+      paths.map(async (rawPath): Promise<UploadedLocalFileResult> => {
+        const resolvedPath = rawPath.startsWith('~/')
+          ? path.join(os.homedir(), rawPath.slice(2))
+          : rawPath;
+        const name = path.basename(resolvedPath);
+
+        try {
+          const stat = await fs.promises.stat(resolvedPath);
+          if (!stat.isFile()) {
+            return { error: 'Not a regular file.', name, path: rawPath };
+          }
+          if (stat.size > UPLOAD_LOCAL_FILE_MAX_BYTES) {
+            return {
+              error: `File is ${stat.size} bytes, exceeding the ${UPLOAD_LOCAL_FILE_MAX_BYTES} byte upload limit.`,
+              name,
+              path: rawPath,
+            };
+          }
+
+          const ext = path.extname(resolvedPath).slice(1).toLowerCase();
+          const mimeType = UPLOAD_LOCAL_FILE_MIME_BY_EXT[ext];
+          if (!mimeType) {
+            return {
+              error: `Unsupported media type ".${ext}". Only image/video files can be uploaded.`,
+              name,
+              path: rawPath,
+            };
+          }
+
+          const buffer = await fs.promises.readFile(resolvedPath);
+          const { fileId, url } = await uploadBufferToFileStore(port, {
+            buffer,
+            fileName: name,
+            mimeType,
+          });
+
+          return { fileId, mimeType, name, path: rawPath, size: stat.size, url };
+        } catch (error) {
+          logger.error(`uploadFiles failed for ${resolvedPath}:`, error);
+          return {
+            error: error instanceof Error ? error.message : String(error),
+            name,
+            path: rawPath,
+          };
+        }
+      }),
+    );
+
+    const failed = files.filter((f) => f.error);
+    const content = JSON.stringify({ files });
+
+    return {
+      content,
+      ...(failed.length > 0 && {
+        error: {
+          code: 'UPLOAD_PARTIAL_FAILURE',
+          message: `${failed.length}/${files.length} file(s) failed to upload.`,
+        },
+      }),
+      state: { files },
+      success: failed.length === 0,
+    };
   }
 
   /**

@@ -8,10 +8,14 @@ import {
   filterAllowedVisualMediaUrls,
   formatVisualMediaUrlValidationError,
   hasUserVisualFiles,
+  inferVisualTypeFromMimeType,
+  isLocalVisualMediaPath,
   MAX_VISUAL_MEDIA_URL_LENGTH,
   MAX_VISUAL_MEDIA_URLS,
   normalizeStringArray,
+  partitionLocalVisualMediaUrls,
   selectVisualFileItems,
+  toLocalVisualMediaPath,
   validateVisualMediaUrls,
 } from './visualMedia';
 
@@ -186,5 +190,46 @@ describe('visualMedia', () => {
         role: 'assistant',
       }),
     ).toBe(false);
+  });
+
+  it('should detect device-local visual media paths', () => {
+    expect(isLocalVisualMediaPath('file:///Users/me/frame.png')).toBe(true);
+    expect(isLocalVisualMediaPath('/Users/me/frame.png')).toBe(true);
+    expect(isLocalVisualMediaPath('~/Desktop/frame.png')).toBe(true);
+    expect(isLocalVisualMediaPath('C:\\Users\\me\\frame.png')).toBe(true);
+    expect(isLocalVisualMediaPath('D:/media/frame.png')).toBe(true);
+
+    expect(isLocalVisualMediaPath('https://example.com/frame.png')).toBe(false);
+    expect(isLocalVisualMediaPath('data:image/png;base64,abcd')).toBe(false);
+    expect(isLocalVisualMediaPath('frame.png')).toBe(false);
+  });
+
+  it('should convert file urls to plain device paths', () => {
+    expect(toLocalVisualMediaPath('file:///Users/me/my%20frame.png')).toBe(
+      '/Users/me/my frame.png',
+    );
+    expect(toLocalVisualMediaPath('file:///C:/media/frame.png')).toBe('C:/media/frame.png');
+    expect(toLocalVisualMediaPath('/Users/me/frame.png')).toBe('/Users/me/frame.png');
+    expect(toLocalVisualMediaPath('~/Desktop/frame.png')).toBe('~/Desktop/frame.png');
+  });
+
+  it('should partition local paths from remote urls', () => {
+    expect(
+      partitionLocalVisualMediaUrls([
+        'https://example.com/frame.png',
+        'file:///Users/me/frame.png',
+        '/Users/me/other.png',
+        'data:image/png;base64,abcd',
+      ]),
+    ).toEqual({
+      localPaths: ['file:///Users/me/frame.png', '/Users/me/other.png'],
+      remoteUrls: ['https://example.com/frame.png', 'data:image/png;base64,abcd'],
+    });
+  });
+
+  it('should infer visual type from mime type', () => {
+    expect(inferVisualTypeFromMimeType('video/mp4')).toBe('video');
+    expect(inferVisualTypeFromMimeType('image/png')).toBe('image');
+    expect(inferVisualTypeFromMimeType(undefined)).toBe('image');
   });
 });

@@ -14,6 +14,7 @@ const mockMessageModelQuery = vi.hoisted(() => vi.fn());
 const mockChat = vi.hoisted(() => vi.fn());
 const mockInitModelRuntimeFromDB = vi.hoisted(() => vi.fn());
 const mockConsumeStreamUntilDone = vi.hoisted(() => vi.fn());
+const mockDeviceExecuteToolCall = vi.hoisted(() => vi.fn());
 const mockBuiltinModels = vi.hoisted(() => [
   {
     abilities: { video: true, vision: true },
@@ -40,8 +41,16 @@ vi.mock('@/database/models/message', () => ({
 
 vi.mock('@/server/services/file', () => ({
   FileService: vi.fn().mockImplementation(() => ({
+    getFileAccessUrl: ({ id }: { id?: string | null }) =>
+      Promise.resolve(`https://files.test/${id}`),
     getFullFileUrl: (path: string | null) => Promise.resolve(path || ''),
   })),
+}));
+
+vi.mock('@/server/services/deviceGateway', () => ({
+  deviceGateway: {
+    executeToolCall: (...args: any[]) => mockDeviceExecuteToolCall(...args),
+  },
 }));
 
 vi.mock('@/server/modules/ModelRuntime', () => ({
@@ -287,6 +296,134 @@ describe('lobeAgentRuntime', () => {
     expect(result.content).toContain(`At most ${MAX_VISUAL_MEDIA_URLS} URLs are supported`);
     expect(mockMessageModelQueryByIds).not.toHaveBeenCalled();
     expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('should reject local file paths when the run has no active device', async () => {
+    const runtime = lobeAgentRuntime.factory(baseContext);
+
+    const result = await runtime.analyzeVisualMedia(
+      {
+        question: 'what is this?',
+        urls: ['file:///Users/me/frame.png'],
+      },
+      baseContext,
+    );
+
+    expect(result).toMatchObject({
+      error: { code: 'LOCAL_VISUAL_MEDIA_NO_DEVICE' },
+      success: false,
+    });
+    expect(result.content).toContain('file:///Users/me/frame.png');
+    expect(mockDeviceExecuteToolCall).not.toHaveBeenCalled();
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('should upload local file paths through the active device and analyze them', async () => {
+    mockDeviceExecuteToolCall.mockResolvedValue({
+      content: '',
+      state: {
+        files: [
+          {
+            fileId: 'file-abc',
+            mimeType: 'image/png',
+            name: 'frame.png',
+            path: '/Users/me/frame.png',
+            size: 123,
+            url: 'files/2026-07-16/hash.png',
+          },
+        ],
+      },
+      success: true,
+    });
+    const deviceContext: ToolExecutionContext = { ...baseContext, activeDeviceId: 'device-1' };
+    const runtime = lobeAgentRuntime.factory(deviceContext);
+
+    const result = await runtime.analyzeVisualMedia(
+      {
+        question: 'what is this?',
+        urls: ['file:///Users/me/frame.png', 'https://example.com/remote.png'],
+      },
+      deviceContext,
+    );
+
+    expect(result.success).toBe(true);
+    expect(mockDeviceExecuteToolCall).toHaveBeenCalledWith(
+      expect.objectContaining({ deviceId: 'device-1', userId: 'user-1' }),
+      expect.objectContaining({
+        apiName: 'uploadFiles',
+        arguments: JSON.stringify({ paths: ['/Users/me/frame.png'] }),
+        identifier: 'lobe-local-system',
+      }),
+      expect.any(Number),
+    );
+    expect(result.state).toMatchObject({
+      files: [
+        { name: 'remote.png', ref: 'url_1', type: 'image' },
+        { id: 'file-abc', name: 'frame.png', ref: 'local_1', type: 'image' },
+      ],
+    });
+    expect(mockChat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            content: expect.arrayContaining([
+              expect.objectContaining({
+                image_url: { detail: 'auto', url: 'https://files.test/file-abc' },
+                type: 'image_url',
+              }),
+            ]),
+          }),
+        ],
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('should surface per-file device upload failures', async () => {
+    mockDeviceExecuteToolCall.mockResolvedValue({
+      content: '',
+      state: {
+        files: [{ error: 'File not found.', name: 'missing.png', path: '/Users/me/missing.png' }],
+      },
+      success: false,
+    });
+    const deviceContext: ToolExecutionContext = { ...baseContext, activeDeviceId: 'device-1' };
+    const runtime = lobeAgentRuntime.factory(deviceContext);
+
+    const result = await runtime.analyzeVisualMedia(
+      {
+        question: 'what is this?',
+        urls: ['/Users/me/missing.png'],
+      },
+      deviceContext,
+    );
+
+    expect(result).toMatchObject({
+      error: { code: 'LOCAL_VISUAL_MEDIA_UPLOAD_FAILED' },
+      success: false,
+    });
+    expect(result.content).toContain('/Users/me/missing.png (File not found.)');
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('should surface a device dispatch failure as an upload error', async () => {
+    mockDeviceExecuteToolCall.mockRejectedValue(new Error('Device is offline'));
+    const deviceContext: ToolExecutionContext = { ...baseContext, activeDeviceId: 'device-1' };
+    const runtime = lobeAgentRuntime.factory(deviceContext);
+
+    const result = await runtime.analyzeVisualMedia(
+      {
+        question: 'what is this?',
+        urls: ['~/Desktop/frame.png'],
+      },
+      deviceContext,
+    );
+
+    expect(result).toMatchObject({
+      error: { code: 'LOCAL_VISUAL_MEDIA_UPLOAD_FAILED' },
+      success: false,
+    });
+    expect(result.content).toContain('Device is offline');
   });
 
   it('should allow http and visual data direct media urls', async () => {
