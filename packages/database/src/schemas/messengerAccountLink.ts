@@ -13,9 +13,10 @@ import { workspaces } from './workspace';
  * client (`/agents` + `/switch <n>`) or the web UI without re-running the
  * verify-im flow per agent.
  *
- * Distinct from `agent_bot_providers` (per-user-deployed bots): the bot
- * itself is shared (credentials in env), and the routing key is the IM
- * account, not the agent.
+ * Most platforms use a shared bot whose credentials live outside this table.
+ * Account-scoped credential platforms keep encrypted connection credentials
+ * on this aggregate so they cannot outlive or be shared independently from
+ * the bound IM identity.
  */
 export const messengerAccountLinks = pgTable(
   'messenger_account_links',
@@ -48,6 +49,15 @@ export const messengerAccountLinks = pgTable(
 
     /** Optional platform-side display name (Telegram @username, Slack real_name, etc.) */
     platformUsername: text('platform_username'),
+
+    /** Optional platform-side application or bot identifier for this account connection. */
+    applicationId: varchar('application_id', { length: 255 }),
+
+    /**
+     * Encrypted platform credential JSON for account-scoped connections.
+     * Ordinary account-link queries must omit this column from their projection.
+     */
+    credentials: text('credentials'),
 
     /**
      * Currently selected agent for this IM session. Nullable so a fresh link
