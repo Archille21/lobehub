@@ -85,7 +85,6 @@
   "inPopup.focus": "聚焦独立窗口",
   "inPopup.title": "已在独立窗口中打开",
   "info.title": "主题信息",
-  "info.updatedAt": "更新于 {{time}}",
   "info.updatedBy": "最后由 {{name}} 更新",
   "loadMore": "更多",
   "management.actions.newChat": "新对话",

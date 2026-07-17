@@ -27,6 +27,7 @@ const agentStore = vi.hoisted(() => ({
 
 const reviewState = vi.hoisted(() => ({
   repoType: undefined as string | undefined,
+  setRepoType: undefined as ((repoType?: string) => void) | undefined,
   showTree: false,
   workingDirectory: undefined as string | undefined,
 }));
@@ -90,9 +91,17 @@ vi.mock('@/business/client/features/WorkingSidebarTabs', () => ({
   useBusinessWorkingSidebarTabs: () => [],
 }));
 
-vi.mock('@/features/ChatInput/ControlBar/useRepoType', () => ({
-  useRepoType: () => reviewState.repoType,
-}));
+vi.mock('@/features/ChatInput/ControlBar/useRepoType', async () => {
+  const { useState } = await import('react');
+
+  return {
+    useRepoType: () => {
+      const [repoType, setRepoType] = useState(reviewState.repoType);
+      reviewState.setRepoType = setRepoType;
+      return repoType;
+    },
+  };
+});
 vi.mock('@/hooks/useEffectiveWorkingDirectory', () => ({
   useEffectiveWorkingDirectory: () => reviewState.workingDirectory,
 }));
@@ -120,6 +129,7 @@ beforeEach(() => {
   agentStore.activeAgentId = undefined;
   agentStore.isLocalSystemEnabled = false;
   reviewState.repoType = undefined;
+  reviewState.setRepoType = undefined;
   reviewState.showTree = false;
   reviewState.workingDirectory = undefined;
   globalStore.status.workingSidebarWidth = 360;
@@ -261,5 +271,28 @@ describe('AgentWorkingSidebar — tab strip', () => {
 
     expect(worksTab).toHaveAttribute('aria-pressed', 'true');
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+  });
+
+  it('reveals the active tab again when an async tab becomes available', () => {
+    agentStore.activeAgentId = 'agent';
+    agentStore.isLocalSystemEnabled = true;
+    reviewState.workingDirectory = '/repo';
+    globalStore.status.workingSidebarTab = 'params';
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      return this instanceof HTMLButtonElement && this.getAttribute('aria-pressed') === 'true'
+        ? ({ left: 220, right: 280 } as DOMRect)
+        : ({ left: 0, right: 200 } as DOMRect);
+    });
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, 'scrollIntoView')
+      .mockImplementation(() => undefined);
+
+    render(<AgentWorkingSidebar />);
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+
+    act(() => reviewState.setRepoType?.('git'));
+
+    expect(screen.getByRole('button', { name: 'workingPanel.review.title' })).toBeInTheDocument();
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
   });
 });

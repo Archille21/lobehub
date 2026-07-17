@@ -200,6 +200,7 @@ const AgentWorkingSidebar = memo(() => {
     ...(paramsAvailable ? ['params'] : []),
     ...businessTabs.map((tab) => tab.key),
   ]);
+  const availableTabsSignature = JSON.stringify([...availableTabs]);
 
   const resolveActiveTab = (): string => {
     if (storedTab && availableTabs.has(storedTab)) return storedTab;
@@ -230,7 +231,7 @@ const AgentWorkingSidebar = memo(() => {
     if (!isVisible) {
       activeTabButton.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
     }
-  }, [activeTab, storedWidth]);
+  }, [activeTab, availableTabsSignature, storedWidth]);
 
   // Review's tree-nav rail lives here (not inside Review) so the panel can widen
   // when the two-pane layout is on. Hidden by default — the panel shows only the

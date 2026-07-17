@@ -99,7 +99,6 @@ export default {
   'importLoading': 'Importing topics...',
   'importSuccess': 'Successfully imported {{count}} messages',
   'info.title': 'Topic Info',
-  'info.updatedAt': 'Updated at {{time}}',
   'info.updatedBy': 'Last updated by {{name}}',
   'inPopup.description':
     'This topic is currently open in a separate window. Continue the conversation there to keep messages in sync.',
