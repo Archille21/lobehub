@@ -40,8 +40,8 @@ import Files from './Files';
 import ProgressSection from './ProgressSection';
 import ResourcesSection from './ResourcesSection';
 import Review from './Review';
-import WorksSection from './WorksSection';
 import ToolTabs, { type WorkingSidebarToolTab } from './ToolTabs';
+import WorksSection from './WorksSection';
 
 const ParamsSection = lazy(() => import('./ParamsSection'));
 const BrowserPane = lazy(() => import('./Browser'));
