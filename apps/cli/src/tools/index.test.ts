@@ -18,11 +18,21 @@ vi.mock('../utils/logger', () => ({
   },
 }));
 
+const mockUploadLocalFile = vi.hoisted(() => vi.fn());
+vi.mock('../utils/uploadLocalFile', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, uploadLocalFile: (...args: any[]) => mockUploadLocalFile(...args) };
+});
+vi.mock('../api/client', () => ({
+  getTrpcClient: vi.fn().mockResolvedValue({}),
+}));
+
 describe('executeToolCall', () => {
   const tmpDir = path.join(os.tmpdir(), 'cli-tool-dispatch-test-' + process.pid);
 
   beforeEach(async () => {
     await mkdir(tmpDir, { recursive: true });
+    mockUploadLocalFile.mockClear();
   });
 
   afterEach(() => {
@@ -132,6 +142,41 @@ describe('executeToolCall', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Unknown tool API');
+  });
+
+  it('should dispatch uploadFiles and carry per-file state', async () => {
+    const filePath = path.join(tmpDir, 'frame.png');
+    await writeFile(filePath, 'not-really-png-bytes');
+    mockUploadLocalFile.mockResolvedValue({ id: 'file-xyz', url: 'files/2026/hash.png' });
+
+    const result = await executeToolCall('uploadFiles', JSON.stringify({ paths: [filePath] }));
+
+    expect(result.success).toBe(true);
+    expect(mockUploadLocalFile).toHaveBeenCalledWith(expect.anything(), filePath);
+    expect((result.state as { files: any[] }).files[0]).toMatchObject({
+      fileId: 'file-xyz',
+      mimeType: 'image/png',
+      name: 'frame.png',
+      url: 'files/2026/hash.png',
+    });
+  });
+
+  it('should reject non-media files in uploadFiles without failing the whole batch', async () => {
+    const badPath = path.join(tmpDir, 'notes.txt');
+    await writeFile(badPath, 'text');
+
+    const result = await executeToolCall('uploadFiles', JSON.stringify({ paths: [badPath] }));
+
+    expect(result.success).toBe(false);
+    expect(mockUploadLocalFile).not.toHaveBeenCalled();
+    expect((result.state as { files: any[] }).files[0].error).toContain('Unsupported media type');
+  });
+
+  it('should error when uploadFiles receives no paths', async () => {
+    const result = await executeToolCall('uploadFiles', JSON.stringify({ paths: [] }));
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('non-empty');
   });
 
   it('should carry structured state on file reads', async () => {

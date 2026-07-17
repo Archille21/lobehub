@@ -4,6 +4,7 @@ import { getAgentProfile } from './getAgentProfile';
 import { cancelHeteroTask, runHeteroTask } from './heteroTask';
 import { executeToolCallInWorker, shouldRunInWorker } from './isolatedWorker';
 import { runLocalSystemTool } from './localSystemRuntime';
+import { uploadFiles } from './uploadFiles';
 
 /**
  * CLI-only tools (platform agents). File/shell tools are handled separately by
@@ -42,6 +43,14 @@ export async function executeToolCall(
     typeof timeout === 'number' && Number.isFinite(timeout) && !('timeout' in args)
       ? { ...args, timeout }
       : args;
+
+  // Server-internal media upload bridge (visual-analysis local-media path).
+  // Returns a full envelope with per-file `state`, so it bypasses both the
+  // local-system runtime and the raw-payload `methodMap` serialization below.
+  if (apiName === 'uploadFiles') {
+    const { content, error, state, success } = await uploadFiles(finalArgs);
+    return { content, error, state, success };
+  }
 
   try {
     // File/shell tools route through LocalSystemExecutionRuntime so `content` is
