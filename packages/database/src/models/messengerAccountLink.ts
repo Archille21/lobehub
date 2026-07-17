@@ -127,12 +127,13 @@ export class MessengerAccountLinkModel {
     gateKeeper?: GateKeeper,
   ): Promise<SafeMessengerAccountLink> => {
     const { credentials, ...linkParams } = params;
-    if (credentials && !gateKeeper) {
-      throw new Error('GateKeeper is required to persist messenger credentials');
+    let credentialsCipher: string | undefined;
+    if (credentials) {
+      if (!gateKeeper) {
+        throw new Error('GateKeeper is required to persist messenger credentials');
+      }
+      credentialsCipher = await encryptCredentials(credentials, gateKeeper);
     }
-    const credentialsCipher = credentials
-      ? await encryptCredentials(credentials, gateKeeper)
-      : undefined;
     const tenantId = params.tenantId ?? GLOBAL_TENANT_ID;
     const now = new Date();
 
