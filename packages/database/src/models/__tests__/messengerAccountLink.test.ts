@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../core/getTestDB';
@@ -125,6 +126,83 @@ describe('MessengerAccountLinkModel', () => {
       expect(second.platformUsername).toBe('@new');
       // activeAgentId stays since the second call didn't override it.
       expect(second.activeAgentId).toBe(agentA);
+    });
+
+    it('stores account-scoped credentials encrypted while keeping ordinary reads secret-free', async () => {
+      const ciphertext = new Map<string, string>();
+      let sequence = 0;
+      const gateKeeper = {
+        decrypt: async (value: string) => ({ plaintext: ciphertext.get(value) ?? '' }),
+        encrypt: async (plaintext: string) => {
+          const value = `encrypted-${++sequence}`;
+          ciphertext.set(value, plaintext);
+          return value;
+        },
+      };
+      const model = new MessengerAccountLinkModel(serverDB, userA);
+      const first = await model.upsertForPlatform(
+        {
+          activeAgentId: agentA,
+          applicationId: 'account-app',
+          credentials: { secret: 'secret-v1' },
+          platform: 'account-scoped',
+          platformUserId: 'account-user',
+          tenantId: 'account-user',
+        },
+        gateKeeper,
+      );
+
+      expect(first).not.toHaveProperty('credentials');
+      expect(await model.list()).toEqual([
+        expect.not.objectContaining({ credentials: expect.anything() }),
+      ]);
+      const ordinaryReads = await Promise.all([
+        model.findByPlatform('account-scoped', 'account-user'),
+        model.findById(first.id),
+        MessengerAccountLinkModel.findByPlatformUser(
+          serverDB,
+          'account-scoped',
+          'account-user',
+          'account-user',
+        ),
+      ]);
+      for (const row of ordinaryReads) {
+        expect(row).not.toHaveProperty('credentials');
+      }
+
+      const [stored] = await serverDB
+        .select({ credentials: messengerAccountLinks.credentials })
+        .from(messengerAccountLinks)
+        .where(eq(messengerAccountLinks.id, first.id));
+      expect(stored.credentials).toBe('encrypted-1');
+
+      const resolved = await MessengerAccountLinkModel.findByPlatformUserWithCredentials(
+        serverDB,
+        {
+          applicationId: 'account-app',
+          platform: 'account-scoped',
+          platformUserId: 'account-user',
+          tenantId: 'account-user',
+        },
+        gateKeeper,
+      );
+      expect(resolved?.credentials).toEqual({ secret: 'secret-v1' });
+
+      const refreshed = await model.upsertForPlatform(
+        {
+          applicationId: 'account-app',
+          credentials: { secret: 'secret-v2' },
+          platform: 'account-scoped',
+          platformUserId: 'account-user',
+          tenantId: 'account-user',
+        },
+        gateKeeper,
+      );
+      expect(refreshed.id).toBe(first.id);
+      expect(refreshed.activeAgentId).toBe(agentA);
+
+      const updated = await model.findByIdWithCredentials(first.id, 'account-scoped', gateKeeper);
+      expect(updated?.credentials).toEqual({ secret: 'secret-v2' });
     });
 
     it('throws MessengerAccountLinkRelinkRequiredError when re-linking a different account in the same scope', async () => {

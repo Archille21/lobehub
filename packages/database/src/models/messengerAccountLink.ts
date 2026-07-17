@@ -1,8 +1,53 @@
-import { and, eq, type SQL } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import type { MessengerAccountLinkItem, NewMessengerAccountLink } from '../schemas';
 import { messengerAccountLinks } from '../schemas';
 import type { LobeChatDatabase } from '../type';
+
+interface GateKeeper {
+  decrypt: (ciphertext: string) => Promise<{ plaintext: string }>;
+  encrypt: (plaintext: string) => Promise<string>;
+}
+
+export interface DecryptedMessengerAccountLink extends Omit<
+  MessengerAccountLinkItem,
+  'credentials'
+> {
+  credentials: Record<string, unknown>;
+}
+
+export type SafeMessengerAccountLink = Omit<MessengerAccountLinkItem, 'credentials'>;
+
+interface UpsertMessengerAccountLinkParams extends Omit<
+  NewMessengerAccountLink,
+  'credentials' | 'id' | 'userId'
+> {
+  /** Plaintext JSON. The model encrypts it before persistence. */
+  credentials?: Record<string, unknown>;
+}
+
+interface CredentialLookupParams {
+  applicationId?: string;
+  platform: string;
+  platformUserId: string;
+  tenantId?: string;
+}
+
+const safeLinkColumns = {
+  accessedAt: messengerAccountLinks.accessedAt,
+  activeAgentId: messengerAccountLinks.activeAgentId,
+  applicationId: messengerAccountLinks.applicationId,
+  createdAt: messengerAccountLinks.createdAt,
+  id: messengerAccountLinks.id,
+  platform: messengerAccountLinks.platform,
+  platformUserId: messengerAccountLinks.platformUserId,
+  platformUsername: messengerAccountLinks.platformUsername,
+  tenantId: messengerAccountLinks.tenantId,
+  updatedAt: messengerAccountLinks.updatedAt,
+  userId: messengerAccountLinks.userId,
+  workspaceId: messengerAccountLinks.workspaceId,
+};
 
 /**
  * Tenant id for global-token platforms (Telegram today, Discord later) —
@@ -78,8 +123,13 @@ export class MessengerAccountLinkModel {
    * Returns the resulting link row.
    */
   upsertForPlatform = async (
-    params: Omit<NewMessengerAccountLink, 'userId' | 'id'>,
-  ): Promise<MessengerAccountLinkItem> => {
+    params: UpsertMessengerAccountLinkParams,
+    gateKeeper?: GateKeeper,
+  ): Promise<SafeMessengerAccountLink> => {
+    const { credentials, ...linkParams } = params;
+    const credentialsCipher = credentials
+      ? await encryptCredentials(credentials, gateKeeper)
+      : undefined;
     const tenantId = params.tenantId ?? GLOBAL_TENANT_ID;
     const now = new Date();
 
@@ -90,7 +140,8 @@ export class MessengerAccountLinkModel {
       const [created] = await this.db
         .insert(messengerAccountLinks)
         .values({
-          ...params,
+          ...linkParams,
+          credentials: credentialsCipher,
           tenantId,
           updatedAt: now,
           userId: this.userId,
@@ -103,7 +154,7 @@ export class MessengerAccountLinkModel {
             messengerAccountLinks.tenantId,
           ],
         })
-        .returning();
+        .returning(safeLinkColumns);
 
       if (created) return created;
     } catch (error) {
@@ -137,12 +188,14 @@ export class MessengerAccountLinkModel {
         .update(messengerAccountLinks)
         .set({
           activeAgentId: params.activeAgentId ?? byIdentity.activeAgentId,
+          applicationId: params.applicationId ?? byIdentity.applicationId,
+          ...(credentialsCipher === undefined ? {} : { credentials: credentialsCipher }),
           platformUsername: params.platformUsername ?? null,
           updatedAt: now,
           workspaceId: params.workspaceId ?? null,
         })
         .where(eq(messengerAccountLinks.id, byIdentity.id))
-        .returning();
+        .returning(safeLinkColumns);
       return updated;
     }
 
@@ -156,12 +209,14 @@ export class MessengerAccountLinkModel {
         .update(messengerAccountLinks)
         .set({
           activeAgentId: params.activeAgentId ?? existingForUser.activeAgentId,
+          applicationId: params.applicationId ?? existingForUser.applicationId,
+          ...(credentialsCipher === undefined ? {} : { credentials: credentialsCipher }),
           platformUsername: params.platformUsername ?? null,
           updatedAt: now,
           workspaceId: params.workspaceId ?? null,
         })
         .where(eq(messengerAccountLinks.id, existingForUser.id))
-        .returning();
+        .returning(safeLinkColumns);
       return updated;
     }
 
@@ -182,8 +237,8 @@ export class MessengerAccountLinkModel {
     return this.db.delete(messengerAccountLinks).where(and(...conditions));
   };
 
-  list = async (): Promise<MessengerAccountLinkItem[]> => {
-    return this.db.select().from(messengerAccountLinks).where(this.ownership());
+  list = async (): Promise<SafeMessengerAccountLink[]> => {
+    return this.db.select(safeLinkColumns).from(messengerAccountLinks).where(this.ownership());
   };
 
   /**
@@ -195,18 +250,53 @@ export class MessengerAccountLinkModel {
   findByPlatform = async (
     platform: string,
     tenantId?: string,
-  ): Promise<MessengerAccountLinkItem | undefined> => {
+  ): Promise<SafeMessengerAccountLink | undefined> => {
     const conditions: SQL[] = [this.ownership(), eq(messengerAccountLinks.platform, platform)];
     if (tenantId !== undefined) {
       conditions.push(eq(messengerAccountLinks.tenantId, tenantId));
     }
 
     const [result] = await this.db
-      .select()
+      .select(safeLinkColumns)
       .from(messengerAccountLinks)
       .where(and(...conditions))
       .limit(1);
     return result;
+  };
+
+  findById = async (
+    id: string,
+    platform?: string,
+  ): Promise<SafeMessengerAccountLink | undefined> => {
+    const conditions: SQL[] = [this.ownership(), eq(messengerAccountLinks.id, id)];
+    if (platform) conditions.push(eq(messengerAccountLinks.platform, platform));
+
+    const [result] = await this.db
+      .select(safeLinkColumns)
+      .from(messengerAccountLinks)
+      .where(and(...conditions))
+      .limit(1);
+    return result;
+  };
+
+  /** Server-only lookup for a user-owned connection credential. */
+  findByIdWithCredentials = async (
+    id: string,
+    platform: string,
+    gateKeeper?: GateKeeper,
+  ): Promise<DecryptedMessengerAccountLink | undefined> => {
+    const [result] = await this.db
+      .select()
+      .from(messengerAccountLinks)
+      .where(
+        and(
+          this.ownership(),
+          eq(messengerAccountLinks.id, id),
+          eq(messengerAccountLinks.platform, platform),
+        ),
+      )
+      .limit(1);
+    return result ? decryptRow(result, gateKeeper) : undefined;
   };
 
   /**
@@ -219,7 +309,7 @@ export class MessengerAccountLinkModel {
     agentId: string | null,
     workspaceId: string | null,
     tenantId?: string,
-  ): Promise<MessengerAccountLinkItem | undefined> => {
+  ): Promise<SafeMessengerAccountLink | undefined> => {
     const conditions: SQL[] = [this.ownership(), eq(messengerAccountLinks.platform, platform)];
     if (tenantId !== undefined) {
       conditions.push(eq(messengerAccountLinks.tenantId, tenantId));
@@ -229,7 +319,7 @@ export class MessengerAccountLinkModel {
       .update(messengerAccountLinks)
       .set({ activeAgentId: agentId, updatedAt: new Date(), workspaceId })
       .where(and(...conditions))
-      .returning();
+      .returning(safeLinkColumns);
 
     return updated;
   };
@@ -250,9 +340,9 @@ export class MessengerAccountLinkModel {
     platform: string,
     platformUserId: string,
     tenantId: string = GLOBAL_TENANT_ID,
-  ): Promise<MessengerAccountLinkItem | undefined> => {
+  ): Promise<SafeMessengerAccountLink | undefined> => {
     const [result] = await db
-      .select()
+      .select(safeLinkColumns)
       .from(messengerAccountLinks)
       .where(
         and(
@@ -266,17 +356,45 @@ export class MessengerAccountLinkModel {
     return result;
   };
 
+  /**
+   * Server-only credential resolver for platforms whose secret is owned by
+   * the account link itself. Ordinary routing lookups use the safe projection
+   * above and therefore cannot accidentally expose ciphertext.
+   */
+  static findByPlatformUserWithCredentials = async (
+    db: LobeChatDatabase,
+    params: CredentialLookupParams,
+    gateKeeper?: GateKeeper,
+  ): Promise<DecryptedMessengerAccountLink | undefined> => {
+    const tenantId = params.tenantId ?? GLOBAL_TENANT_ID;
+    const conditions: SQL[] = [
+      eq(messengerAccountLinks.platform, params.platform),
+      eq(messengerAccountLinks.tenantId, tenantId),
+      eq(messengerAccountLinks.platformUserId, params.platformUserId),
+    ];
+    if (params.applicationId) {
+      conditions.push(eq(messengerAccountLinks.applicationId, params.applicationId));
+    }
+
+    const [result] = await db
+      .select()
+      .from(messengerAccountLinks)
+      .where(and(...conditions))
+      .limit(1);
+    return result ? decryptRow(result, gateKeeper) : undefined;
+  };
+
   /** Static setter used by IM `/switch` (no user-scope context, but trusted by sender match). */
   static setActiveAgentById = async (
     db: LobeChatDatabase,
     linkId: string,
     agentId: string | null,
-  ): Promise<MessengerAccountLinkItem | undefined> => {
+  ): Promise<SafeMessengerAccountLink | undefined> => {
     const [updated] = await db
       .update(messengerAccountLinks)
       .set({ activeAgentId: agentId, updatedAt: new Date() })
       .where(eq(messengerAccountLinks.id, linkId))
-      .returning();
+      .returning(safeLinkColumns);
     return updated;
   };
 
@@ -293,12 +411,37 @@ export class MessengerAccountLinkModel {
     linkId: string,
     workspaceId: string | null,
     agentId: string | null = null,
-  ): Promise<MessengerAccountLinkItem | undefined> => {
+  ): Promise<SafeMessengerAccountLink | undefined> => {
     const [updated] = await db
       .update(messengerAccountLinks)
       .set({ activeAgentId: agentId, updatedAt: new Date(), workspaceId })
       .where(eq(messengerAccountLinks.id, linkId))
-      .returning();
+      .returning(safeLinkColumns);
     return updated;
   };
+}
+
+async function encryptCredentials(
+  credentials: Record<string, unknown>,
+  gateKeeper?: GateKeeper,
+): Promise<string> {
+  const json = JSON.stringify(credentials);
+  if (!gateKeeper) return json;
+  return gateKeeper.encrypt(json);
+}
+
+async function decryptRow(
+  row: MessengerAccountLinkItem,
+  gateKeeper?: GateKeeper,
+): Promise<DecryptedMessengerAccountLink> {
+  if (!row.credentials) return { ...row, credentials: {} };
+
+  try {
+    const credentials = gateKeeper
+      ? JSON.parse((await gateKeeper.decrypt(row.credentials)).plaintext)
+      : JSON.parse(row.credentials);
+    return { ...row, credentials };
+  } catch {
+    return { ...row, credentials: {} };
+  }
 }
