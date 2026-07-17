@@ -1,9 +1,9 @@
 'use client';
 
-import type { DropdownItem } from '@lobehub/ui';
-import { Block, Flexbox, Icon, Text } from '@lobehub/ui';
-import { confirmModal, type ModalInstance } from '@lobehub/ui/base-ui';
+import { Flexbox, Icon, Text } from '@lobehub/ui';
+import { confirmModal, type DropdownItem, type ModalInstance } from '@lobehub/ui/base-ui';
 import { App } from 'antd';
+import { cssVar } from 'antd-style';
 import {
   Clock3Icon,
   Copy,
@@ -25,6 +25,7 @@ import { openRenameModal } from '@/components/RenameModal';
 import { DOCUMENT_HISTORY_QUERY_LIST_LIMIT } from '@/const/documentHistory';
 import { isDesktop } from '@/const/version';
 import { confirmRemoveTopic } from '@/features/DeleteTopicConfirm';
+import { formatPageEditorInfoTime } from '@/features/PageEditor/formatPageEditorInfoTime';
 import { openDocumentCompareModal } from '@/features/PageEditor/History/CompareModal';
 import { formatHistoryAbsoluteTime } from '@/features/PageEditor/History/formatHistoryDate';
 import type {
@@ -38,35 +39,26 @@ import { useDocumentStore } from '@/store/document';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 
-interface TopicInfoHeaderProps {
+interface TopicInfoFooterProps {
   authorName: string;
-  title: string;
-  updatedAtLabel?: string;
+  updatedAt?: string;
 }
 
-const TopicInfoHeader = ({ authorName, title, updatedAtLabel }: TopicInfoHeaderProps) => (
-  <Block
-    horizontal
-    align={'center'}
-    gap={12}
-    paddingBlock={8}
-    paddingInline={12}
-    style={{ minWidth: 240 }}
-    variant={'borderless'}
-  >
-    <Flexbox flex={1} gap={2} style={{ minWidth: 0, overflow: 'hidden' }}>
-      <Text ellipsis style={{ lineHeight: 1.4 }} weight={'bold'}>
-        {title}
+const TopicInfoFooter = ({ authorName, updatedAt }: TopicInfoFooterProps) => (
+  <Flexbox gap={0} style={{ minWidth: 240 }}>
+    <Text ellipsis color={cssVar.colorTextTertiary} fontSize={12} style={{ lineHeight: 1.6 }}>
+      {authorName}
+    </Text>
+    {updatedAt && (
+      <Text ellipsis color={cssVar.colorTextTertiary} fontSize={12} style={{ lineHeight: 1.6 }}>
+        {updatedAt}
       </Text>
-      <Text ellipsis fontSize={12} style={{ lineHeight: 1.4 }} type={'secondary'}>
-        {updatedAtLabel ? `${authorName} ${updatedAtLabel}` : authorName}
-      </Text>
-    </Flexbox>
-  </Block>
+    )}
+  </Flexbox>
 );
 
-export const useMenu = (): { menuHeader?: ReactNode; menuItems: DropdownItem[] } => {
-  const { t } = useTranslation(['chat', 'topic', 'common', 'file']);
+export const useMenu = (): { menuFooter?: ReactNode; menuItems: DropdownItem[] } => {
+  const { i18n, t } = useTranslation(['chat', 'topic', 'common', 'file']);
   const { message } = App.useApp();
   const { pathname } = useLocation();
 
@@ -183,31 +175,29 @@ export const useMenu = (): { menuHeader?: ReactNode; menuItems: DropdownItem[] }
   const topicId = activeTopic?.id;
   const topicTitle = activeTopic?.title ?? '';
   const isFavorite = !!activeTopic?.favorite;
-  const menuHeader = useMemo<ReactNode | undefined>(() => {
+  const menuFooter = useMemo<ReactNode | undefined>(() => {
     if (!authorInfo?.fullName || !topicId) return undefined;
 
-    const updatedAt = activeTopic?.updatedAt;
-    const formattedDate = updatedAt
-      ? new Date(updatedAt).toLocaleString(undefined, {
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-        })
-      : '';
-    const updatedAtLabel = formattedDate
-      ? t('info.updatedAt', { ns: 'topic', time: formattedDate })
-      : undefined;
+    const dateLocale = i18n.resolvedLanguage || i18n.language;
+    const updatedAt = formatPageEditorInfoTime(
+      activeTopic?.updatedAt ? new Date(activeTopic.updatedAt) : undefined,
+      dateLocale,
+    );
 
     return (
-      <TopicInfoHeader
-        authorName={authorInfo.fullName}
-        title={t('info.title', { ns: 'topic' })}
-        updatedAtLabel={updatedAtLabel}
+      <TopicInfoFooter
+        authorName={t('info.updatedBy', { name: authorInfo.fullName, ns: 'topic' })}
+        updatedAt={updatedAt}
       />
     );
-  }, [activeTopic?.updatedAt, authorInfo?.fullName, topicId, t]);
+  }, [
+    activeTopic?.updatedAt,
+    authorInfo?.fullName,
+    i18n.language,
+    i18n.resolvedLanguage,
+    topicId,
+    t,
+  ]);
 
   const menuItems = useMemo<DropdownItem[]>(() => {
     const items: DropdownItem[] = [];
@@ -350,5 +340,5 @@ export const useMenu = (): { menuHeader?: ReactNode; menuItems: DropdownItem[] }
     message,
   ]);
 
-  return { menuHeader, menuItems };
+  return { menuFooter, menuItems };
 };

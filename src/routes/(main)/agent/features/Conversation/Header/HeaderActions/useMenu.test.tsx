@@ -47,7 +47,15 @@ vi.mock('antd', () => ({
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (key: string, options?: { ns?: string }) => `${options?.ns ? `${options.ns}:` : ''}${key}`,
+    i18n: {
+      language: 'en-US',
+      resolvedLanguage: 'en-US',
+    },
+    t: (key: string, options?: { name?: string; ns?: string }) => {
+      if (key === 'info.updatedBy') return `Last updated by ${options?.name}`;
+
+      return `${options?.ns ? `${options.ns}:` : ''}${key}`;
+    },
   }),
 }));
 
@@ -140,7 +148,7 @@ describe('Conversation header action menu', () => {
     expect(popupItem).toBeUndefined();
   });
 
-  it('renders topic info in the dropdown header above menu actions', () => {
+  it('renders topic info as explanatory text in the dropdown footer', () => {
     useLocationMock.mockReturnValue({ pathname: '/agent/agent-1' });
 
     const { result } = renderHook(() => useMenu());
@@ -150,11 +158,12 @@ describe('Conversation header action menu', () => {
     );
 
     expect(topicInfoItem).toBeUndefined();
-    expect(result.current.menuHeader).toBeDefined();
+    expect(result.current.menuFooter).toBeDefined();
 
-    render(result.current.menuHeader);
+    render(result.current.menuFooter);
 
-    expect(screen.getByText('topic:info.title')).toBeInTheDocument();
-    expect(screen.getByText(/Miao Miao.*topic:info.updatedAt/)).toBeInTheDocument();
+    expect(screen.queryByText('topic:info.title')).not.toBeInTheDocument();
+    expect(screen.getByText('Last updated by Miao Miao')).toBeInTheDocument();
+    expect(screen.getByText(/2026/)).toBeInTheDocument();
   });
 });

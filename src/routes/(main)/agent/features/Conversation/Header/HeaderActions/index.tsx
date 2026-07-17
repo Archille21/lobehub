@@ -1,6 +1,7 @@
 'use client';
 
-import { ActionIcon, DropdownMenu } from '@lobehub/ui';
+import { ActionIcon } from '@lobehub/ui';
+import { DropdownMenu } from '@lobehub/ui/base-ui';
 import { MoreHorizontal } from 'lucide-react';
 import { memo } from 'react';
 
@@ -9,12 +10,12 @@ import HeaderSlot from '@/routes/(main)/agent/(chat)/_layout/HeaderSlot';
 import { useMenu } from './useMenu';
 
 const HeaderActions = memo(() => {
-  const { menuHeader, menuItems } = useMenu();
+  const { menuFooter, menuItems } = useMenu();
 
   return (
     <>
       <HeaderSlot.Outlet />
-      <DropdownMenu header={menuHeader} items={menuItems}>
+      <DropdownMenu footer={menuFooter} items={menuItems}>
         <ActionIcon icon={MoreHorizontal} size={'small'} />
       </DropdownMenu>
     </>

@@ -1,4 +1,4 @@
-import { act, render } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -132,6 +132,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rightPanel.current = undefined;
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
@@ -219,5 +220,28 @@ describe('AgentWorkingSidebar — controlled panel width', () => {
 
     expect(rightPanel.current?.width).toBe(360);
     expect(globalStore.updateSystemStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('AgentWorkingSidebar — tab strip', () => {
+  // Regression: at the 300px minimum panel width, labels such as “Deployments”
+  // were allowed to shrink and wrap inside words. Tabs now stay on one line in a
+  // horizontal strip, so a persisted tab near the end must be brought into view.
+  it('scrolls an overflowed active tab into view', () => {
+    globalStore.status.workingSidebarTab = 'params';
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      return this instanceof HTMLButtonElement && this.getAttribute('aria-pressed') === 'true'
+        ? ({ left: 220, right: 280 } as DOMRect)
+        : ({ left: 0, right: 200 } as DOMRect);
+    });
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, 'scrollIntoView')
+      .mockImplementation(() => undefined);
+
+    render(<AgentWorkingSidebar />);
+    const paramsTab = screen.getByRole('button', { name: 'settingModel.params.panel.tab' });
+
+    expect(paramsTab).toHaveAttribute('aria-pressed', 'true');
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
   });
 });

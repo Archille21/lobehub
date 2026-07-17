@@ -86,6 +86,7 @@
   "inPopup.title": "Open in Popup Window",
   "info.title": "Topic Info",
   "info.updatedAt": "Updated at {{time}}",
+  "info.updatedBy": "Last updated by {{name}}",
   "loadMore": "Load More",
   "management.actions.newChat": "New chat",
   "management.actions.select": "Select",
