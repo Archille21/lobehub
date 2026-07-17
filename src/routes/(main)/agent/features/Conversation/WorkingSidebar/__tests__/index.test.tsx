@@ -244,4 +244,22 @@ describe('AgentWorkingSidebar — tab strip', () => {
     expect(paramsTab).toHaveAttribute('aria-pressed', 'true');
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
   });
+
+  it('exposes and reveals a persisted active Works tab', () => {
+    globalStore.status.workingSidebarTab = 'works';
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      return this instanceof HTMLButtonElement && this.getAttribute('aria-pressed') === 'true'
+        ? ({ left: 220, right: 280 } as DOMRect)
+        : ({ left: 0, right: 200 } as DOMRect);
+    });
+    const scrollIntoView = vi
+      .spyOn(Element.prototype, 'scrollIntoView')
+      .mockImplementation(() => undefined);
+
+    render(<AgentWorkingSidebar />);
+    const worksTab = screen.getByRole('button', { name: 'workingPanel.works.title' });
+
+    expect(worksTab).toHaveAttribute('aria-pressed', 'true');
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+  });
 });

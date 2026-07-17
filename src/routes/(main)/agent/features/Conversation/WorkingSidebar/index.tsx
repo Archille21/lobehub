@@ -296,6 +296,7 @@ const AgentWorkingSidebar = memo(() => {
               {t('workingPanel.space')}
             </button>
             <button
+              aria-pressed={activeTab === 'works'}
               className={`${styles.tab} ${activeTab === 'works' ? styles.tabActive : ''}`}
               type="button"
               onClick={() => setWorkingSidebarTab('works')}
