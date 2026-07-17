@@ -60,52 +60,58 @@ export const uploadFiles = async (args: {
 
   const client = await getTrpcClient();
 
-  const files = await Promise.all(
-    paths.map(async (rawPath): Promise<UploadedLocalFileResult> => {
-      const resolvedPath = rawPath.startsWith('~/')
-        ? path.join(os.homedir(), rawPath.slice(2))
-        : rawPath;
-      const name = path.basename(resolvedPath);
+  const uploadOne = async (rawPath: string): Promise<UploadedLocalFileResult> => {
+    const resolvedPath = rawPath.startsWith('~/')
+      ? path.join(os.homedir(), rawPath.slice(2))
+      : rawPath;
+    const name = path.basename(resolvedPath);
 
-      try {
-        const stat = await fs.promises.stat(resolvedPath);
-        if (!stat.isFile()) return { error: 'Not a regular file.', name, path: rawPath };
-        if (stat.size > UPLOAD_LOCAL_FILE_MAX_BYTES) {
-          return {
-            error: `File is ${stat.size} bytes, exceeding the ${UPLOAD_LOCAL_FILE_MAX_BYTES} byte upload limit.`,
-            name,
-            path: rawPath,
-          };
-        }
-
-        const mimeType = detectMimeType(name);
-        if (!isSupportedVisualMediaMime(mimeType)) {
-          return {
-            error: `Unsupported media type "${mimeType}". Only image/video files can be uploaded.`,
-            name,
-            path: rawPath,
-          };
-        }
-
-        const record = (await uploadLocalFile(client, resolvedPath)) as { id: string; url: string };
-
+    try {
+      const stat = await fs.promises.stat(resolvedPath);
+      if (!stat.isFile()) return { error: 'Not a regular file.', name, path: rawPath };
+      if (stat.size > UPLOAD_LOCAL_FILE_MAX_BYTES) {
         return {
-          fileId: record.id,
-          mimeType,
-          name,
-          path: rawPath,
-          size: stat.size,
-          url: record.url,
-        };
-      } catch (error) {
-        return {
-          error: error instanceof Error ? error.message : String(error),
+          error: `File is ${stat.size} bytes, exceeding the ${UPLOAD_LOCAL_FILE_MAX_BYTES} byte upload limit.`,
           name,
           path: rawPath,
         };
       }
-    }),
-  );
+
+      const mimeType = detectMimeType(name);
+      if (!isSupportedVisualMediaMime(mimeType)) {
+        return {
+          error: `Unsupported media type "${mimeType}". Only image/video files can be uploaded.`,
+          name,
+          path: rawPath,
+        };
+      }
+
+      const record = (await uploadLocalFile(client, resolvedPath)) as { id: string; url: string };
+
+      return {
+        fileId: record.id,
+        mimeType,
+        name,
+        path: rawPath,
+        size: stat.size,
+        url: record.url,
+      };
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : String(error),
+        name,
+        path: rawPath,
+      };
+    }
+  };
+
+  // Upload sequentially so a multi-file request keeps at most one file (bounded
+  // by the 100 MB/file cap) resident in memory at a time, rather than reading
+  // every file up front via Promise.all.
+  const files: UploadedLocalFileResult[] = [];
+  for (const rawPath of paths) {
+    files.push(await uploadOne(rawPath));
+  }
 
   const failed = files.filter((f) => f.error);
 

@@ -10,6 +10,7 @@ import {
   formatVisualMediaUrlValidationError,
   hasUserVisualFiles,
   inferVisualTypeFromMimeType,
+  inferVisualTypeFromUrl,
   LobeAgentIdentifier,
   MAX_VISUAL_MEDIA_URLS,
   normalizeAnalyzeVisualMediaInput,
@@ -86,6 +87,37 @@ const getModelAbilities = async (model: string, provider: string) => {
     builtinModels.find((item) => item.id === model && item.providerId === provider) ??
     builtinModels.find((item) => item.id === model)
   )?.abilities;
+};
+
+/**
+ * Guard the configured visual-understanding model against the modalities about
+ * to be analyzed. Returns an error output when the model cannot handle one of
+ * them, so the caller can bail before doing expensive work (e.g. uploading a
+ * device-local file that would only be rejected afterwards).
+ */
+const checkVisualModelSupportsTypes = (
+  types: Iterable<VisualFileItem['type']>,
+  abilities: { video?: boolean; vision?: boolean } | undefined,
+  provider: string,
+  model: string,
+): BuiltinServerRuntimeOutput | undefined => {
+  const typeSet = new Set(types);
+
+  if (typeSet.has('image') && abilities?.vision === false) {
+    return buildError(
+      `Configured visual understanding model "${provider}/${model}" does not support image vision.`,
+      'VISUAL_MODEL_IMAGE_UNSUPPORTED',
+    );
+  }
+
+  if (typeSet.has('video') && abilities?.video === false) {
+    return buildError(
+      `Configured visual understanding model "${provider}/${model}" does not support video understanding.`,
+      'VISUAL_MODEL_VIDEO_UNSUPPORTED',
+    );
+  }
+
+  return undefined;
 };
 
 interface ServerVisualSourceMessage extends VisualSourceMessage {
@@ -375,8 +407,23 @@ class LobeAgentExecutionRuntime {
       return buildError(urlValidationError, 'UNSUPPORTED_VISUAL_MEDIA_URLS');
     }
 
+    const abilities = await getModelAbilities(model, provider);
+
     let localFileItems: VisualFileItem[] = [];
     if (localPaths.length > 0) {
+      // Guard the model's modality against the local files BEFORE dispatching
+      // the device upload — inferring type from the path extension (the same
+      // allowlist the device upload enforces). Otherwise an unsupported local
+      // file (e.g. a video for an image-only model) would be read and uploaded
+      // up to 100 MB only to be rejected by the ability check below.
+      const localTypeError = checkVisualModelSupportsTypes(
+        localPaths.map(inferVisualTypeFromUrl),
+        abilities,
+        provider,
+        model,
+      );
+      if (localTypeError) return localTypeError;
+
       const bridged = await this.uploadLocalVisualMedia(localPaths, ctx);
       if ('error' in bridged) return bridged.error;
       localFileItems = bridged.items;
@@ -448,23 +495,13 @@ class LobeAgentExecutionRuntime {
       return buildError('No visual files selected.', 'NO_VISUAL_FILES_SELECTED');
     }
 
-    const abilities = await getModelAbilities(model, provider);
-    const hasImages = selectedItems.some((item) => item.type === 'image');
-    const hasVideos = selectedItems.some((item) => item.type === 'video');
-
-    if (hasImages && abilities?.vision === false) {
-      return buildError(
-        `Configured visual understanding model "${provider}/${model}" does not support image vision.`,
-        'VISUAL_MODEL_IMAGE_UNSUPPORTED',
-      );
-    }
-
-    if (hasVideos && abilities?.video === false) {
-      return buildError(
-        `Configured visual understanding model "${provider}/${model}" does not support video understanding.`,
-        'VISUAL_MODEL_VIDEO_UNSUPPORTED',
-      );
-    }
+    const typeError = checkVisualModelSupportsTypes(
+      selectedItems.map((item) => item.type),
+      abilities,
+      provider,
+      model,
+    );
+    if (typeError) return typeError;
 
     let content = '';
     let usage: unknown;

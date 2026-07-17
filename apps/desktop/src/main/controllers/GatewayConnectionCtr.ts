@@ -691,54 +691,61 @@ export default class GatewayConnectionCtr extends ControllerModule {
       return { content: message, error: { code: 'NO_FILE_STORE', message }, success: false };
     }
 
-    const files: UploadedLocalFileResult[] = await Promise.all(
-      paths.map(async (rawPath): Promise<UploadedLocalFileResult> => {
-        const resolvedPath = rawPath.startsWith('~/')
-          ? path.join(os.homedir(), rawPath.slice(2))
-          : rawPath;
-        const name = path.basename(resolvedPath);
+    const uploadOne = async (rawPath: string): Promise<UploadedLocalFileResult> => {
+      const resolvedPath = rawPath.startsWith('~/')
+        ? path.join(os.homedir(), rawPath.slice(2))
+        : rawPath;
+      const name = path.basename(resolvedPath);
 
-        try {
-          const stat = await fs.promises.stat(resolvedPath);
-          if (!stat.isFile()) {
-            return { error: 'Not a regular file.', name, path: rawPath };
-          }
-          if (stat.size > UPLOAD_LOCAL_FILE_MAX_BYTES) {
-            return {
-              error: `File is ${stat.size} bytes, exceeding the ${UPLOAD_LOCAL_FILE_MAX_BYTES} byte upload limit.`,
-              name,
-              path: rawPath,
-            };
-          }
-
-          const ext = path.extname(resolvedPath).slice(1).toLowerCase();
-          const mimeType = UPLOAD_LOCAL_FILE_MIME_BY_EXT[ext];
-          if (!mimeType) {
-            return {
-              error: `Unsupported media type ".${ext}". Only image/video files can be uploaded.`,
-              name,
-              path: rawPath,
-            };
-          }
-
-          const buffer = await fs.promises.readFile(resolvedPath);
-          const { fileId, url } = await uploadBufferToFileStore(port, {
-            buffer,
-            fileName: name,
-            mimeType,
-          });
-
-          return { fileId, mimeType, name, path: rawPath, size: stat.size, url };
-        } catch (error) {
-          logger.error(`uploadFiles failed for ${resolvedPath}:`, error);
+      try {
+        const stat = await fs.promises.stat(resolvedPath);
+        if (!stat.isFile()) {
+          return { error: 'Not a regular file.', name, path: rawPath };
+        }
+        if (stat.size > UPLOAD_LOCAL_FILE_MAX_BYTES) {
           return {
-            error: error instanceof Error ? error.message : String(error),
+            error: `File is ${stat.size} bytes, exceeding the ${UPLOAD_LOCAL_FILE_MAX_BYTES} byte upload limit.`,
             name,
             path: rawPath,
           };
         }
-      }),
-    );
+
+        const ext = path.extname(resolvedPath).slice(1).toLowerCase();
+        const mimeType = UPLOAD_LOCAL_FILE_MIME_BY_EXT[ext];
+        if (!mimeType) {
+          return {
+            error: `Unsupported media type ".${ext}". Only image/video files can be uploaded.`,
+            name,
+            path: rawPath,
+          };
+        }
+
+        const buffer = await fs.promises.readFile(resolvedPath);
+        const { fileId, url } = await uploadBufferToFileStore(port, {
+          buffer,
+          fileName: name,
+          mimeType,
+        });
+
+        return { fileId, mimeType, name, path: rawPath, size: stat.size, url };
+      } catch (error) {
+        logger.error(`uploadFiles failed for ${resolvedPath}:`, error);
+        return {
+          error: error instanceof Error ? error.message : String(error),
+          name,
+          path: rawPath,
+        };
+      }
+    };
+
+    // Upload sequentially: each file is read fully into memory before the store
+    // PUT, so with the 100 MB/file cap and 8-URL server cap, a multi-video
+    // request could otherwise read ~800 MB into the Electron main process at
+    // once. Serial keeps at most one file resident.
+    const files: UploadedLocalFileResult[] = [];
+    for (const rawPath of paths) {
+      files.push(await uploadOne(rawPath));
+    }
 
     const failed = files.filter((f) => f.error);
     const content = JSON.stringify({ files });

@@ -642,6 +642,28 @@ describe('lobeAgentRuntime', () => {
     expect(mockChat).not.toHaveBeenCalled();
   });
 
+  it('should reject an unsupported local modality BEFORE dispatching the device upload', async () => {
+    mockToolsEnv.VISUAL_UNDERSTANDING_MODEL = 'image-only-model';
+    const deviceContext: ToolExecutionContext = { ...baseContext, activeDeviceId: 'device-1' };
+    const runtime = lobeAgentRuntime.factory(deviceContext);
+
+    const result = await runtime.analyzeVisualMedia(
+      {
+        question: 'what is in the video?',
+        urls: ['file:///Users/me/clip.mp4'],
+      },
+      deviceContext,
+    );
+
+    expect(result).toMatchObject({
+      error: { code: 'VISUAL_MODEL_VIDEO_UNSUPPORTED' },
+      success: false,
+    });
+    // The whole point: no bytes leave the device when the model can't use them.
+    expect(mockDeviceExecuteToolCall).not.toHaveBeenCalled();
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
   describe('callSubAgent', () => {
     it('rejects nested sub-agent execution without calling the injected runner', async () => {
       const runtime = lobeAgentRuntime.factory(baseContext);
