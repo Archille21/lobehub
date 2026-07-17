@@ -127,6 +127,9 @@ export class MessengerAccountLinkModel {
     gateKeeper?: GateKeeper,
   ): Promise<SafeMessengerAccountLink> => {
     const { credentials, ...linkParams } = params;
+    if (credentials && !gateKeeper) {
+      throw new Error('GateKeeper is required to persist messenger credentials');
+    }
     const credentialsCipher = credentials
       ? await encryptCredentials(credentials, gateKeeper)
       : undefined;
@@ -283,7 +286,7 @@ export class MessengerAccountLinkModel {
   findByIdWithCredentials = async (
     id: string,
     platform: string,
-    gateKeeper?: GateKeeper,
+    gateKeeper: GateKeeper,
   ): Promise<DecryptedMessengerAccountLink | undefined> => {
     const [result] = await this.db
       .select()
@@ -364,7 +367,7 @@ export class MessengerAccountLinkModel {
   static findByPlatformUserWithCredentials = async (
     db: LobeChatDatabase,
     params: CredentialLookupParams,
-    gateKeeper?: GateKeeper,
+    gateKeeper: GateKeeper,
   ): Promise<DecryptedMessengerAccountLink | undefined> => {
     const tenantId = params.tenantId ?? GLOBAL_TENANT_ID;
     const conditions: SQL[] = [
@@ -423,23 +426,19 @@ export class MessengerAccountLinkModel {
 
 async function encryptCredentials(
   credentials: Record<string, unknown>,
-  gateKeeper?: GateKeeper,
+  gateKeeper: GateKeeper,
 ): Promise<string> {
-  const json = JSON.stringify(credentials);
-  if (!gateKeeper) return json;
-  return gateKeeper.encrypt(json);
+  return gateKeeper.encrypt(JSON.stringify(credentials));
 }
 
 async function decryptRow(
   row: MessengerAccountLinkItem,
-  gateKeeper?: GateKeeper,
+  gateKeeper: GateKeeper,
 ): Promise<DecryptedMessengerAccountLink> {
   if (!row.credentials) return { ...row, credentials: {} };
 
   try {
-    const credentials = gateKeeper
-      ? JSON.parse((await gateKeeper.decrypt(row.credentials)).plaintext)
-      : JSON.parse(row.credentials);
+    const credentials = JSON.parse((await gateKeeper.decrypt(row.credentials)).plaintext);
     return { ...row, credentials };
   } catch {
     return { ...row, credentials: {} };

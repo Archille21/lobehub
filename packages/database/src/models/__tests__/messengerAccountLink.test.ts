@@ -128,6 +128,20 @@ describe('MessengerAccountLinkModel', () => {
       expect(second.activeAgentId).toBe(agentA);
     });
 
+    it('rejects credential writes when no GateKeeper is provided', async () => {
+      const model = new MessengerAccountLinkModel(serverDB, userA);
+
+      await expect(
+        model.upsertForPlatform({
+          credentials: { secret: 'must-not-be-plaintext' },
+          platform: 'account-scoped',
+          platformUserId: 'account-user',
+          tenantId: 'account-user',
+        }),
+      ).rejects.toThrow('GateKeeper is required to persist messenger credentials');
+      expect(await model.list()).toEqual([]);
+    });
+
     it('stores account-scoped credentials encrypted while keeping ordinary reads secret-free', async () => {
       const ciphertext = new Map<string, string>();
       let sequence = 0;
