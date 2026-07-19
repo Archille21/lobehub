@@ -28,6 +28,8 @@ interface GitFixture {
   pushedRefs?: string[];
   /** Remote-tracking refs whose tip is the branch's commit. */
   refsAt?: string[];
+  /** Every remote-tracking ref, including refs behind the local branch tip. */
+  remoteRefs?: string[];
   remotes?: string[];
   /** Remote refs a local branch already tracks (`for-each-ref --format=%(upstream)`). */
   trackedRefs?: string[];
@@ -39,6 +41,7 @@ const mockGit = ({
   pushedRefs = [],
   refsAt = [],
   remotes = [],
+  remoteRefs = [],
   trackedRefs = [],
 }: GitFixture) => {
   childProcessMocks.execFileAsync.mockImplementation(async (_cmd: string, args: string[]) => {
@@ -63,6 +66,7 @@ const mockGit = ({
     if (subcommand === 'for-each-ref') {
       if (args.includes('--points-at')) return ok(refsAt.join('\n'));
       if (args.includes('--format=%(upstream)')) return ok(trackedRefs.join('\n'));
+      if (args.includes('--format=%(refname)')) return ok(remoteRefs.join('\n'));
       return ok(branchRef);
     }
 
@@ -162,6 +166,41 @@ describe('resolveUpstream', () => {
       sha: 'sha1',
       upstream: { branch: 'feat/y', remote: 'origin' },
     });
+  });
+
+  it('keeps a pushed untracked branch after local commits move beyond the remote ref', async () => {
+    mockGit({
+      branchRef: 'sha2\t\t',
+      pushedRefs: ['refs/remotes/origin/feat/x'],
+      remoteRefs: ['refs/remotes/origin/feat/x'],
+      remotes: ['origin'],
+    });
+
+    expect(await resolveUpstream('/repo', 'feat/x')).toEqual({
+      sha: 'sha2',
+      upstream: { branch: 'feat/x', remote: 'origin' },
+    });
+  });
+
+  it('does not trust a stale same-name ref without push provenance', async () => {
+    mockGit({
+      branchRef: 'sha2\t\t',
+      remoteRefs: ['refs/remotes/origin/feat/x'],
+      remotes: ['origin'],
+    });
+
+    expect(await resolveUpstream('/repo', 'feat/x')).toEqual({ sha: 'sha2' });
+  });
+
+  it('does not guess between stale same-name refs pushed to multiple remotes', async () => {
+    mockGit({
+      branchRef: 'sha2\t\t',
+      pushedRefs: ['refs/remotes/origin/feat/x', 'refs/remotes/upstream/feat/x'],
+      remoteRefs: ['refs/remotes/origin/feat/x', 'refs/remotes/upstream/feat/x'],
+      remotes: ['origin', 'upstream'],
+    });
+
+    expect(await resolveUpstream('/repo', 'feat/x')).toEqual({ sha: 'sha2' });
   });
 
   it('prefers the identically-named remote branch over any other candidate', async () => {

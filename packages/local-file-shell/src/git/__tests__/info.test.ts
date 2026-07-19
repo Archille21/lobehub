@@ -68,6 +68,7 @@ interface ShellFixture {
   /** Refs this repo pushed to — git writes `update by push` into their reflog. */
   pushedRefs?: string[];
   refsAt?: string[];
+  remoteRefs?: string[];
   remotes?: string[];
   remoteUrl?: string;
   /** Remote refs a local branch tracks (`for-each-ref --format=%(upstream)`). */
@@ -95,6 +96,7 @@ const mockShell = ({
   pushedRefs = [],
   refsAt = [],
   remotes = ['origin'],
+  remoteRefs = [],
   trackedRefs = [],
   parentRepo,
   remoteUrl = 'git@github.com:lobehub/lobehub.git',
@@ -122,6 +124,7 @@ const mockShell = ({
       if (subcommand === 'for-each-ref') {
         if (args.includes('--points-at')) return ok(refsAt.join('\n'));
         if (args.includes('--format=%(upstream)')) return ok(trackedRefs.join('\n'));
+        if (args.includes('--format=%(refname)')) return ok(remoteRefs.join('\n'));
         return ok(branchRef);
       }
     }
@@ -218,6 +221,26 @@ describe('getLinkedPullRequest', () => {
     expect(listArgs).not.toContain('worktree-feat+claude-code-session-import');
 
     expect(result.pullRequest).toMatchObject({ number: 17_101 });
+    expect(result.upstream).toEqual({
+      branch: 'feat/hetero-session-import-ui',
+      remote: 'origin',
+    });
+  });
+
+  it('keeps discovering a pushed untracked branch after an additional local commit', async () => {
+    mockShell({
+      branchRef: 'sha2\t\t',
+      prList: [PULL_REQUEST],
+      pushedRefs: ['refs/remotes/origin/feat/hetero-session-import-ui'],
+      remoteRefs: ['refs/remotes/origin/feat/hetero-session-import-ui'],
+    });
+
+    const result = await getLinkedPullRequest({
+      branch: 'feat/hetero-session-import-ui',
+      path: '/repo',
+    });
+
+    expect(result.pullRequest?.number).toBe(17_101);
     expect(result.upstream).toEqual({
       branch: 'feat/hetero-session-import-ui',
       remote: 'origin',

@@ -122,6 +122,15 @@ const listRemoteRefsAt = async (dirPath: string, sha: string): Promise<string[]>
     .filter(Boolean);
 };
 
+/** Every remote-tracking branch, used only when no ref still points at the local tip. */
+const listRemoteRefs = async (dirPath: string): Promise<string[]> => {
+  const stdout = await runGit(['for-each-ref', '--format=%(refname)', 'refs/remotes'], dirPath);
+  return (stdout ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+};
+
 /**
  * Remote refs some local branch already claims as its upstream. Such a ref belongs
  * to THAT branch — reaching this code means ours has no configured upstream at all.
@@ -227,7 +236,27 @@ export const resolveUpstream = async (
   const candidates = [...(local.configured ? [local.configured] : []), ...atSha].filter(
     (candidate, index, all) => all.findIndex((other) => other.ref === candidate.ref) === index,
   );
-  if (candidates.length === 0) return { sha: local.sha };
+  if (candidates.length === 0) {
+    // `git push origin feat/x` without `-u` leaves a pushed remote-tracking ref,
+    // but a subsequent local commit means it no longer points at the local tip.
+    // Recover only an exact-name ref whose reflog proves this repo pushed it;
+    // multiple matching remotes remain ambiguous and therefore unresolved.
+    const sameNamed = (await listRemoteRefs(dirPath))
+      .map((ref) => parseRemoteRef(ref, remotes))
+      .filter((candidate): candidate is RemoteRefCandidate => candidate?.branch === branch);
+    const pushedSameNamed = (
+      await Promise.all(
+        sameNamed.map(async (candidate) =>
+          (await wasPushedFromHere(dirPath, candidate.ref)) ? candidate : undefined,
+        ),
+      )
+    ).filter((candidate): candidate is RemoteRefCandidate => !!candidate);
+
+    return {
+      sha: local.sha,
+      upstream: pushedSameNamed.length === 1 ? toUpstreamRef(pushedSameNamed[0]) : undefined,
+    };
+  }
 
   const [tracked, defaults, pushed] = await Promise.all([
     listTrackedRemoteRefs(dirPath),
