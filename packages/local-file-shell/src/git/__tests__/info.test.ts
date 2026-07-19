@@ -274,6 +274,19 @@ describe('getLinkedPullRequest', () => {
     expect(result.pullRequest).toBeNull();
   });
 
+  it('parses an SSH GitHub push URL with an explicit port', async () => {
+    mockShell({
+      ...publishedAs('refs/remotes/origin/feat/hetero-session-import-ui'),
+      prList: [PULL_REQUEST],
+      remoteUrl: 'ssh://git@github.com:22/lobehub/lobehub.git',
+    });
+
+    const result = await getLinkedPullRequest({ branch: 'worktree-feat+x', path: '/repo' });
+
+    expect(ghCalls()).toContainEqual(['api', 'repos/lobehub/lobehub']);
+    expect(result.pullRequest?.number).toBe(17_101);
+  });
+
   it('does not guess a PR by commit when no publication ref exists', async () => {
     mockShell({
       branchRef: 'sha1\t\t',

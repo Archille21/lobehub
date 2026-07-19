@@ -156,8 +156,23 @@ export const getGitBranch = async (dirPath: string): Promise<GitBranchInfo> => {
 };
 
 const parseGithubRepository = (remoteUrl: string): string | undefined => {
-  const match = /github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/.exec(remoteUrl.trim());
-  return match ? `${match[1]}/${match[2]}` : undefined;
+  const value = remoteUrl.trim();
+  const parsePath = (pathname: string) => {
+    const match = /^\/?([^/]+)\/([^/]+?)(?:\.git)?$/.exec(pathname);
+    return match ? `${match[1]}/${match[2]}` : undefined;
+  };
+
+  if (value.includes('://')) {
+    try {
+      const url = new URL(value);
+      return url.hostname.toLowerCase() === 'github.com' ? parsePath(url.pathname) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  const scpLike = /^(?:[^@]+@)?github\.com:(.+)$/i.exec(value);
+  return scpLike ? parsePath(scpLike[1]) : undefined;
 };
 
 const getPublishedRepository = async (
