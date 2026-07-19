@@ -56,7 +56,7 @@ const NORMALIZED_PULL_REQUEST = {
 interface ShellFixture {
   /** Remote refs whose tips are ancestors of the current local branch tip. */
   ancestorRefs?: string[];
-  /** `for-each-ref refs/heads/<branch>` → `<sha>\t<upstream remote>\t<upstream ref>`. */
+  /** `for-each-ref` → sha, upstream remote/ref, push remote/tracking ref/remote ref. */
   branchRef?: string;
   /** The branch's commit is already contained in the remote default branch (fork point). */
   commitOnDefault?: boolean;
@@ -67,8 +67,10 @@ interface ShellFixture {
   prList?: unknown[];
   /** `gh pr view <n>`. */
   prView?: unknown;
+  pushDefault?: string;
   /** Refs this repo pushed to — git writes `update by push` into their reflog. */
   pushedRefs?: string[];
+  pushRefspec?: string;
   refsAt?: string[];
   remoteRefs?: string[];
   remotes?: string[];
@@ -102,6 +104,8 @@ const mockShell = ({
   remoteRefs = [],
   trackedRefs = [],
   parentRepo,
+  pushDefault = '',
+  pushRefspec = '',
   remoteUrl = 'git@github.com:lobehub/lobehub.git',
 }: ShellFixture) => {
   childProcessMocks.execFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
@@ -109,6 +113,9 @@ const mockShell = ({
       const [subcommand] = args;
       if (subcommand === 'remote' && args[1] === 'get-url') return ok(remoteUrl);
       if (subcommand === 'remote') return ok(remotes.join('\n'));
+      if (subcommand === 'config') {
+        return ok(args.includes('push.default') ? pushDefault : pushRefspec);
+      }
       if (subcommand === 'merge-base') {
         // `--is-ancestor` reports through the exit status: 0 = contained, 1 = not.
         const isAncestor =
@@ -280,6 +287,36 @@ describe('getLinkedPullRequest', () => {
     expect(result.pullRequests?.map(({ number }) => number)).toEqual([20, 10]);
     expect(result.pullRequest?.number).toBe(20);
     expect(result.extraCount).toBe(1);
+  });
+
+  it('uses the configured push remote instead of the pull upstream repository', async () => {
+    const forkPullRequest = {
+      ...PULL_REQUEST,
+      headRefName: 'feat/hetero-session-import-ui',
+      headRepository: { nameWithOwner: 'contributor/lobehub' },
+    };
+    mockShell({
+      branchRef: 'sha1\torigin\trefs/remotes/origin/feat/hetero-session-import-ui\tfork\t',
+      parentRepo: 'lobehub/lobehub',
+      prList: [forkPullRequest],
+      remoteUrl: 'git@github.com:contributor/lobehub.git',
+    });
+
+    const result = await getLinkedPullRequest({
+      branch: 'feat/hetero-session-import-ui',
+      path: '/repo',
+    });
+
+    expect(childProcessMocks.execFileAsync).toHaveBeenCalledWith(
+      'git',
+      ['remote', 'get-url', '--push', 'fork'],
+      { cwd: '/repo', timeout: 5000 },
+    );
+    expect(result.pullRequest?.number).toBe(17_101);
+    expect(result.upstream).toEqual({
+      branch: 'feat/hetero-session-import-ui',
+      remote: 'fork',
+    });
   });
 
   it('uses the push URL repository and rejects closed or inexact repository matches', async () => {

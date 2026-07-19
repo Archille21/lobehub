@@ -19,15 +19,17 @@ const ok = (stdout: string) => ({ stderr: '', stdout });
 interface GitFixture {
   /** Remote refs whose tips are ancestors of the current local branch tip. */
   ancestorRefs?: string[];
-  /** `for-each-ref refs/heads/<branch>` → `<sha>\t<upstream remote>\t<upstream ref>`. */
+  /** `for-each-ref` → sha, upstream remote/ref, push remote/tracking ref/remote ref. */
   branchRef?: string;
   /**
    * Remote → its `refs/remotes/<remote>/HEAD` target, e.g. `origin` → `origin/canary`.
    * Absent for any repo not created by `git clone`, so nothing may depend on it alone.
    */
   defaultBranch?: Record<string, string>;
+  pushDefault?: string;
   /** Refs this repo pushed to — git writes `update by push` into their reflog. */
   pushedRefs?: string[];
+  pushRefspec?: string;
   /** Remote-tracking refs whose tip is the branch's commit. */
   refsAt?: string[];
   /** Every remote-tracking ref, including refs behind the local branch tip. */
@@ -41,7 +43,9 @@ const mockGit = ({
   ancestorRefs = [],
   branchRef = '',
   defaultBranch = {},
+  pushDefault = '',
   pushedRefs = [],
+  pushRefspec = '',
   refsAt = [],
   remotes = [],
   remoteRefs = [],
@@ -51,6 +55,10 @@ const mockGit = ({
     const [subcommand] = args;
 
     if (subcommand === 'remote') return ok(remotes.join('\n'));
+
+    if (subcommand === 'config') {
+      return ok(args.includes('push.default') ? pushDefault : pushRefspec);
+    }
 
     if (subcommand === 'merge-base') {
       if (!ancestorRefs.includes(args[2])) throw new Error('not an ancestor');
@@ -105,6 +113,62 @@ describe('resolveUpstream', () => {
       branch: 'feat/deep/nested',
       remote: 'origin',
     });
+  });
+
+  it('prefers Git’s resolved push destination over the pull upstream', async () => {
+    mockGit({
+      // In simple-mode triangular workflows Git resolves pushRemote but leaves
+      // `%(push)` empty, even though `git push` sends the same-named branch there.
+      branchRef: 'sha1\torigin\trefs/remotes/origin/feat/x\tfork\t',
+    });
+
+    expect(await resolveUpstream('/repo', 'feat/x')).toEqual({
+      sha: 'sha1',
+      upstream: { branch: 'feat/x', remote: 'fork' },
+    });
+  });
+
+  it('does not infer a push destination when push.default disables implicit pushes', async () => {
+    mockGit({
+      branchRef: 'sha1\torigin\trefs/remotes/origin/feat/x\tfork\t',
+      pushDefault: 'nothing',
+    });
+
+    expect(await resolveUpstream('/repo', 'feat/x')).toEqual({
+      sha: 'sha1',
+    });
+  });
+
+  it('infers the local branch for a simple triangular push from a different pull branch', async () => {
+    mockGit({
+      branchRef: 'sha1\torigin\trefs/remotes/origin/canary\tfork\t',
+    });
+
+    expect((await resolveUpstream('/repo', 'feat/x')).upstream).toEqual({
+      branch: 'feat/x',
+      remote: 'fork',
+    });
+  });
+
+  it('uses the actual remote branch from an explicit push refspec', async () => {
+    mockGit({
+      branchRef: 'sha1\torigin\trefs/remotes/origin/feat/x\tfork\t\trefs/heads/review/renamed',
+      pushRefspec: 'refs/heads/feat/x:refs/heads/review/renamed',
+    });
+
+    expect((await resolveUpstream('/repo', 'feat/x')).upstream).toEqual({
+      branch: 'review/renamed',
+      remote: 'fork',
+    });
+  });
+
+  it('does not use the pull upstream when an explicit push refspec does not match', async () => {
+    mockGit({
+      branchRef: 'sha1\torigin\trefs/remotes/origin/feat/x\tfork\t\t',
+      pushRefspec: 'refs/heads/other:refs/heads/review/other',
+    });
+
+    expect(await resolveUpstream('/repo', 'feat/x')).toEqual({ sha: 'sha1' });
   });
 
   // `git checkout -b feat/x origin/canary` auto-sets @{upstream} to the branch it was

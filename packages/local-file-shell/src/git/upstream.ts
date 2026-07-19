@@ -70,6 +70,10 @@ interface LocalBranchRef {
    * it STAYS there after `feat/x` is pushed. Treated as a candidate, never a fact.
    */
   configured?: RemoteRefCandidate;
+  /** `@{push}` — Git's resolved push destination after applying pushRemote/pushDefault/refspecs. */
+  push?: RemoteRefCandidate;
+  /** Push remote selected by Git, even when its branch destination cannot be resolved. */
+  pushRemote?: string;
   /** Commit the local branch points at. */
   sha: string;
 }
@@ -86,23 +90,57 @@ const readLocalBranchRef = async (
   const stdout = await runGit(
     [
       'for-each-ref',
-      '--format=%(objectname)%09%(upstream:remotename)%09%(upstream)',
+      '--format=%(objectname)%09%(upstream:remotename)%09%(upstream)%09%(push:remotename)%09%(push)%09%(push:remoteref)',
       `refs/heads/${branch}`,
     ],
     dirPath,
   );
 
-  const [sha, remote, upstreamRef] = (stdout?.split('\n')[0] ?? '').split('\t');
+  const [sha, remote, upstreamRef, pushRemote, pushRef, pushRemoteRef] = (
+    stdout?.split('\n')[0] ?? ''
+  ).split('\t');
   if (!sha) return undefined;
 
   const prefix = `refs/remotes/${remote}/`;
-  if (remote && upstreamRef?.startsWith(prefix)) {
-    return {
-      configured: { branch: upstreamRef.slice(prefix.length), ref: upstreamRef, remote },
-      sha,
-    };
+  const pushPrefix = `refs/remotes/${pushRemote}/`;
+  const configured =
+    remote && upstreamRef?.startsWith(prefix)
+      ? { branch: upstreamRef.slice(prefix.length), ref: upstreamRef, remote }
+      : undefined;
+  let push =
+    pushRemote && pushRemoteRef?.startsWith('refs/heads/')
+      ? {
+          branch: pushRemoteRef.slice('refs/heads/'.length),
+          ref: pushRemoteRef,
+          remote: pushRemote,
+        }
+      : pushRemote && pushRef?.startsWith(pushPrefix)
+        ? { branch: pushRef.slice(pushPrefix.length), ref: pushRef, remote: pushRemote }
+        : undefined;
+
+  // Git leaves `%(push)` empty for the default `simple` mode in a triangular
+  // workflow even though a same-name upstream is pushed to pushRemote. Infer that
+  // one documented shape only when no remote push refspec overrides push.default.
+  if (!push && pushRemote) {
+    const [pushDefault, pushRefspec] = await Promise.all([
+      runGit(['config', '--get', 'push.default'], dirPath),
+      runGit(['config', '--get-all', `remote.${pushRemote}.push`], dirPath),
+    ]);
+    const mode = pushDefault?.trim() || 'simple';
+    const pushesLocalName =
+      mode === 'current' ||
+      (mode === 'simple' && (pushRemote !== remote || configured?.branch === branch));
+    if (!pushRefspec?.trim() && pushesLocalName) {
+      push = { branch, ref: `${pushPrefix}${branch}`, remote: pushRemote };
+    }
   }
-  return { sha };
+
+  return {
+    ...(configured ? { configured } : {}),
+    ...(push ? { push } : {}),
+    ...(pushRemote ? { pushRemote } : {}),
+    sha,
+  };
 };
 
 /**
@@ -196,9 +234,11 @@ export interface ResolvedUpstream {
 /**
  * Resolve the remote ref a local branch publishes to, from local git state alone.
  *
- * Two sources offer a candidate — the configured `@{upstream}`, and any remote-tracking
- * ref sitting on the branch's commit (a push moves one of those even without `-u`,
- * which is what an explicit refspec always does). NEITHER is trusted on its face:
+ * Git's resolved `@{push}` is authoritative when available: it already applies
+ * `branch.<name>.pushRemote`, `remote.pushDefault`, `push.default`, and push refspecs.
+ * Otherwise two sources offer a candidate — the configured `@{upstream}`, and any
+ * remote-tracking ref sitting on the branch's commit (a push moves one of those even
+ * without `-u`, which is what an explicit refspec always does). NEITHER is trusted:
  *
  * - `@{upstream}` is a PULL source. `git checkout -b feat/x origin/canary` sets it to
  *   `origin/canary` and leaves it there even after `feat/x` is pushed, so taking it at
@@ -219,6 +259,12 @@ export const resolveUpstream = async (
 ): Promise<ResolvedUpstream> => {
   const local = await readLocalBranchRef(dirPath, branch);
   if (!local) return {};
+
+  if (local.push) return { sha: local.sha, upstream: toUpstreamRef(local.push) };
+  // Git selected a push remote but could not resolve a branch destination (for
+  // example push.default=nothing or an unmatched push refspec). Do not substitute
+  // the pull upstream: that is explicitly a different repository in triangle flows.
+  if (local.pushRemote) return { sha: local.sha };
 
   // The overwhelmingly common shape (`git push -u`, same name both ends). Settled
   // without a single extra git call — the ownership probes below are never paid for.
