@@ -75,7 +75,7 @@ interface ShellFixture {
   remoteRefs?: string[];
   remotes?: string[];
   remoteUrl?: string;
-  /** Remote refs a local branch tracks (`for-each-ref --format=%(upstream)`). */
+  /** `<local ref>\t<upstream ref>` rows for branches with configured upstreams. */
   trackedRefs?: string[];
 }
 
@@ -88,7 +88,6 @@ const publishedAs = (ref: string) => ({
   branchRef: `sha1\torigin\t${ref}`,
   pushedRefs: [ref],
   refsAt: [ref],
-  trackedRefs: [ref],
 });
 
 const mockShell = ({
@@ -120,6 +119,7 @@ const mockShell = ({
         // `--is-ancestor` reports through the exit status: 0 = contained, 1 = not.
         const isAncestor =
           ancestorRefs.includes(args[2]) ||
+          refsAt.includes(args[2]) ||
           (commitOnDefault && args[3]?.startsWith('refs/remotes/'));
         if (!isAncestor) throw Object.assign(new Error('not an ancestor'), { code: 1 });
         return ok('');
@@ -136,7 +136,7 @@ const mockShell = ({
       }
       if (subcommand === 'for-each-ref') {
         if (args.includes('--points-at')) return ok(refsAt.join('\n'));
-        if (args.includes('--format=%(upstream)')) return ok(trackedRefs.join('\n'));
+        if (args.at(-1) === 'refs/heads') return ok(trackedRefs.join('\n'));
         if (args.includes('--format=%(refname)')) return ok(remoteRefs.join('\n'));
         return ok(branchRef);
       }
@@ -185,6 +185,8 @@ describe('getLinkedPullRequest', () => {
   it('discovers only open PRs with the published owner and branch', async () => {
     mockShell({
       branchRef: 'sha1\torigin\trefs/remotes/origin/fix/topic-running',
+      pushedRefs: ['refs/remotes/origin/fix/topic-running'],
+      refsAt: ['refs/remotes/origin/fix/topic-running'],
       prList: [
         {
           ...PULL_REQUEST,
@@ -296,9 +298,11 @@ describe('getLinkedPullRequest', () => {
       headRepository: { nameWithOwner: 'contributor/lobehub' },
     };
     mockShell({
+      ancestorRefs: ['refs/remotes/fork/feat/hetero-session-import-ui'],
       branchRef: 'sha1\torigin\trefs/remotes/origin/feat/hetero-session-import-ui\tfork\t',
       parentRepo: 'lobehub/lobehub',
       prList: [forkPullRequest],
+      pushedRefs: ['refs/remotes/fork/feat/hetero-session-import-ui'],
       remoteUrl: 'git@github.com:contributor/lobehub.git',
     });
 
@@ -317,6 +321,23 @@ describe('getLinkedPullRequest', () => {
       branch: 'feat/hetero-session-import-ui',
       remote: 'fork',
     });
+  });
+
+  it('does not discover a colleague’s fetched PR from an unpushed local branch', async () => {
+    mockShell({
+      ancestorRefs: ['refs/remotes/origin/feat/hetero-session-import-ui'],
+      branchRef:
+        'sha1\torigin\trefs/remotes/origin/feat/hetero-session-import-ui\torigin\trefs/remotes/origin/feat/hetero-session-import-ui\t',
+      prList: [PULL_REQUEST],
+    });
+
+    const result = await getLinkedPullRequest({
+      branch: 'feat/hetero-session-import-ui',
+      path: '/repo',
+    });
+
+    expect(ghCalls()).toEqual([]);
+    expect(result).toEqual({ pullRequest: null, status: 'ok' });
   });
 
   it('uses the push URL repository and rejects closed or inexact repository matches', async () => {
@@ -441,7 +462,13 @@ describe('getLinkedPullRequest', () => {
   it('reports gh-missing when the gh CLI is unavailable', async () => {
     childProcessMocks.execFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
       if (cmd === 'git' && args[0] === 'for-each-ref') {
-        return ok('sha1\torigin\trefs/remotes/origin/feat/x');
+        return ok('sha1\torigin\trefs/remotes/origin/feat/x\torigin\trefs/remotes/origin/feat/x\t');
+      }
+      if (cmd === 'git' && args[0] === 'reflog') {
+        return ok('sha1 refs/remotes/origin/feat/x@{0}: update by push');
+      }
+      if (cmd === 'git' && args[0] === 'merge-base') {
+        return ok('');
       }
       if (cmd === 'git' && args[0] === 'remote' && args[1] === 'get-url') {
         return ok('git@github.com:lobehub/lobehub.git');
