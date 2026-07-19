@@ -25,6 +25,7 @@ const ok = (stdout: string) => ({ stderr: '', stdout });
 
 const PULL_REQUEST = {
   headRefName: 'feat/hetero-session-import-ui',
+  headRepositoryOwner: { login: 'lobehub' },
   isDraft: false,
   mergeStateStatus: 'CLEAN',
   mergeable: 'MERGEABLE',
@@ -60,12 +61,15 @@ interface ShellFixture {
   defaultBranch?: Record<string, string>;
   /** `gh pr list --head`. */
   prList?: unknown[];
+  /** `gh pr list` responses keyed by its exact `--head` value. */
+  prListsByHead?: Record<string, unknown[]>;
   /** `gh pr view <n>`. */
   prView?: unknown;
   /** Refs this repo pushed to — git writes `update by push` into their reflog. */
   pushedRefs?: string[];
   refsAt?: string[];
   remotes?: string[];
+  remoteUrls?: Record<string, string>;
   /** Remote refs a local branch tracks (`for-each-ref --format=%(upstream)`). */
   trackedRefs?: string[];
 }
@@ -88,16 +92,21 @@ const mockShell = ({
   commitPulls,
   defaultBranch = { origin: 'origin/canary' },
   prList = [],
+  prListsByHead,
   prView,
   pushedRefs = [],
   refsAt = [],
   remotes = ['origin'],
+  remoteUrls = { origin: 'https://github.com/lobehub/lobehub.git' },
   trackedRefs = [],
 }: ShellFixture) => {
   childProcessMocks.execFileAsync.mockImplementation(async (cmd: string, args: string[]) => {
     if (cmd === 'git') {
       const [subcommand] = args;
-      if (subcommand === 'remote') return ok(remotes.join('\n'));
+      if (subcommand === 'remote') {
+        if (args[1] === 'get-url') return ok(remoteUrls[args[2]] ?? '');
+        return ok(remotes.join('\n'));
+      }
       if (subcommand === 'merge-base') {
         // `--is-ancestor` reports through the exit status: 0 = contained, 1 = not.
         if (!commitOnDefault) throw Object.assign(new Error('not an ancestor'), { code: 1 });
@@ -125,7 +134,10 @@ const mockShell = ({
         if (!commitPulls) throw new Error('gh api failed');
         return ok(JSON.stringify(commitPulls));
       }
-      if (args[1] === 'list') return ok(JSON.stringify(prList));
+      if (args[1] === 'list') {
+        const head = args[args.indexOf('--head') + 1];
+        return ok(JSON.stringify(prListsByHead?.[head] ?? prList));
+      }
       if (args[1] === 'view') return ok(JSON.stringify(prView ?? {}));
     }
 
@@ -200,6 +212,31 @@ describe('getLinkedPullRequest', () => {
       branch: 'feat/hetero-session-import-ui',
       remote: 'origin',
     });
+  });
+
+  it('does not link a PR from another fork that uses the same branch name', async () => {
+    mockShell({
+      branchRef: 'sha1\torigin\trefs/remotes/origin/canary',
+      prListsByHead: {
+        canary: [
+          {
+            ...PULL_REQUEST,
+            headRefName: 'canary',
+            headRepositoryOwner: { login: 'another-fork' },
+            number: 17_244,
+          },
+        ],
+      },
+    });
+
+    const result = await getLinkedPullRequest({ branch: 'canary', path: '/repo' });
+
+    expect(result).toEqual({
+      pullRequest: null,
+      status: 'ok',
+      upstream: { branch: 'canary', remote: 'origin' },
+    });
+    expect(ghCalls().find((args) => args[1] === 'list')).toContain('canary');
   });
 
   it('recovers the PR by commit when the push left no local trace of the remote branch', async () => {

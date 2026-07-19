@@ -14,7 +14,12 @@ import type {
   GitUpstreamRef,
   GitWorkingTreeStatus,
 } from './types';
-import { getDefaultRemote, isCommitSafeForPullRequestLookup, resolveUpstream } from './upstream';
+import {
+  getDefaultRemote,
+  getGithubRemoteOwner,
+  isCommitSafeForPullRequestLookup,
+  resolveUpstream,
+} from './upstream';
 
 const log = createLogger('local-file-shell:git');
 const execFileAsync = promisify(execFile);
@@ -28,6 +33,7 @@ type GithubStatusCheckRollupNode = {
 type GithubPullRequestPayload = {
   /** The PR's head branch ON GitHub — the authoritative remote ref for this branch. */
   headRefName?: string | null;
+  headRepositoryOwner?: { login?: string | null } | null;
   isDraft?: boolean;
   mergeable?: string | null;
   mergeStateStatus?: string | null;
@@ -41,7 +47,7 @@ type GithubPullRequestPayload = {
 };
 
 const GITHUB_PULL_REQUEST_FIELDS =
-  'number,url,title,state,isDraft,mergeable,mergeStateStatus,mergedAt,reviewDecision,statusCheckRollup,headRefName';
+  'number,url,title,state,isDraft,mergeable,mergeStateStatus,mergedAt,reviewDecision,statusCheckRollup,headRefName,headRepositoryOwner';
 
 const failureConclusions = new Set([
   'action_required',
@@ -203,8 +209,9 @@ const toUpstreamRef = async (
  * The PR linked to a branch, resolved cheapest-signal-first:
  *
  * 1. a saved PR number → `gh pr view` (the strongest link once one is known);
- * 2. the branch's REMOTE ref → `gh pr list --head`, including merged/closed PRs so
- *    stale topic snapshots refresh lifecycle state after GitHub changes outside the app;
+ * 2. the branch's REMOTE ref → `gh pr list --head`, filtered by head-repository
+ *    owner, including merged/closed PRs so stale topic snapshots refresh lifecycle
+ *    state after GitHub changes outside the app;
  * 3. nothing found and no remote ref was ever established → `gh` commit→PR lookup.
  *
  * Step 2 is the fix for the bug this chain existed to have: the head passed to
@@ -251,23 +258,32 @@ export const getLinkedPullRequest = async (payload: {
       };
     }
 
+    const queryBranch = localUpstream?.branch ?? branch;
+
     const { stdout } = await execFileAsync(
       'gh',
       [
         'pr',
         'list',
         '--head',
-        localUpstream?.branch ?? branch,
+        queryBranch,
         '--state',
         'all',
         '--limit',
-        '5',
+        '100',
         '--json',
         GITHUB_PULL_REQUEST_FIELDS,
       ],
       { cwd: dirPath, timeout: 8000 },
     );
-    const parsed = JSON.parse(stdout.trim() || '[]') as GithubPullRequestPayload[];
+    const candidates = JSON.parse(stdout.trim() || '[]') as GithubPullRequestPayload[];
+    const queryRemote = localUpstream?.remote ?? (await getDefaultRemote(dirPath));
+    const queryOwner = queryRemote ? await getGithubRemoteOwner(dirPath, queryRemote) : undefined;
+    const parsed = queryOwner
+      ? candidates
+          .filter((pr) => pr.headRepositoryOwner?.login?.toLowerCase() === queryOwner.toLowerCase())
+          .slice(0, 5)
+      : [];
 
     if (parsed.length > 0) {
       const [primaryRaw, ...rest] = parsed;

@@ -268,6 +268,23 @@ export const getDefaultRemote = async (dirPath: string): Promise<string | undefi
   return remotes[0];
 };
 
+/** GitHub owner of a configured remote, for disambiguating same-named fork branches. */
+export const getGithubRemoteOwner = async (
+  dirPath: string,
+  remote: string,
+): Promise<string | undefined> => {
+  const remoteUrl = (await runGit(['remote', 'get-url', remote], dirPath))?.trim();
+  if (!remoteUrl) return undefined;
+
+  try {
+    const url = new URL(remoteUrl);
+    if (url.hostname.toLowerCase() !== 'github.com') return undefined;
+    return url.pathname.split('/').find(Boolean);
+  } catch {
+    return /^(?:[^@/]+@)?github\.com:([^/]+)\//i.exec(remoteUrl)?.[1];
+  }
+};
+
 /** Exit-status-only probe — `runGit` cannot tell success-with-no-output from failure. */
 const gitSucceeds = async (args: string[], cwd: string): Promise<boolean> => {
   try {
