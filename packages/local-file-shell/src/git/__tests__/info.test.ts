@@ -54,6 +54,8 @@ const NORMALIZED_PULL_REQUEST = {
 };
 
 interface ShellFixture {
+  /** Remote refs whose tips are ancestors of the current local branch tip. */
+  ancestorRefs?: string[];
   /** `for-each-ref refs/heads/<branch>` → `<sha>\t<upstream remote>\t<upstream ref>`. */
   branchRef?: string;
   /** The branch's commit is already contained in the remote default branch (fork point). */
@@ -88,6 +90,7 @@ const publishedAs = (ref: string) => ({
 });
 
 const mockShell = ({
+  ancestorRefs = [],
   branchRef = '',
   commitOnDefault = false,
   defaultBranch = { origin: 'origin/canary' },
@@ -108,7 +111,10 @@ const mockShell = ({
       if (subcommand === 'remote') return ok(remotes.join('\n'));
       if (subcommand === 'merge-base') {
         // `--is-ancestor` reports through the exit status: 0 = contained, 1 = not.
-        if (!commitOnDefault) throw Object.assign(new Error('not an ancestor'), { code: 1 });
+        const isAncestor =
+          ancestorRefs.includes(args[2]) ||
+          (commitOnDefault && args[3]?.startsWith('refs/remotes/'));
+        if (!isAncestor) throw Object.assign(new Error('not an ancestor'), { code: 1 });
         return ok('');
       }
       if (subcommand === 'reflog') {
@@ -229,6 +235,7 @@ describe('getLinkedPullRequest', () => {
 
   it('keeps discovering a pushed untracked branch after an additional local commit', async () => {
     mockShell({
+      ancestorRefs: ['refs/remotes/origin/feat/hetero-session-import-ui'],
       branchRef: 'sha2\t\t',
       prList: [PULL_REQUEST],
       pushedRefs: ['refs/remotes/origin/feat/hetero-session-import-ui'],

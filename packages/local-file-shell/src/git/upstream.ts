@@ -239,16 +239,22 @@ export const resolveUpstream = async (
   if (candidates.length === 0) {
     // `git push origin feat/x` without `-u` leaves a pushed remote-tracking ref,
     // but a subsequent local commit means it no longer points at the local tip.
-    // Recover only an exact-name ref whose reflog proves this repo pushed it;
-    // multiple matching remotes remain ambiguous and therefore unresolved.
+    // Recover only an exact-name ref whose reflog proves this repo pushed it and
+    // whose tip is an ancestor of the local branch. The ancestry check rejects an
+    // unrelated stale ref left behind after deleting and recreating the branch.
+    // Multiple matching remotes remain ambiguous and therefore unresolved.
     const sameNamed = (await listRemoteRefs(dirPath))
       .map((ref) => parseRemoteRef(ref, remotes))
       .filter((candidate): candidate is RemoteRefCandidate => candidate?.branch === branch);
     const pushedSameNamed = (
       await Promise.all(
-        sameNamed.map(async (candidate) =>
-          (await wasPushedFromHere(dirPath, candidate.ref)) ? candidate : undefined,
-        ),
+        sameNamed.map(async (candidate) => {
+          const [wasPushed, isAncestor] = await Promise.all([
+            wasPushedFromHere(dirPath, candidate.ref),
+            gitSucceeds(['merge-base', '--is-ancestor', candidate.ref, local.sha], dirPath),
+          ]);
+          return wasPushed && isAncestor ? candidate : undefined;
+        }),
       )
     ).filter((candidate): candidate is RemoteRefCandidate => !!candidate);
 

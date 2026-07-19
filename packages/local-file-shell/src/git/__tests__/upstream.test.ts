@@ -17,6 +17,8 @@ vi.mock('node:child_process', () => {
 const ok = (stdout: string) => ({ stderr: '', stdout });
 
 interface GitFixture {
+  /** Remote refs whose tips are ancestors of the current local branch tip. */
+  ancestorRefs?: string[];
   /** `for-each-ref refs/heads/<branch>` → `<sha>\t<upstream remote>\t<upstream ref>`. */
   branchRef?: string;
   /**
@@ -36,6 +38,7 @@ interface GitFixture {
 }
 
 const mockGit = ({
+  ancestorRefs = [],
   branchRef = '',
   defaultBranch = {},
   pushedRefs = [],
@@ -48,6 +51,11 @@ const mockGit = ({
     const [subcommand] = args;
 
     if (subcommand === 'remote') return ok(remotes.join('\n'));
+
+    if (subcommand === 'merge-base') {
+      if (!ancestorRefs.includes(args[2])) throw new Error('not an ancestor');
+      return ok('');
+    }
 
     if (subcommand === 'reflog') {
       const ref = args[2];
@@ -170,6 +178,7 @@ describe('resolveUpstream', () => {
 
   it('keeps a pushed untracked branch after local commits move beyond the remote ref', async () => {
     mockGit({
+      ancestorRefs: ['refs/remotes/origin/feat/x'],
       branchRef: 'sha2\t\t',
       pushedRefs: ['refs/remotes/origin/feat/x'],
       remoteRefs: ['refs/remotes/origin/feat/x'],
@@ -180,6 +189,17 @@ describe('resolveUpstream', () => {
       sha: 'sha2',
       upstream: { branch: 'feat/x', remote: 'origin' },
     });
+  });
+
+  it('rejects a pushed stale ref from a deleted branch recreated at unrelated history', async () => {
+    mockGit({
+      branchRef: 'unrelated-sha\t\t',
+      pushedRefs: ['refs/remotes/origin/feat/x'],
+      remoteRefs: ['refs/remotes/origin/feat/x'],
+      remotes: ['origin'],
+    });
+
+    expect(await resolveUpstream('/repo', 'feat/x')).toEqual({ sha: 'unrelated-sha' });
   });
 
   it('does not trust a stale same-name ref without push provenance', async () => {
