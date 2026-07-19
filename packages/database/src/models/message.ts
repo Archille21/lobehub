@@ -124,6 +124,12 @@ export interface QueryMessagesOptions {
    * Custom where condition for message filtering
    */
   where?: SQL;
+  /**
+   * Constrain MessageGroup assembly to the fetched page's time window instead of
+   * loading every group in the topic. Set by cursor pagination so a scroll-up
+   * page does not re-load (and repeat) group nodes outside `[lowerBound, cursor)`.
+   */
+  windowGroupNodes?: boolean;
 }
 
 export interface TopicTranscriptMessage {
@@ -629,6 +635,7 @@ export class MessageModel {
       skipWorks,
       topicId,
       timing,
+      windowGroupNodes,
     } = options;
     const totalStartedAt = Date.now();
     const offset = current * pageSize;
@@ -759,6 +766,7 @@ export class MessageModel {
       result,
       timing,
       topicId,
+      windowed: windowGroupNodes,
     });
 
     const taskMessageIds = result
@@ -1000,16 +1008,13 @@ export class MessageModel {
       timing: options.timing,
       topicId,
       where,
+      // Only assemble group nodes within this page's window (not the whole topic),
+      // so scroll-up pages don't repeat groups or eagerly load compressed history.
+      windowGroupNodes: true,
     });
 
-    return {
-      hasMore,
-      messages,
-      nextCursor:
-        hasMore && lowerBound
-          ? { createdAt: lowerBound.createdAt.toISOString(), id: lowerBound.id }
-          : null,
-    };
+    // `lowerBound.createdAt` is already the lossless microsecond cursor string.
+    return { hasMore, messages, nextCursor: hasMore ? lowerBound : null };
   };
 
   /**
@@ -1028,15 +1033,24 @@ export class MessageModel {
     cursor?: MessageRoundCursor | null;
     mainlineWhere: SQL | undefined;
     roundLimit: number;
-  }): Promise<{ hasMore: boolean; lowerBound: { createdAt: Date; id: string } | null }> => {
+  }): Promise<{ hasMore: boolean; lowerBound: { createdAt: string; id: string } | null }> => {
     const olderThanCursor = cursor ? this.messageStrictlyBefore(cursor) : undefined;
 
     const rows = (await this.db
-      .select({ createdAt: messages.createdAt, id: messages.id, role: messages.role })
+      .select({
+        // Microsecond-precision UTC string. `createdAt` is a timestamptz whose
+        // now() default can carry microseconds, but a JS Date keeps only
+        // milliseconds — a Date-derived cursor would round sub-millisecond
+        // boundaries and let rows leak between adjacent pages. Carry the lossless
+        // value in the cursor and compare it back with a ::timestamptz cast.
+        createdAtIso: sql<string>`to_char(${messages.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+        id: messages.id,
+        role: messages.role,
+      })
       .from(messages)
       .where(and(this.ownership(), isNull(messages.messageGroupId), mainlineWhere, olderThanCursor))
       .orderBy(desc(messages.createdAt), desc(messages.id))
-      .limit(countBudget + 1)) as { createdAt: Date; id: string; role: string }[];
+      .limit(countBudget + 1)) as { createdAtIso: string; id: string; role: string }[];
 
     if (rows.length === 0) return { hasMore: false, lowerBound: null };
 
@@ -1062,23 +1076,28 @@ export class MessageModel {
     const boundaryRow = rows[boundaryIndex];
     const hasMore = boundaryIndex < rows.length - 1 || rows.length > countBudget;
 
-    return { hasMore, lowerBound: { createdAt: boundaryRow.createdAt, id: boundaryRow.id } };
+    return { hasMore, lowerBound: { createdAt: boundaryRow.createdAtIso, id: boundaryRow.id } };
   };
 
-  /** `(createdAt, id)` strictly before the cursor — the "older than" half-open bound. */
-  private messageStrictlyBefore = (cursor: MessageRoundCursor) => {
-    const createdAt = new Date(cursor.createdAt);
-    return or(
-      lt(messages.createdAt, createdAt),
-      and(eq(messages.createdAt, createdAt), lt(messages.id, cursor.id)),
+  /**
+   * `(createdAt, id)` strictly before the cursor — the "older than" half-open
+   * bound. Compares against the cursor's lossless microsecond string cast to
+   * `timestamptz`, so sub-millisecond boundaries stay exact.
+   */
+  private messageStrictlyBefore = (cursor: MessageRoundCursor) =>
+    or(
+      sql`${messages.createdAt} < ${cursor.createdAt}::timestamptz`,
+      and(
+        sql`${messages.createdAt} = ${cursor.createdAt}::timestamptz`,
+        lt(messages.id, cursor.id),
+      ),
     );
-  };
 
   /** `(createdAt, id)` at or after the lower bound — the inclusive window start. */
-  private messageAtOrAfter = (bound: { createdAt: Date; id: string }) =>
+  private messageAtOrAfter = (bound: { createdAt: string; id: string }) =>
     or(
-      gt(messages.createdAt, bound.createdAt),
-      and(eq(messages.createdAt, bound.createdAt), gte(messages.id, bound.id)),
+      sql`${messages.createdAt} > ${bound.createdAt}::timestamptz`,
+      and(sql`${messages.createdAt} = ${bound.createdAt}::timestamptz`, gte(messages.id, bound.id)),
     );
 
   private queryMessageGroupNodesForPage = async ({
@@ -1087,6 +1106,7 @@ export class MessageModel {
     result,
     timing,
     topicId,
+    windowed,
   }: {
     current: number;
     postProcessUrl?: (
@@ -1096,11 +1116,18 @@ export class MessageModel {
     result: { createdAt: Date }[];
     timing?: ModelTimingContext;
     topicId?: string;
+    windowed?: boolean;
   }): Promise<UIChatMessage[]> => {
     if (!topicId) return [];
 
+    // `windowed` (cursor pagination) always constrains groups to the page's time
+    // range; otherwise only page 0 loads the whole topic's groups.
+    const useWindow = windowed || current !== 0;
+
     if (result.length === 0) {
-      if (current !== 0) return [];
+      // A windowed page with no messages has an empty window → no groups. Only the
+      // non-windowed initial page loads a group-only topic's nodes.
+      if (useWindow) return [];
 
       return runTimedStage(
         timing,
@@ -1110,7 +1137,7 @@ export class MessageModel {
       );
     }
 
-    if (current === 0) {
+    if (!useWindow) {
       return runTimedStage(
         timing,
         'db.message.queryWithWhere.messageGroups',
