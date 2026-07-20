@@ -56,9 +56,14 @@ const EmptyState = memo<{ provider: string }>(({ provider }) => {
   const [fetchRemoteModelList] = useAiInfraStore((s) => [s.fetchRemoteModelList]);
 
   const [fetchRemoteModelsLoading, setFetchRemoteModelsLoading] = useState(false);
-  // Providers with showModelFetcher: false (e.g. lobehub) can't list models via
-  // /webapi/models/[provider], so the empty state must not offer the fetch action either
-  const { showDeployName, showModelFetcher = true } = use(ProviderSettingsContext);
+  // Providers with showModelFetcher / showAddNewModel disabled (e.g. lobehub) can't
+  // fetch or hand-add models, so the empty state must not offer those actions either
+  // (same gating as ModelTitle)
+  const {
+    showAddNewModel = true,
+    showDeployName,
+    showModelFetcher = true,
+  } = use(ProviderSettingsContext);
 
   return (
     <Center className={styles.container} gap={24} paddingBlock={40}>
@@ -71,23 +76,25 @@ const EmptyState = memo<{ provider: string }>(({ provider }) => {
       </Flexbox>
 
       <Flexbox horizontal gap={8}>
-        <Tooltip title={canManageProvider ? undefined : reason}>
-          <Button
-            disabled={!canManageProvider}
-            icon={PlusIcon}
-            onClick={() => {
-              if (!canManageProvider) return;
-              createCreateNewModelModal({
-                existingModelIds: useAiInfraStore
-                  .getState()
-                  .aiProviderModelList.map((model) => model.id),
-                showDeployName,
-              });
-            }}
-          >
-            {t('providerModels.list.addNew')}
-          </Button>
-        </Tooltip>
+        {showAddNewModel && (
+          <Tooltip title={canManageProvider ? undefined : reason}>
+            <Button
+              disabled={!canManageProvider}
+              icon={PlusIcon}
+              onClick={() => {
+                if (!canManageProvider) return;
+                createCreateNewModelModal({
+                  existingModelIds: useAiInfraStore
+                    .getState()
+                    .aiProviderModelList.map((model) => model.id),
+                  showDeployName,
+                });
+              }}
+            >
+              {t('providerModels.list.addNew')}
+            </Button>
+          </Tooltip>
+        )}
         {showModelFetcher && (
           <Tooltip title={canManageProvider ? undefined : reason}>
             <Button

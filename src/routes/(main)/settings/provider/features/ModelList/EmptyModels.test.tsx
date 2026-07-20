@@ -29,29 +29,39 @@ vi.mock('./CreateNewModelModal', () => ({
   createCreateNewModelModal: vi.fn(),
 }));
 
-const renderEmptyModels = (showModelFetcher?: boolean) =>
+const renderEmptyModels = (context?: { showAddNewModel?: boolean; showModelFetcher?: boolean }) =>
   render(
     <App>
-      <ProviderSettingsContext value={{ showModelFetcher }}>
+      <ProviderSettingsContext value={context ?? {}}>
         <EmptyModels provider={'lobehub'} />
       </ProviderSettingsContext>
     </App>,
   );
 
 describe('EmptyModels', () => {
-  it('shows the fetch button by default', () => {
+  it('shows the fetch and add-model buttons by default', () => {
     renderEmptyModels();
 
     expect(screen.getByText('providerModels.list.fetcher.fetch')).toBeInTheDocument();
+    expect(screen.getByText('providerModels.list.addNew')).toBeInTheDocument();
   });
 
   it('hides the fetch button when showModelFetcher is false', () => {
     // Regression for LOBE-12051: providers like lobehub disable the model
     // fetcher, but the empty state still offered a fetch action that 500s
-    renderEmptyModels(false);
+    renderEmptyModels({ showModelFetcher: false });
 
     expect(screen.queryByText('providerModels.list.fetcher.fetch')).toBeNull();
     // the add-model action stays available
     expect(screen.getByText('providerModels.list.addNew')).toBeInTheDocument();
+  });
+
+  it('hides the add-model button when showAddNewModel is false', () => {
+    // providers like lobehub also disable hand-adding models; the empty state
+    // must gate the add action the same way ModelTitle does
+    renderEmptyModels({ showAddNewModel: false, showModelFetcher: false });
+
+    expect(screen.queryByText('providerModels.list.addNew')).toBeNull();
+    expect(screen.queryByText('providerModels.list.fetcher.fetch')).toBeNull();
   });
 });
