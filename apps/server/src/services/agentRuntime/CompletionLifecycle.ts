@@ -189,7 +189,11 @@ export class CompletionLifecycle {
    * outage must never block hook dispatch or the executor's terminal
    * cleanup path.
    */
-  private async persistCompletion(operationId: string, state: any, reason: string): Promise<void> {
+  private async persistCompletion(
+    operationId: string,
+    state: any,
+    reason: string,
+  ): Promise<boolean> {
     const completionReason: any =
       reason === 'max_steps' ||
       reason === 'cost_limit' ||
@@ -235,37 +239,52 @@ export class CompletionLifecycle {
     };
 
     try {
-      await this.agentOperationModel.recordCompletion(operationId, {
-        completedAt,
-        completionReason,
-        cost: state?.cost ?? null,
-        error: state?.error ?? null,
-        interruption: state?.interruption ?? null,
-        llmCalls: add(state?.usage?.llm?.apiCalls, rollup?.llmCalls ?? 0),
-        // Backfill the executed model/provider when the terminal state carries
-        // them. The in-process runtime sets neither on `state` (the op already
-        // holds them from recordStart) so these stay undefined and recordCompletion
-        // skips them — a no-op. A heterogeneous run, which only learns its real
-        // model from the CLI stream, feeds them in via the synthetic state built in
-        // heteroFinish; the verify gate keys off op.model/provider, so dropping this
-        // backfill would leave op.model null and silently skip verify.
-        model: state?.model,
-        processingTimeMs,
-        provider: state?.provider,
-        status,
-        stepCount: state?.stepCount ?? null,
-        toolCalls: add(state?.usage?.tools?.totalCalls, rollup?.toolCalls ?? 0),
-        totalCost: add(state?.cost?.total, rollup?.totalCost ?? 0),
-        totalInputTokens: add(state?.usage?.llm?.tokens?.input, rollup?.totalInputTokens ?? 0),
-        totalOutputTokens: add(state?.usage?.llm?.tokens?.output, rollup?.totalOutputTokens ?? 0),
-        totalTokens: add(state?.usage?.llm?.tokens?.total, rollup?.totalTokens ?? 0),
-        traceS3Key,
-        // The `usage` / `cost` blobs stay the op's OWN accumulator, un-rolled-up:
-        // they are the runtime's counter, and the executor reads them back as state
-        // (the cost-limit gate compares `state.cost.total` against the budget). Only
-        // the scalar columns — the reporting surface — carry the whole tree.
-        usage: state?.usage ?? null,
-      });
+      const persisted = await this.agentOperationModel.recordCompletion(
+        operationId,
+        {
+          completedAt,
+          completionReason,
+          cost: state?.cost ?? null,
+          error: state?.error ?? null,
+          interruption: state?.interruption ?? null,
+          llmCalls: add(state?.usage?.llm?.apiCalls, rollup?.llmCalls ?? 0),
+          // Backfill the executed model/provider when the terminal state carries
+          // them. The in-process runtime sets neither on `state` (the op already
+          // holds them from recordStart) so these stay undefined and recordCompletion
+          // skips them — a no-op. A heterogeneous run, which only learns its real
+          // model from the CLI stream, feeds them in via the synthetic state built in
+          // heteroFinish; the verify gate keys off op.model/provider, so dropping this
+          // backfill would leave op.model null and silently skip verify.
+          model: state?.model,
+          processingTimeMs,
+          provider: state?.provider,
+          status,
+          stepCount: state?.stepCount ?? null,
+          toolCalls: add(state?.usage?.tools?.totalCalls, rollup?.toolCalls ?? 0),
+          totalCost: add(state?.cost?.total, rollup?.totalCost ?? 0),
+          totalInputTokens: add(state?.usage?.llm?.tokens?.input, rollup?.totalInputTokens ?? 0),
+          totalOutputTokens: add(state?.usage?.llm?.tokens?.output, rollup?.totalOutputTokens ?? 0),
+          totalTokens: add(state?.usage?.llm?.tokens?.total, rollup?.totalTokens ?? 0),
+          traceS3Key,
+          // The `usage` / `cost` blobs stay the op's OWN accumulator, un-rolled-up:
+          // they are the runtime's counter, and the executor reads them back as state
+          // (the cost-limit gate compares `state.cost.total` against the budget). Only
+          // the scalar columns — the reporting surface — carry the whole tree.
+          usage: state?.usage ?? null,
+        },
+        // Terminal callbacks are re-deliverable and can race (for example Stop
+        // followed by a late child-process error). First terminal writer wins.
+        { onlyIfActive: !isParkedStatus(status) },
+      );
+
+      if (!persisted) {
+        const existing = await this.agentOperationModel.findById(operationId);
+        // A missing start row is a tolerated tracing failure: keep dispatching
+        // hooks. An existing terminal row means this is a duplicate/late finish.
+        if (existing && !isParkedStatus(existing.status) && existing.status !== 'running') {
+          return false;
+        }
+      }
     } catch (error) {
       log('[%s] Failed to persist operation completion (non-fatal): %O', operationId, error);
     }
@@ -285,6 +304,8 @@ export class CompletionLifecycle {
         log('[%s] Failed to recompute topic usage rollup (non-fatal): %O', operationId, error);
       }
     }
+
+    return true;
   }
 
   /** Best-effort child-usage rollup — a DB hiccup must not fail the completion write. */
@@ -504,7 +525,7 @@ export class CompletionLifecycle {
    */
   async completeOperation(
     input: OperationCompletionInput,
-    reason: 'done' | 'error',
+    reason: 'done' | 'error' | 'interrupted',
     options?: CompleteOperationOptions,
   ): Promise<void> {
     await this.dispatchHooks(input.operationId, this.buildStateFromInput(input), reason, options);
@@ -539,7 +560,8 @@ export class CompletionLifecycle {
 
       // Finalize the agent_operations row before user hooks fire so
       // downstream consumers see the row in its terminal shape.
-      await this.persistCompletion(operationId, state, reason);
+      const isFirstTerminalTransition = await this.persistCompletion(operationId, state, reason);
+      if (isFirstTerminalTransition === false) return;
 
       if (isAsyncToolPark) return;
 

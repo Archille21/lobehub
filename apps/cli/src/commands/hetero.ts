@@ -382,6 +382,12 @@ const exec = async (options: ExecOptions): Promise<void> => {
   const agentType = options.type as 'amp' | 'claude-code' | 'codex' | 'opencode';
   let sink: TrpcIngestSink | undefined;
   let serverIngester: CoalescingBatchIngester | undefined;
+  // In server-ingest mode, exit code is the parent/child terminal-handshake
+  // contract: once heteroFinish is acknowledged, the semantic result already
+  // lives on the server and the wrapper exits 0. A non-zero exit means the
+  // parent must deliver the terminal fallback.
+  let terminalDelivered = false;
+  let terminalDeliveryFailed = false;
   // Uploader for tool_result images (CC `Read` on an image file). Reuses the
   // CLI's authenticated lambda client so the persisted event carries a
   // `{ fileId, url }` reference instead of heavy base64. Only wired in
@@ -589,11 +595,12 @@ const exec = async (options: ExecOptions): Promise<void> => {
             error: buildFinishError(message, 'AgentRuntimeError'),
             result: 'error',
           });
+          terminalDelivered = true;
         } catch {
           // best-effort; process is exiting anyway
         }
       }
-      process.exit(1);
+      process.exit(terminalDelivered ? 0 : 1);
     }
 
     // Always collect stderr — used for resume-error detection AND for
@@ -696,12 +703,13 @@ const exec = async (options: ExecOptions): Promise<void> => {
             ),
             result: 'error',
           });
+          terminalDelivered = true;
         } catch {
           // best-effort
         }
       }
       await dumpAttempt?.close();
-      process.exit(1);
+      process.exit(terminalDelivered ? 0 : 1);
     } finally {
       process.off('SIGINT', onSigint);
       process.off('SIGTERM', onSigterm);
@@ -857,7 +865,9 @@ const exec = async (options: ExecOptions): Promise<void> => {
         result: result.cancelled ? 'cancelled' : exitedClean ? 'success' : 'error',
         sessionId,
       });
+      terminalDelivered = true;
     } catch (err) {
+      terminalDeliveryFailed = true;
       log.error('Failed to send heteroFinish:', err instanceof Error ? err.message : String(err));
     }
   }
@@ -872,6 +882,11 @@ const exec = async (options: ExecOptions): Promise<void> => {
   }
   if (askMcpConfigPath) await unlink(askMcpConfigPath).catch(() => {});
 
+  // The server has acknowledged the exact success/error/cancelled result. Do
+  // not make the parent synthesize a second generic error from the agent CLI's
+  // own exit code — older servers do not have terminal CAS protection.
+  if (terminalDelivered) process.exit(0);
+  if (terminalDeliveryFailed) process.exit(1);
   if (code !== null) process.exit(result.ingestError ? 1 : code);
   if (signal === 'SIGINT') process.exit(130);
   if (signal === 'SIGTERM') process.exit(143);

@@ -704,7 +704,7 @@ describe('hetero exec command', () => {
       topicId: 'topic-1',
     });
     expect(mockHeteroFinishMutate.mock.calls[0][0].error.body).toBeUndefined();
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   it('finishes server-ingest runs with error when the agent event stream fails', async () => {
@@ -735,7 +735,7 @@ describe('hetero exec command', () => {
       topicId: 'topic-1',
     });
     expect(mockHeteroFinishMutate.mock.calls[0][0].error.body).toBeUndefined();
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   it('classifies a spawn ENOENT stream failure as a structured cli_not_found error', async () => {
@@ -778,6 +778,29 @@ describe('hetero exec command', () => {
       topicId: 'topic-1',
     });
     expect(mockHeteroFinishMutate.mock.calls[0][0].error.message).toContain('was not found');
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('exits non-zero when a clean server-ingest run cannot deliver heteroFinish', async () => {
+    mockSpawnAgent.mockReturnValue(createFakeHandle({ exitCode: 0 }));
+    mockHeteroFinishMutate.mockRejectedValue(new Error('terminal endpoint unavailable'));
+
+    await runCmd([
+      'hetero',
+      'exec',
+      '--type',
+      'codex',
+      '--prompt',
+      'hi',
+      '--topic',
+      'topic-1',
+      '--operation-id',
+      'op-terminal-failed',
+      '--render',
+      'none',
+    ]);
+
+    expect(mockHeteroFinishMutate).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
@@ -816,7 +839,9 @@ describe('hetero exec command', () => {
       result: 'error',
       topicId: 'topic-1',
     });
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    // The server acknowledged the semantic error, so the wrapper reports a
+    // completed terminal handshake to its parent instead of triggering fallback.
+    expect(exitSpy).toHaveBeenCalledWith(0);
   });
 
   it('rejects --prompt + --input-json (mutually exclusive)', async () => {

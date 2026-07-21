@@ -847,7 +847,7 @@ export class GatewayActionImpl {
     // See note in executeGatewayAgent for details.
     this.#get().onOperationCancel(gatewayOpId, async () => {
       await aiAgentService
-        .interruptTask({ operationId })
+        .interruptTask({ operationId, topicId })
         .catch((err) => console.error('[Gateway] interruptTask failed:', err));
     });
 

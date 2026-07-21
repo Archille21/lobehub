@@ -6,7 +6,7 @@ import path from 'node:path';
 import type { RemoteHeterogeneousAgentType } from '@lobechat/heterogeneous-agents';
 
 import { getTrpcClient } from '../api/client';
-import { getTask, listTasks, removeTask, saveTask } from '../daemon/taskRegistry';
+import { getTask, listTasks, removeTask, saveTask, type TaskEntry } from '../daemon/taskRegistry';
 import { log } from '../utils/logger';
 
 // ─── Hermes session persistence ───
@@ -69,6 +69,22 @@ export interface RunHeteroTaskParams {
 export interface CancelHeteroTaskParams {
   signal?: 'SIGINT' | 'SIGKILL' | 'SIGTERM';
   taskId: string;
+}
+
+/** Signal the whole detached Unix group for gateway agent runs, with a direct-PID fallback. */
+function signalTaskProcess(
+  entry: TaskEntry,
+  signal: NonNullable<CancelHeteroTaskParams['signal']>,
+): void {
+  if (entry.kind === 'agent-run' && process.platform !== 'win32') {
+    try {
+      process.kill(-entry.pid, signal);
+      return;
+    } catch {
+      // Older registry entries may predate detached process groups.
+    }
+  }
+  process.kill(entry.pid, signal);
 }
 
 async function sendAutoNotify(
@@ -218,6 +234,7 @@ export async function runHeteroTask(params: RunHeteroTaskParams): Promise<string
     saveTask({
       agentId,
       agentType,
+      kind: 'platform-task',
       operationId,
       pid,
       startedAt: new Date().toISOString(),
@@ -359,22 +376,39 @@ export async function cancelHeteroTask(params: CancelHeteroTaskParams): Promise<
     return JSON.stringify({ message: `No task found with taskId: ${taskId}`, success: false });
   }
 
-  // Both openclaw and hermes: kill by PID and let the child's close handler send the notify.
+  // Platform tasks let their close handler send notify. Gateway agent runs own
+  // their terminal callback and are spawned in a detached process group.
   try {
-    process.kill(entry.pid, signal);
+    signalTaskProcess(entry, signal);
+
+    if (entry.kind === 'agent-run' && signal !== 'SIGKILL') {
+      // Some agent/tool descendants swallow graceful signals. Escalate only if
+      // the same registry entry is still active; the exit handler removes it.
+      setTimeout(() => {
+        const current = getTask(taskId);
+        if (current?.kind !== 'agent-run' || current.pid !== entry.pid) return;
+        try {
+          signalTaskProcess(current, 'SIGKILL');
+        } catch {
+          // The process exited between the registry read and signal delivery.
+        }
+      }, 3000).unref();
+    }
   } catch (err) {
     // Process already exited — exit handler won't fire; clean up manually.
     log.warn(
       `Failed to send ${signal} to pid ${entry.pid}: ${err instanceof Error ? err.message : String(err)}`,
     );
     removeTask(taskId);
-    await sendAutoNotify(
-      entry.topicId,
-      taskId,
-      'Task already completed or cancelled',
-      entry.agentId,
-      entry.workspaceId,
-    );
+    if (entry.kind !== 'agent-run') {
+      await sendAutoNotify(
+        entry.topicId,
+        taskId,
+        'Task already completed or cancelled',
+        entry.agentId,
+        entry.workspaceId,
+      );
+    }
   }
 
   return JSON.stringify({ pid: entry.pid, signal, taskId });

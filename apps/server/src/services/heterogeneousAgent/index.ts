@@ -202,6 +202,53 @@ export class HeterogeneousAgentService {
       sessionId ?? '<none>',
     );
 
+    // Terminal callbacks are re-deliverable: Desktop/CLI may send a process-exit
+    // fallback after Stop already persisted `interrupted`. Never let that late
+    // callback rewrite the terminal result or surface a contradictory error.
+    try {
+      const existing = await new AgentOperationModel(
+        this.db,
+        this.userId,
+        this.workspaceId,
+      ).findById(operationId);
+      if (
+        existing &&
+        (existing.status === 'done' ||
+          existing.status === 'error' ||
+          existing.status === 'interrupted')
+      ) {
+        // The durable terminal result is immutable, but a same-replica callback
+        // may still own buffered ingest state (and the CLI's native session id).
+        // Drain that state before returning. Normalize a duplicate error to
+        // cancelled so a generic process-exit fallback cannot overwrite a richer
+        // message error or clear a valid resume id after another terminal path won.
+        await this.persistenceHandler.finish({
+          operationId,
+          result: result === 'error' ? 'cancelled' : result,
+          sessionId,
+          topicId,
+        });
+        await this.topicModel.clearRunningOperation(topicId, operationId).catch(() => false);
+        log(
+          'heteroFinish: ignore duplicate terminal callback op=%s status=%s',
+          operationId,
+          existing.status,
+        );
+        return;
+      }
+      if (!existing) {
+        const topic = await this.topicModel.findById(topicId);
+        if (topic && topic.metadata?.runningOperation?.operationId !== operationId) {
+          log('heteroFinish: ignore stale callback without operation row op=%s', operationId);
+          return;
+        }
+      }
+    } catch (err) {
+      // Operation tracing is best-effort. If the start row is unavailable,
+      // continue so the topic marker and UI stream still reach a terminal state.
+      log('heteroFinish: terminal idempotency lookup failed (non-fatal): %O', err);
+    }
+
     // Drain any pending state in the persistence handler — flushes trailing
     // accumulated content / reasoning that the in-stream `agent_runtime_end`
     // already wrote (no-op when state is clean), persists the CLI's native
@@ -212,21 +259,18 @@ export class HeterogeneousAgentService {
     // triggers the client's message refetch.
     await this.persistenceHandler.finish({ error, operationId, result, sessionId, topicId });
 
-    // Always emit a terminal `agent_runtime_end` so renderer subscribers shut
-    // down even if the CLI stream missed it (process killed mid-flight,
-    // network drop on last batch). Idempotent on the renderer side: the
-    // gateway event handler latches `terminalState` on first end-event.
-    await this.streamEventManager.publishStreamEvent(operationId, {
-      data: {
-        agentType,
-        error,
-        operationId,
-        reason: result,
-        sessionId,
-      },
-      stepIndex: 0,
-      type: 'agent_runtime_end',
-    });
+    const publishTerminal = () =>
+      this.streamEventManager.publishStreamEvent(operationId, {
+        data: {
+          agentType,
+          error,
+          operationId,
+          reason: result,
+          sessionId,
+        },
+        stepIndex: 0,
+        type: 'agent_runtime_end',
+      });
 
     // Drive the run's lifecycle hooks (onComplete / onError) through the same
     // `hookDispatcher` the normal LLM runtime uses, so the task lifecycle
@@ -234,21 +278,15 @@ export class HeterogeneousAgentService {
     // fire uniformly. The hooks were registered in-memory (local mode) and
     // serialized onto runningOperation (queue mode) at dispatch time.
     //
-    // Skip on `cancelled` — heteroFinish may be called twice: first with
-    // result=cancelled (termination signal) then with result=success/error
-    // (normal process exit). We must NOT clear runningOperation or fire hooks on
-    // cancelled so the subsequent success/error call still finds the hooks +
-    // assistantMessageId and dispatches exactly once. (cancelled→interrupted is a
-    // no-op for the task lifecycle anyway — onTopicComplete has no interrupted
-    // branch — and suppresses a spurious bot "stopped" message before the real
-    // result lands.)
-    if (result === 'cancelled') return;
-
     let serializedHooks: SerializedHook[] | undefined;
     let assistantMessageId: string | undefined;
     try {
       const topic = await this.topicModel.findById(topicId);
-      serializedHooks = topic?.metadata?.runningOperation?.hooks as SerializedHook[] | undefined;
+      const runningOperation = topic?.metadata?.runningOperation;
+      const ownsMarker = runningOperation?.operationId === operationId;
+      serializedHooks = ownsMarker
+        ? (runningOperation.hooks as SerializedHook[] | undefined)
+        : undefined;
       // Prefer heteroCurrentMsgId — the persistence handler updates this pointer
       // on every step boundary, so it refers to the LAST assistant message with
       // the complete final content.  Fall back to the initial placeholder id
@@ -258,8 +296,10 @@ export class HeterogeneousAgentService {
       assistantMessageId =
         currentMsgRef?.operationId === operationId
           ? currentMsgRef.msgId
-          : topic?.metadata?.runningOperation?.assistantMessageId;
-      await this.topicModel.updateMetadata(topicId, { runningOperation: null });
+          : ownsMarker
+            ? runningOperation.assistantMessageId
+            : undefined;
+      await this.topicModel.clearRunningOperation(topicId, operationId);
     } catch (err) {
       log('heteroFinish: failed to clear runningOperation (non-fatal): %O', err);
     }
@@ -272,6 +312,25 @@ export class HeterogeneousAgentService {
     // runs, which dropped agentId and landed the trace snapshot under
     // agent-traces/unknown/... and left terminal hooks without an agentId.
     const agentId = parseOperationId(operationId)?.agentId;
+
+    if (result === 'cancelled') {
+      await new CompletionLifecycle(this.db, this.userId, this.workspaceId).completeOperation(
+        {
+          agentId,
+          assistantMessageId,
+          operationId,
+          serializedHooks,
+          topicId,
+          userId: this.userId,
+        },
+        'interrupted',
+      );
+      // Publish only after the durable operation + reconnect marker are terminal,
+      // so a refresh triggered by this event cannot resurrect the run.
+      await publishTerminal();
+      log('heteroFinish: finalized cancellation for op=%s', operationId);
+      return;
+    }
 
     // Still read the assistant message for its content so the bot-callback
     // handler has lastAssistantContent to render.
@@ -384,6 +443,7 @@ export class HeterogeneousAgentService {
       },
       completionReason,
     );
+    await publishTerminal();
     log('heteroFinish: dispatched completion lifecycle for op=%s result=%s', operationId, result);
   }
 

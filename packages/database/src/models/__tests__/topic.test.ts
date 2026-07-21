@@ -491,6 +491,23 @@ describe('TopicModel', () => {
         version: 1,
       });
     });
+
+    it('clears runningOperation only when the operation id still matches', async () => {
+      const topic = await topicModel.create({
+        metadata: {
+          runningOperation: { assistantMessageId: 'asst-new', operationId: 'op-new' },
+        },
+        title: 'running marker',
+      });
+
+      await expect(topicModel.clearRunningOperation(topic.id, 'op-old')).resolves.toBe(false);
+      expect((await topicModel.findById(topic.id))?.metadata?.runningOperation?.operationId).toBe(
+        'op-new',
+      );
+
+      await expect(topicModel.clearRunningOperation(topic.id, 'op-new')).resolves.toBe(true);
+      expect((await topicModel.findById(topic.id))?.metadata?.runningOperation).toBeNull();
+    });
   });
 
   describe('delete', () => {

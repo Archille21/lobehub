@@ -1354,6 +1354,9 @@ describe('HeterogeneousAgentCtr', () => {
       stdin.end = vi.fn();
       stdin.write = vi.fn(() => true);
       proc.stdin = stdin;
+      proc.kill = vi.fn();
+      proc.killed = false;
+      proc.pid = 4321;
       return proc;
     };
 
@@ -1460,6 +1463,81 @@ describe('HeterogeneousAgentCtr', () => {
       await expect(ack).resolves.toEqual({ status: 'accepted' });
 
       expect(() => proc.stdin.emit('error', new Error('write EPIPE'))).not.toThrow();
+    });
+
+    it('reports a server terminal fallback when an accepted child exits', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue({ ok: true, status: 200 } as Response);
+      const proc = createGatewayCliProc();
+      nextFakeProc = proc;
+      const ctr = new HeterogeneousAgentCtr({
+        appStoragePath,
+        storeManager: { get: vi.fn() },
+      } as any);
+
+      const ack = ctr.spawnLhHeteroExec(params);
+      proc.emit('spawn');
+      await ack;
+      proc.emit('exit', 2, null);
+
+      await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+      expect(fetchSpy.mock.calls[0][0]).toBe(
+        'https://server.example.com/trpc/lambda/aiAgent.heteroFinish',
+      );
+      expect(fetchSpy.mock.calls[0][1]).toMatchObject({
+        headers: expect.objectContaining({ 'Oidc-Auth': 'device-jwt' }),
+        method: 'POST',
+      });
+      expect(String(fetchSpy.mock.calls[0][1]?.body)).toContain('op-gateway');
+      fetchSpy.mockRestore();
+    });
+
+    it('does not report a fallback after a clean child exit', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue({ ok: true, status: 200 } as Response);
+      const proc = createGatewayCliProc();
+      nextFakeProc = proc;
+      const ctr = new HeterogeneousAgentCtr({
+        appStoragePath,
+        storeManager: { get: vi.fn() },
+      } as any);
+
+      const ack = ctr.spawnLhHeteroExec(params);
+      proc.emit('spawn');
+      await ack;
+      proc.emit('exit', 0, null);
+      await Promise.resolve();
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+      fetchSpy.mockRestore();
+    });
+
+    it('kills a registered gateway child without reporting an error fallback', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue({ ok: true, status: 200 } as Response);
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      const proc = createGatewayCliProc();
+      nextFakeProc = proc;
+      const ctr = new HeterogeneousAgentCtr({
+        appStoragePath,
+        storeManager: { get: vi.fn() },
+      } as any);
+
+      const ack = ctr.spawnLhHeteroExec(params);
+      proc.emit('spawn');
+      await ack;
+
+      expect(ctr.cancelGatewayRun('op-gateway')).toMatchObject({ pid: 4321, success: true });
+      expect(killSpy).toHaveBeenCalledWith(-4321, 'SIGINT');
+      proc.emit('exit', null, 'SIGINT');
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      killSpy.mockRestore();
+      fetchSpy.mockRestore();
     });
   });
 

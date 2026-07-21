@@ -4,14 +4,30 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { spawnHeteroAgentRun } from './agentRun';
 
-const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
+const { fallbackFinishMock, removeTaskMock, saveTaskMock, spawnMock } = vi.hoisted(() => ({
+  fallbackFinishMock: vi.fn().mockResolvedValue({ ack: true }),
+  removeTaskMock: vi.fn(),
+  saveTaskMock: vi.fn(),
+  spawnMock: vi.fn(),
+}));
 
 vi.mock('node:child_process', () => ({ spawn: spawnMock }));
+vi.mock('../api/client', () => ({
+  createLambdaClient: vi.fn(() => ({
+    aiAgent: { heteroFinish: { mutate: fallbackFinishMock } },
+  })),
+}));
+vi.mock('../daemon/taskRegistry', () => ({
+  removeTask: removeTaskMock,
+  saveTask: saveTaskMock,
+}));
 
 const makeFakeChild = () => {
   const child = new EventEmitter() as EventEmitter & {
+    pid: number;
     stdin: { end: ReturnType<typeof vi.fn>; write: ReturnType<typeof vi.fn> };
   };
+  child.pid = 1234;
   child.stdin = { end: vi.fn(), write: vi.fn() };
   return child;
 };
@@ -28,6 +44,9 @@ const baseParams = {
 describe('spawnHeteroAgentRun', () => {
   afterEach(() => {
     spawnMock.mockReset();
+    fallbackFinishMock.mockClear();
+    removeTaskMock.mockClear();
+    saveTaskMock.mockClear();
   });
 
   it('spawns `lh hetero exec` in server-ingest mode via the current CLI entry', async () => {
@@ -66,6 +85,7 @@ describe('spawnHeteroAgentRun', () => {
     ]);
     expect(opts).toMatchObject({
       cwd: '/work/dir',
+      detached: process.platform !== 'win32',
       env: expect.objectContaining({
         LOBEHUB_JWT: 'jwt-token',
         LOBEHUB_SERVER: 'https://app.lobehub.com',
@@ -79,6 +99,51 @@ describe('spawnHeteroAgentRun', () => {
     await expect(ackPromise).resolves.toEqual({ status: 'accepted' });
     expect(child.stdin.write).toHaveBeenCalledWith(JSON.stringify('hi'));
     expect(child.stdin.end).toHaveBeenCalledTimes(1);
+    expect(saveTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'agent-run', pid: 1234, taskId: 'op-1' }),
+    );
+  });
+
+  it('removes the task entry and reports a terminal fallback after an accepted child exits abnormally', async () => {
+    const child = makeFakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const ackPromise = spawnHeteroAgentRun({
+      ...baseParams,
+      agentType: 'opencode',
+      operationId: 'op-exit',
+    });
+    child.emit('spawn');
+    await ackPromise;
+    child.emit('exit', 2, null);
+    await vi.waitFor(() => expect(fallbackFinishMock).toHaveBeenCalledTimes(1));
+
+    expect(removeTaskMock).toHaveBeenCalledWith('op-exit');
+    expect(fallbackFinishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'op-exit',
+        result: 'error',
+        topicId: 'tpc',
+      }),
+    );
+  });
+
+  it('does not report a fallback after a clean exit with an acknowledged terminal handshake', async () => {
+    const child = makeFakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const ackPromise = spawnHeteroAgentRun({
+      ...baseParams,
+      agentType: 'opencode',
+      operationId: 'op-clean-exit',
+    });
+    child.emit('spawn');
+    await ackPromise;
+    child.emit('exit', 0, null);
+    await Promise.resolve();
+
+    expect(removeTaskMock).toHaveBeenCalledWith('op-clean-exit');
+    expect(fallbackFinishMock).not.toHaveBeenCalled();
   });
 
   it('rejects (no stuck run) when the child errors before spawning, e.g. bad cwd', async () => {

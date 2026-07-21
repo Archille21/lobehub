@@ -151,7 +151,10 @@ import { getScopedOnlineDevices } from '@/server/services/deviceGateway/scopedDe
 import { DocumentService } from '@/server/services/document';
 import { FileService } from '@/server/services/file';
 import { resolveAttachmentsByFileIds } from '@/server/services/file/resolveAttachments';
-import { HeterogeneousAgentService } from '@/server/services/heterogeneousAgent';
+import {
+  HeterogeneousAgentService,
+  type HeterogeneousAgentType,
+} from '@/server/services/heterogeneousAgent';
 import type { ConversationHistoryEntry } from '@/server/services/heterogeneousAgent/cloudHeteroContext';
 import { buildCloudHeteroContext } from '@/server/services/heterogeneousAgent/cloudHeteroContext';
 import { buildRemoteDeviceHeteroContext } from '@/server/services/heterogeneousAgent/remoteDeviceHeteroContext';
@@ -2005,19 +2008,18 @@ export class AiAgentService {
       // operation, and so every terminal site (heteroFinish, agentNotify done,
       // dispatch failure) can re-fire the serialized hooks across a process
       // boundary in queue mode.
-      await this.topicModel.updateMetadata(topicId, {
-        runningOperation: {
-          assistantMessageId: assistantMessageRecord.id,
-          hooks: serializedHooks,
-          // Store deviceId + heteroType so interruptTask can cancel remote processes
-          ...(isRemoteHetero && remoteDeviceId
-            ? { deviceId: remoteDeviceId, heteroType }
-            : undefined),
-          operationId,
-          scope: appContext?.scope ?? undefined,
-          threadId: appContext?.threadId ?? undefined,
-        },
-      });
+      const runningOperation = {
+        assistantMessageId: assistantMessageRecord.id,
+        hooks: serializedHooks,
+        // Persist the runtime for every hetero operation. Device id is known
+        // immediately for remote agents and is backfilled after local planning.
+        ...(isRemoteHetero && remoteDeviceId ? { deviceId: remoteDeviceId } : undefined),
+        heteroType,
+        operationId,
+        scope: appContext?.scope ?? undefined,
+        threadId: appContext?.threadId ?? undefined,
+      };
+      await this.topicModel.updateMetadata(topicId, { runningOperation });
 
       // Remote hetero agents (openclaw / hermes) dispatch to the device identified
       // by agencyConfig.boundDeviceId and communicate back via agentNotify.notify.
@@ -2273,6 +2275,13 @@ export class AiAgentService {
             agentSystemContext: agentConfig.agencyConfig?.heterogeneousProvider?.systemContext,
             conversationHistory,
             cwd: deviceCwd,
+          });
+
+          // Stop routes through the existing cancelHeteroTask device relay with
+          // taskId=operationId. Persist the selected device before dispatch so
+          // cancellation remains routable after a page reload.
+          await this.topicModel.updateMetadata(topicId, {
+            runningOperation: { ...runningOperation, deviceId: dispatchDeviceId },
           });
 
           const result = await deviceGateway.dispatchAgentRun({
@@ -5042,6 +5051,7 @@ export class AiAgentService {
 
     // 1. Get operationId and thread
     let resolvedOperationId = operationId;
+    let resolvedTopicId = topicId;
     let thread;
 
     if (threadId) {
@@ -5050,50 +5060,96 @@ export class AiAgentService {
         throw new Error('Thread not found');
       }
       resolvedOperationId = resolvedOperationId || thread.metadata?.operationId;
+      resolvedTopicId = resolvedTopicId || thread.topicId;
     }
 
     if (!resolvedOperationId) {
       throw new Error('Operation ID not found');
     }
 
-    // 2. Cancel remote hetero process (openclaw / hermes) if applicable.
-    // Check topic.metadata.runningOperation for device + heteroType info seeded by execAgent.
-    // This runs regardless of whether interruptOperation succeeds — the remote process
-    // is independent of the local operation registry.
-    if (topicId) {
-      const topic = await this.topicModel.findById(topicId);
+    const operation = await this.agentOperationModel.findById(resolvedOperationId);
+    resolvedTopicId = resolvedTopicId || operation?.topicId || undefined;
+
+    // 2. Cancel a device child best-effort, then independently drive the
+    // authoritative server terminal transition. Device reachability must never
+    // decide whether Stop survives a refresh.
+    if (resolvedTopicId) {
+      let cancelDeviceChild: (() => Promise<unknown>) | undefined;
+      const topic = await this.topicModel.findById(resolvedTopicId);
       const runningOp = (topic?.metadata as any)?.runningOperation as
         { deviceId?: string; heteroType?: string; operationId?: string } | undefined;
+      const markerMatches = runningOp?.operationId === resolvedOperationId;
+      const operationMatchesTopic = operation?.topicId === resolvedTopicId;
+      const cliHeteroTypes: HeterogeneousAgentType[] = ['amp', 'claude-code', 'codex', 'opencode'];
+      const cliHeteroType = cliHeteroTypes.find(
+        (type) =>
+          (markerMatches && runningOp?.heteroType === type) ||
+          (operationMatchesTopic && operation?.provider === type),
+      );
 
-      if (
-        runningOp?.deviceId &&
-        runningOp.heteroType &&
-        isRemoteHeterogeneousType(runningOp.heteroType)
-      ) {
-        const taskId = runningOp.operationId ?? resolvedOperationId;
-        log(
-          'interruptTask: cancelling remote hetero process heteroType=%s deviceId=%s taskId=%s',
-          runningOp.heteroType,
-          runningOp.deviceId,
-          taskId,
-        );
-        const cancelWorkspaceId = await this.resolveDeviceWorkspaceId(runningOp.deviceId);
-        await deviceGateway
-          .executeToolCall(
-            {
-              deviceId: runningOp.deviceId,
-              userId: this.userId,
-              workspaceId: cancelWorkspaceId,
-            },
-            {
-              apiName: 'cancelHeteroTask',
-              arguments: JSON.stringify({ signal: 'SIGINT', taskId }),
-              identifier: 'cancelHeteroTask',
-            },
-            5_000,
-          )
-          .catch((err) => log('interruptTask: cancelHeteroTask dispatch failed: %O', err));
+      if (markerMatches && runningOp?.deviceId && runningOp.heteroType) {
+        const taskId = resolvedOperationId;
+        const deviceId = runningOp.deviceId;
+        const heteroType = runningOp.heteroType;
+        cancelDeviceChild = async () => {
+          log(
+            'interruptTask: cancelling device hetero process heteroType=%s deviceId=%s taskId=%s',
+            heteroType,
+            deviceId,
+            taskId,
+          );
+          const cancelWorkspaceId = await this.resolveDeviceWorkspaceId(deviceId);
+          return deviceGateway
+            .executeToolCall(
+              {
+                deviceId,
+                userId: this.userId,
+                workspaceId: cancelWorkspaceId,
+              },
+              {
+                apiName: 'cancelHeteroTask',
+                arguments: JSON.stringify({ signal: 'SIGINT', taskId }),
+                identifier: 'cancelHeteroTask',
+              },
+              5_000,
+            )
+            .catch((err) => log('interruptTask: cancelHeteroTask dispatch failed: %O', err));
+        };
       }
+
+      if (cliHeteroType) {
+        // Persist the authoritative terminal state BEFORE asking the device to
+        // kill its child. A CLI daemon reports child exit as an error fallback;
+        // dispatching the signal first would let that callback win the terminal
+        // CAS and turn an explicit user Stop into an error.
+        await new HeterogeneousAgentService(this.db, this.userId, {
+          workspaceId: this.workspaceId,
+        }).heteroFinish({
+          agentType: cliHeteroType,
+          operationId: resolvedOperationId,
+          result: 'cancelled',
+          topicId: resolvedTopicId,
+        });
+        await cancelDeviceChild?.();
+
+        if (thread) {
+          await this.threadModel.update(thread.id, {
+            metadata: {
+              ...thread.metadata,
+              completedAt: new Date().toISOString(),
+            },
+            status: ThreadStatus.Cancel,
+          });
+        }
+
+        return {
+          operationId: resolvedOperationId,
+          success: true,
+          threadId: thread?.id,
+        };
+      }
+
+      await cancelDeviceChild?.();
     }
 
     // 3. Interrupt the runtime operation first. Only mark the thread cancelled

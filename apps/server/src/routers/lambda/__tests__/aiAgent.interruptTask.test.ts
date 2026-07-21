@@ -1,6 +1,13 @@
 // @vitest-environment node
 import { type LobeChatDatabase } from '@lobechat/database';
-import { agents, chatGroups, sessions, threads, topics } from '@lobechat/database/schemas';
+import {
+  agentOperations,
+  agents,
+  chatGroups,
+  sessions,
+  threads,
+  topics,
+} from '@lobechat/database/schemas';
 import { getTestDB } from '@lobechat/database/test-utils';
 import { ThreadStatus, ThreadType } from '@lobechat/types';
 import { eq } from 'drizzle-orm';
@@ -16,12 +23,24 @@ vi.mock('@/database/core/db-adaptor', () => ({
 }));
 
 const mockInterruptOperation = vi.fn();
+const mockHeteroFinish = vi.fn();
+const mockExecuteToolCall = vi.hoisted(() => vi.fn());
 
 // Mock AgentRuntimeService
 vi.mock('@/server/services/agentRuntime', () => ({
   AgentRuntimeService: vi.fn().mockImplementation(() => ({
     interruptOperation: mockInterruptOperation,
   })),
+}));
+
+vi.mock('@/server/services/heterogeneousAgent', () => ({
+  HeterogeneousAgentService: vi.fn().mockImplementation(() => ({
+    heteroFinish: mockHeteroFinish,
+  })),
+}));
+
+vi.mock('@/server/services/deviceGateway', () => ({
+  deviceGateway: { executeToolCall: mockExecuteToolCall },
 }));
 
 // Mock AiChatService
@@ -43,6 +62,10 @@ describe('aiAgentRouter.interruptTask', () => {
     userId = await createTestUser(serverDB);
     mockInterruptOperation.mockReset();
     mockInterruptOperation.mockResolvedValue(true);
+    mockHeteroFinish.mockReset();
+    mockHeteroFinish.mockResolvedValue(undefined);
+    mockExecuteToolCall.mockReset();
+    mockExecuteToolCall.mockResolvedValue({});
 
     // Create test agent
     const [agent] = await serverDB
@@ -202,6 +225,62 @@ describe('aiAgentRouter.interruptTask', () => {
         .where(eq(threads.id, testThreadId));
 
       expect(updatedThread.status).toBe(ThreadStatus.Cancel);
+    });
+
+    it('authoritatively finalizes a device hetero operation without runtime coordinator state', async () => {
+      const operationId = 'op-device-opencode';
+      await serverDB.insert(agentOperations).values({
+        agentId: testAgentId,
+        id: operationId,
+        provider: 'opencode',
+        status: 'running',
+        topicId: testTopicId,
+        userId,
+      });
+      await serverDB
+        .update(topics)
+        .set({
+          metadata: {
+            runningOperation: {
+              assistantMessageId: 'asst-device',
+              deviceId: 'device-1',
+              heteroType: 'opencode',
+              operationId,
+            },
+          },
+        })
+        .where(eq(topics.id, testTopicId));
+      mockInterruptOperation.mockResolvedValue(false);
+      const callOrder: string[] = [];
+      mockHeteroFinish.mockImplementation(async () => {
+        callOrder.push('server-finish');
+      });
+      mockExecuteToolCall.mockImplementation(async () => {
+        callOrder.push('device-cancel');
+        return {};
+      });
+
+      const caller = aiAgentRouter.createCaller(createTestContext());
+      const result = await caller.interruptTask({ operationId, topicId: testTopicId });
+
+      expect(result).toMatchObject({ operationId, success: true });
+      expect(mockHeteroFinish).toHaveBeenCalledWith({
+        agentType: 'opencode',
+        operationId,
+        result: 'cancelled',
+        topicId: testTopicId,
+      });
+      expect(mockExecuteToolCall).toHaveBeenCalledWith(
+        expect.objectContaining({ deviceId: 'device-1', userId }),
+        {
+          apiName: 'cancelHeteroTask',
+          arguments: JSON.stringify({ signal: 'SIGINT', taskId: operationId }),
+          identifier: 'cancelHeteroTask',
+        },
+        5000,
+      );
+      expect(callOrder).toEqual(['server-finish', 'device-cancel']);
+      expect(mockInterruptOperation).not.toHaveBeenCalled();
     });
   });
 

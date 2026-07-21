@@ -208,6 +208,40 @@ describe('AgentOperationModel', () => {
       // The attacker cannot read the row either.
       expect(await attackerModel.findById(operationId)).toBeNull();
     });
+
+    it('keeps the first terminal result when onlyIfActive is enabled', async () => {
+      const model = new AgentOperationModel(serverDB, userId);
+      const operationId = 'op-terminal-cas';
+
+      await model.recordStart({ operationId });
+      await expect(
+        model.recordCompletion(
+          operationId,
+          {
+            completedAt: new Date(),
+            completionReason: 'interrupted',
+            status: 'interrupted',
+          },
+          { onlyIfActive: true },
+        ),
+      ).resolves.toBe(true);
+
+      await expect(
+        model.recordCompletion(
+          operationId,
+          {
+            completedAt: new Date(),
+            completionReason: 'error',
+            status: 'error',
+          },
+          { onlyIfActive: true },
+        ),
+      ).resolves.toBe(false);
+
+      const row = await model.findById(operationId);
+      expect(row?.status).toBe('interrupted');
+      expect(row?.completionReason).toBe('interrupted');
+    });
   });
 
   describe('sumChildUsage', () => {

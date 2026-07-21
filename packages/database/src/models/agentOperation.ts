@@ -1,5 +1,5 @@
 import type { VerifyRunStatus } from '@lobechat/types';
-import { and, eq, gte, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm';
 
 import { today } from '@/utils/time';
 
@@ -138,7 +138,8 @@ export class AgentOperationModel {
   async recordCompletion(
     operationId: string,
     params: RecordOperationCompletionParams,
-  ): Promise<void> {
+    options?: { onlyIfActive?: boolean },
+  ): Promise<boolean> {
     const updates: Partial<NewAgentOperation> = {
       completionReason: params.completionReason,
       status: params.status,
@@ -165,10 +166,25 @@ export class AgentOperationModel {
     if (params.interruption !== undefined) updates.interruption = params.interruption;
     if (params.traceS3Key !== undefined) updates.traceS3Key = params.traceS3Key;
 
-    await this.db
+    const updated = await this.db
       .update(agentOperations)
       .set(updates)
-      .where(and(eq(agentOperations.id, operationId), this.ownership()));
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          this.ownership(),
+          options?.onlyIfActive
+            ? inArray(agentOperations.status, [
+                'running',
+                'waiting_for_human',
+                'waiting_for_async_tool',
+              ])
+            : undefined,
+        ),
+      )
+      .returning({ id: agentOperations.id });
+
+    return updated.length > 0;
   }
 
   /**

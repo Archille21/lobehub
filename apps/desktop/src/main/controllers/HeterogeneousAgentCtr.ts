@@ -50,6 +50,7 @@ import type {
   ListHeterogeneousAgentModelsParams,
 } from '@lobechat/types';
 import { app as electronApp, BrowserWindow } from 'electron';
+import superjson from 'superjson';
 
 import { HETERO_AGENT_FILES_DIR, HETERO_AGENT_TRACING_DIR } from '@/const/heteroAgent';
 import { detectHeterogeneousCliCommand } from '@/modules/binaries';
@@ -317,10 +318,21 @@ interface InterventionSlot {
   tmpConfigPath: string;
 }
 
+interface GatewayRun {
+  agentType: string;
+  cancelled: boolean;
+  jwt: string;
+  process: ChildProcess;
+  serverUrl: string;
+  topicId: string;
+}
+
 export default class HeterogeneousAgentCtr extends ControllerModule {
   static override readonly groupName = 'heterogeneousAgent';
 
   private sessions = new Map<string, AgentSession>();
+  /** Gateway-dispatched embedded CLI children, keyed by server operation id. */
+  private gatewayRuns = new Map<string, GatewayRun>();
   /**
    * Per-operation AskUserQuestion bridge state. Keyed by `operationId` so the
    * `submitIntervention` IPC can route an answer to the right pending MCP
@@ -1752,6 +1764,66 @@ export default class HeterogeneousAgentCtr extends ControllerModule {
     }
   }
 
+  /** Best-effort cancellation used by the device gateway cancelHeteroTask relay. */
+  cancelGatewayRun(
+    operationId: string,
+    signal: NodeJS.Signals = 'SIGINT',
+  ): { pid?: number; success: boolean } {
+    const run = this.gatewayRuns.get(operationId);
+    if (!run) return { success: false };
+
+    run.cancelled = true;
+    this.killProcessTree(run.process, signal);
+
+    // Give well-behaved CLIs a short graceful shutdown window, then ensure a
+    // wedged child tree cannot survive indefinitely on the user's machine.
+    const processRef = run.process;
+    setTimeout(() => {
+      if (this.gatewayRuns.get(operationId)?.process === processRef) {
+        this.killProcessTree(processRef, 'SIGKILL');
+      }
+    }, 3000).unref();
+
+    return { pid: run.process.pid, success: true };
+  }
+
+  /**
+   * Accepted-child fallback. The embedded CLI normally awaits heteroFinish
+   * itself; this duplicate callback is harmless because the server terminal
+   * transition is CAS-guarded, while a child that died before calling finish no
+   * longer leaves an operation permanently running.
+   */
+  private async reportGatewayRunExit(
+    operationId: string,
+    run: GatewayRun,
+    code: number | null,
+    signal: NodeJS.Signals | null,
+  ): Promise<void> {
+    const response = await fetch(
+      `${run.serverUrl.replace(/\/$/, '')}/trpc/lambda/aiAgent.heteroFinish`,
+      {
+        body: JSON.stringify(
+          superjson.serialize({
+            agentType: run.agentType,
+            error: {
+              message: `Embedded CLI exited after acceptance (code=${code ?? 'null'}, signal=${signal ?? 'none'})`,
+              type: 'HeterogeneousAgentProcessExit',
+            },
+            operationId,
+            result: 'error',
+            topicId: run.topicId,
+          }),
+        ),
+        headers: { 'Content-Type': 'application/json', 'Oidc-Auth': run.jwt },
+        method: 'POST',
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`heteroFinish fallback failed with HTTP ${response.status}`);
+    }
+  }
+
   /**
    * Cancel an ongoing session: SIGINT the CC tree, escalate to SIGKILL after
    * 2s if the CLI hasn't exited (some tool calls swallow SIGINT). The
@@ -1991,12 +2063,25 @@ export default class HeterogeneousAgentCtr extends ControllerModule {
     // capability that the actual execution runtime does not support.
     const child = spawn(process.execPath, [cliScript, ...args], {
       cwd: workDir,
+      detached: process.platform !== 'win32',
       env,
       stdio: ['pipe', 'inherit', 'inherit'],
     });
 
+    let accepted = false;
     child.on('exit', (code, signal) => {
       logger.info('spawnLhHeteroExec: exited — op=%s code=%s signal=%s', operationId, code, signal);
+      const run = this.gatewayRuns.get(operationId);
+      if (run?.process === child) this.gatewayRuns.delete(operationId);
+      if (accepted && run && !run.cancelled && (code !== 0 || signal !== null)) {
+        void this.reportGatewayRunExit(operationId, run, code, signal).catch((err) => {
+          logger.error(
+            'spawnLhHeteroExec: terminal fallback failed — op=%s error=%s',
+            operationId,
+            err instanceof Error ? err.message : String(err),
+          );
+        });
+      }
     });
 
     return new Promise((resolve) => {
@@ -2020,6 +2105,15 @@ export default class HeterogeneousAgentCtr extends ControllerModule {
         try {
           child.stdin.write(stdinPayload);
           child.stdin.end();
+          accepted = true;
+          this.gatewayRuns.set(operationId, {
+            agentType,
+            cancelled: false,
+            jwt,
+            process: child,
+            serverUrl,
+            topicId,
+          });
           settle({ status: 'accepted' });
         } catch (err) {
           const reason = err instanceof Error ? err.message : String(err);
@@ -2028,6 +2122,7 @@ export default class HeterogeneousAgentCtr extends ControllerModule {
             operationId,
             reason,
           );
+          this.killProcessTree(child, 'SIGTERM');
           settle({ reason, status: 'rejected' });
         }
       });

@@ -394,6 +394,102 @@ describe('HeterogeneousAgentService', () => {
       });
     });
 
+    it('clears the matching reconnect marker when a run is cancelled', async () => {
+      const topicModel = {
+        clearRunningOperation: vi.fn(async () => true),
+        findById: vi.fn(async () => ({
+          metadata: {
+            runningOperation: { assistantMessageId: 'asst-3', operationId: 'op-cancel' },
+          },
+        })),
+      } as any;
+      const { manager } = createFakeStreamManager();
+      const service = new HeterogeneousAgentService({} as any, 'user-test', {
+        persistenceHandler: createFakePersistenceHandler(),
+        streamEventManager: manager,
+        topicModel,
+      });
+
+      await service.heteroFinish({
+        agentType: 'opencode',
+        operationId: 'op-cancel',
+        result: 'cancelled',
+        topicId: 'topic-cancel',
+      });
+
+      expect(topicModel.clearRunningOperation).toHaveBeenCalledWith('topic-cancel', 'op-cancel');
+    });
+
+    it('ignores a late process-exit fallback after the operation is already interrupted', async () => {
+      const findByIdSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'findById')
+        .mockResolvedValue({ status: 'interrupted' } as any);
+      const topicModel = {
+        clearRunningOperation: vi.fn(async () => true),
+      } as any;
+      const { manager } = createFakeStreamManager();
+      const persistenceHandler = createFakePersistenceHandler();
+      const service = new HeterogeneousAgentService({} as any, 'user-test', {
+        persistenceHandler,
+        streamEventManager: manager,
+        topicModel,
+      });
+
+      await service.heteroFinish({
+        agentType: 'opencode',
+        error: { message: 'child exited', type: 'HeterogeneousAgentProcessExit' },
+        operationId: 'op-interrupted',
+        result: 'error',
+        topicId: 'topic-interrupted',
+      });
+
+      expect(persistenceHandler.finish).toHaveBeenCalledWith({
+        operationId: 'op-interrupted',
+        result: 'cancelled',
+        sessionId: undefined,
+        topicId: 'topic-interrupted',
+      });
+      expect(manager.publishStreamEvent).not.toHaveBeenCalled();
+      expect(topicModel.clearRunningOperation).toHaveBeenCalledWith(
+        'topic-interrupted',
+        'op-interrupted',
+      );
+      findByIdSpy.mockRestore();
+    });
+
+    it('persists a late native session id and drains state after Stop won the terminal race', async () => {
+      const findByIdSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'findById')
+        .mockResolvedValue({ status: 'interrupted' } as any);
+      const topicModel = {
+        clearRunningOperation: vi.fn(async () => true),
+      } as any;
+      const { manager } = createFakeStreamManager();
+      const persistenceHandler = createFakePersistenceHandler();
+      const service = new HeterogeneousAgentService({} as any, 'user-test', {
+        persistenceHandler,
+        streamEventManager: manager,
+        topicModel,
+      });
+
+      await service.heteroFinish({
+        agentType: 'claude-code',
+        operationId: 'op-interrupted',
+        result: 'success',
+        sessionId: 'session-after-stop',
+        topicId: 'topic-interrupted',
+      });
+
+      expect(persistenceHandler.finish).toHaveBeenCalledWith({
+        operationId: 'op-interrupted',
+        result: 'success',
+        sessionId: 'session-after-stop',
+        topicId: 'topic-interrupted',
+      });
+      expect(manager.publishStreamEvent).not.toHaveBeenCalled();
+      findByIdSpy.mockRestore();
+    });
+
     // The unified terminal funnel: heteroFinish must drive the run's lifecycle
     // hooks through the shared hookDispatcher (the same mechanism the normal LLM
     // path uses), which is what marks the owning task done/failed and fires any
@@ -575,7 +671,7 @@ describe('HeterogeneousAgentService', () => {
       dispatchSpy.mockRestore();
     });
 
-    it('does NOT fire hooks on a cancelled run (the real result fires them)', async () => {
+    it('finalizes a cancelled run as interrupted and unregisters its hooks', async () => {
       const { service } = createService();
       const { onComplete, onError } = registerHook('op-hook-cancelled');
 
@@ -586,11 +682,13 @@ describe('HeterogeneousAgentService', () => {
         topicId: 'topic-hook-3',
       });
 
-      expect(onComplete).not.toHaveBeenCalled();
+      expect(onComplete).toHaveBeenCalledTimes(1);
+      expect(onComplete.mock.calls[0][0]).toMatchObject({
+        operationId: 'op-hook-cancelled',
+        reason: 'interrupted',
+      });
       expect(onError).not.toHaveBeenCalled();
-      // Still registered — the subsequent success/error call will dispatch them.
-      expect(hookDispatcher.hasHooks('op-hook-cancelled')).toBe(true);
-      hookDispatcher.unregister('op-hook-cancelled');
+      expect(hookDispatcher.hasHooks('op-hook-cancelled')).toBe(false);
     });
   });
 

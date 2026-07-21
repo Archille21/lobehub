@@ -243,6 +243,7 @@ const mockShellCommandCtr = {
 } as unknown as ShellCommandCtr;
 
 const mockHeterogeneousAgentCtr = {
+  cancelGatewayRun: vi.fn().mockReturnValue({ success: false }),
   sendPrompt: vi.fn().mockResolvedValue(undefined),
   spawnLhHeteroExec: vi.fn().mockResolvedValue({ status: 'accepted' }),
   startSession: vi.fn().mockResolvedValue({ sessionId: 'mock-session-id' }),
@@ -615,6 +616,33 @@ describe('GatewayConnectionCtr', () => {
           error: 'File not found',
           success: false,
         },
+      });
+    });
+
+    it('routes cancelHeteroTask to a gateway child keyed by operation id', async () => {
+      vi.mocked(mockHeterogeneousAgentCtr.cancelGatewayRun).mockReturnValueOnce({
+        pid: 4321,
+        success: true,
+      });
+      const client = await connectAndOpen();
+
+      client.simulateToolCallRequest(
+        'cancelHeteroTask',
+        { signal: 'SIGINT', taskId: 'op-device-run' },
+        'req-cancel',
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(mockHeterogeneousAgentCtr.cancelGatewayRun).toHaveBeenCalledWith(
+        'op-device-run',
+        'SIGINT',
+      );
+      expect(client.sendToolCallResponse).toHaveBeenCalledWith({
+        requestId: 'req-cancel',
+        result: expect.objectContaining({
+          content: expect.stringContaining('4321'),
+          success: true,
+        }),
       });
     });
 

@@ -1420,6 +1420,7 @@ describe('GatewayActionImpl', () => {
 
   describe('reconnectToGatewayOperation', () => {
     function createReconnectTestAction(assistantMessage: any) {
+      const onOperationCancel = vi.fn();
       const startOperation = vi.fn(() => ({ operationId: 'gw-op-reconnect' }));
       const mockClient = createMockClient();
       const state: Record<string, any> = {
@@ -1439,7 +1440,7 @@ describe('GatewayActionImpl', () => {
         associateMessageWithOperation: vi.fn(),
         connectToGateway: vi.fn(),
         internal_updateTopicLoading: vi.fn(),
-        onOperationCancel: vi.fn(),
+        onOperationCancel,
         startOperation,
       })) as any;
 
@@ -1456,7 +1457,7 @@ describe('GatewayActionImpl', () => {
       const action = new GatewayActionImpl(set as any, get, undefined);
       action.createClient = vi.fn(() => mockClient);
 
-      return { action, startOperation };
+      return { action, onOperationCancel, startOperation };
     }
 
     afterEach(() => {
@@ -1504,6 +1505,29 @@ describe('GatewayActionImpl', () => {
           metadata: expect.not.objectContaining({ startTime: expect.anything() }),
         }),
       );
+    });
+
+    it('passes topicId when a reconnected operation is stopped', async () => {
+      const { action, onOperationCancel } = createReconnectTestAction({
+        createdAt: 1,
+        id: 'ast-1',
+      });
+      const interruptTaskSpy = vi
+        .mocked(aiAgentService.interruptTask)
+        .mockResolvedValue({ operationId: 'server-op-1', success: true });
+
+      await action.reconnectToGatewayOperation({
+        assistantMessageId: 'ast-1',
+        operationId: 'server-op-1',
+        topicId: 'topic-1',
+      });
+
+      expect(onOperationCancel).toHaveBeenCalledWith('gw-op-reconnect', expect.any(Function));
+      await onOperationCancel.mock.calls[0][1]();
+      expect(interruptTaskSpy).toHaveBeenCalledWith({
+        operationId: 'server-op-1',
+        topicId: 'topic-1',
+      });
     });
 
     // Captures the onSessionComplete handed to connectToGateway so we can drive

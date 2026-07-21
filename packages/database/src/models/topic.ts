@@ -1264,6 +1264,32 @@ export class TopicModel {
   };
 
   /**
+   * Clear the reconnect marker only when it still belongs to `operationId`.
+   * A late terminal callback from an older run must never erase the marker for
+   * a newer run that has already started on the same topic.
+   */
+  clearRunningOperation = async (id: string, operationId: string): Promise<boolean> => {
+    return this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ metadata: topics.metadata })
+        .from(topics)
+        .where(and(eq(topics.id, id), this.ownership()))
+        .for('update');
+
+      if (existing?.metadata?.runningOperation?.operationId !== operationId) return false;
+
+      await tx
+        .update(topics)
+        .set({
+          metadata: { ...existing.metadata, runningOperation: null } as ChatTopicMetadata,
+        })
+        .where(and(eq(topics.id, id), this.ownership()));
+
+      return true;
+    });
+  };
+
+  /**
    * Arm a scheduled run on an owned topic: writes `metadata.scheduledRun` and
    * flips the status to `scheduled` in a single update.
    *

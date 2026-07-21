@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getTrpcClient } from '../../api/client';
 import { removeTask, saveTask } from '../../daemon/taskRegistry';
-import { runHeteroTask } from '../heteroTask';
+import { cancelHeteroTask, runHeteroTask } from '../heteroTask';
 
 // ─── Mocks ───
 
@@ -302,5 +302,41 @@ describe('runHeteroTask (openclaw)', () => {
     for (const call of getTrpcClientMock.mock.calls) {
       expect(call[0]).toBe('ws-99');
     }
+  });
+});
+
+describe('cancelHeteroTask (gateway agent run)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    for (const key of Object.keys(taskStore)) delete taskStore[key];
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('kills a gateway child process group and escalates if it remains registered', async () => {
+    vi.useFakeTimers();
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    saveTask({
+      agentType: 'opencode',
+      kind: 'agent-run',
+      operationId: 'op-device-run',
+      pid: 4242,
+      startedAt: new Date().toISOString(),
+      taskId: 'op-device-run',
+      topicId: 'topic-1',
+    });
+
+    await expect(
+      cancelHeteroTask({ signal: 'SIGINT', taskId: 'op-device-run' }),
+    ).resolves.toContain('4242');
+    const targetPid = process.platform === 'win32' ? 4242 : -4242;
+    expect(killSpy).toHaveBeenCalledWith(targetPid, 'SIGINT');
+
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(killSpy).toHaveBeenCalledWith(targetPid, 'SIGKILL');
+
+    killSpy.mockRestore();
   });
 });

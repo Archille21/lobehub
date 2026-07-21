@@ -4,7 +4,9 @@ import path from 'node:path';
 
 export interface TaskEntry {
   agentId?: string;
-  agentType: 'hermes' | 'openclaw';
+  agentType: 'amp' | 'claude-code' | 'codex' | 'hermes' | 'openclaw' | 'opencode';
+  /** Agent-run children stream through heteroFinish; platform tasks use notify. */
+  kind?: 'agent-run' | 'platform-task';
   operationId: string;
   pid: number;
   startedAt: string;

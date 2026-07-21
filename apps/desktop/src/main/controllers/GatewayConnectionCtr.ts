@@ -1052,6 +1052,14 @@ export default class GatewayConnectionCtr extends ControllerModule {
 
   private async cancelHeteroTask(args: { signal?: string; taskId: string }): Promise<string> {
     const { signal = 'SIGINT', taskId } = args;
+    const gatewayRun = this.heterogeneousAgentCtr.cancelGatewayRun(
+      taskId,
+      signal as NodeJS.Signals,
+    );
+    if (gatewayRun.success) {
+      return JSON.stringify({ pid: gatewayRun.pid, signal, taskId });
+    }
+
     const entry = this.platformTasks.get(taskId);
 
     if (!entry) {

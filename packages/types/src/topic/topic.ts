@@ -174,6 +174,10 @@ export interface ChatTopicMetadata {
    */
   runningOperation?: {
     assistantMessageId: string;
+    /** Device executing a gateway-dispatched heterogeneous CLI run. */
+    deviceId?: string;
+    /** Heterogeneous runtime used by this operation, for device cancellation. */
+    heteroType?: 'amp' | 'claude-code' | 'codex' | 'hermes' | 'openclaw' | 'opencode';
     /**
      * Serialized lifecycle hooks (onComplete / onError) registered for this run.
      *

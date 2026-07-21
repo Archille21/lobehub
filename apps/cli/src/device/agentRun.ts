@@ -5,6 +5,9 @@ import {
   type HeteroExecImageRef,
 } from '@lobechat/heterogeneous-agents/protocol';
 
+import { createLambdaClient } from '../api/client';
+import { removeTask, saveTask } from '../daemon/taskRegistry';
+
 export interface SpawnHeteroAgentRunParams {
   agentType: string;
   /** Resolved `lh hetero exec` wrapper args. */
@@ -96,6 +99,7 @@ export function spawnHeteroAgentRun(
   const stdinPayload = buildHeteroExecStdinPayload({ imageList, prompt, systemContext });
 
   return new Promise<AgentRunAckResult>((resolve) => {
+    let accepted = false;
     let settled = false;
     const settle = (result: AgentRunAckResult) => {
       if (settled) return;
@@ -105,6 +109,9 @@ export function spawnHeteroAgentRun(
 
     const child = spawn(process.execPath, [...process.execArgv, ...cliArgs], {
       cwd: workDir,
+      // Give the wrapper and all agent/tool descendants their own Unix process
+      // group so cancelHeteroTask can stop the full tree rather than only `lh`.
+      detached: process.platform !== 'win32',
       env: {
         ...process.env,
         LOBEHUB_JWT: jwt,
@@ -118,21 +125,75 @@ export function spawnHeteroAgentRun(
       try {
         child.stdin?.write(stdinPayload);
         child.stdin?.end();
+        if (child.pid) {
+          try {
+            saveTask({
+              agentType: agentType as
+                'amp' | 'claude-code' | 'codex' | 'hermes' | 'openclaw' | 'opencode',
+              kind: 'agent-run',
+              operationId,
+              pid: child.pid,
+              startedAt: new Date().toISOString(),
+              taskId: operationId,
+              topicId,
+            });
+          } catch (err) {
+            logger?.error?.(
+              `hetero exec task registration failed (op=${operationId}): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
+        }
+        accepted = true;
       } catch (err) {
-        logger?.error?.(
-          `hetero exec stdin write failed (op=${operationId}): ${(err as Error).message}`,
-        );
+        const reason = err instanceof Error ? err.message : String(err);
+        logger?.error?.(`hetero exec stdin write failed (op=${operationId}): ${reason}`);
+        child.kill('SIGTERM');
+        settle({ reason, status: 'rejected' });
+        return;
       }
       settle({ status: 'accepted' });
     });
 
-    child.once('error', (err) => {
+    child.once('error', (err: Error) => {
       logger?.error?.(`hetero exec spawn failed (op=${operationId}): ${err.message}`);
       settle({ reason: err.message, status: 'rejected' });
     });
 
     child.on('exit', (code, signal) => {
+      if (child.pid) {
+        try {
+          removeTask(operationId);
+        } catch {
+          // Registry cleanup is best-effort; a stale PID is handled by cancelHeteroTask.
+        }
+      }
       logger?.info?.(`hetero exec exited (op=${operationId}) code=${code} signal=${signal}`);
+
+      if (
+        accepted &&
+        (code !== 0 || signal !== null) &&
+        ['amp', 'claude-code', 'codex', 'opencode'].includes(agentType)
+      ) {
+        // In server-ingest mode the child exits 0 only after heteroFinish is
+        // acknowledged. Re-deliver a terminal error solely when that handshake
+        // did not complete (or the wrapper was killed before it could finish).
+        void createLambdaClient({ serverUrl, token: jwt, tokenType: 'jwt' })
+          .aiAgent.heteroFinish.mutate({
+            agentType: agentType as 'amp' | 'claude-code' | 'codex' | 'opencode',
+            error: {
+              message: `CLI child exited after acceptance (code=${code ?? 'null'}, signal=${signal ?? 'none'})`,
+              type: 'HeterogeneousAgentProcessExit',
+            },
+            operationId,
+            result: 'error',
+            topicId,
+          })
+          .catch((err: unknown) =>
+            logger?.error?.(
+              `hetero exec terminal fallback failed (op=${operationId}): ${err instanceof Error ? err.message : String(err)}`,
+            ),
+          );
+      }
     });
   });
 }
