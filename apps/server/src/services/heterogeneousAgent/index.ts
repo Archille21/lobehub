@@ -299,10 +299,21 @@ export class HeterogeneousAgentService {
           : ownsMarker
             ? runningOperation.assistantMessageId
             : undefined;
-      await this.topicModel.clearRunningOperation(topicId, operationId);
     } catch (err) {
-      log('heteroFinish: failed to clear runningOperation (non-fatal): %O', err);
+      log('heteroFinish: failed to read runningOperation (non-fatal): %O', err);
     }
+
+    // Keep the queue-mode copy of serialized hooks until CompletionLifecycle
+    // has claimed the terminal CAS. Concurrent finish callbacks must all be
+    // able to capture the hooks; only the CAS winner dispatches them. Clearing
+    // before the CAS can let a callback without hooks win and strand the task.
+    const clearRunningOperation = async () => {
+      try {
+        await this.topicModel.clearRunningOperation(topicId, operationId);
+      } catch (err) {
+        log('heteroFinish: failed to clear runningOperation (non-fatal): %O', err);
+      }
+    };
 
     // The owning agentId is authoritatively encoded in the operationId
     // (op_<ts>_agt_<id>_tpc_<id>_<suffix>, built at dispatch from the resolved
@@ -325,6 +336,7 @@ export class HeterogeneousAgentService {
         },
         'interrupted',
       );
+      await clearRunningOperation();
       // Publish only after the durable operation + reconnect marker are terminal,
       // so a refresh triggered by this event cannot resurrect the run.
       await publishTerminal();
@@ -443,6 +455,7 @@ export class HeterogeneousAgentService {
       },
       completionReason,
     );
+    await clearRunningOperation();
     await publishTerminal();
     log('heteroFinish: dispatched completion lifecycle for op=%s result=%s', operationId, result);
   }

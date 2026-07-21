@@ -420,6 +420,88 @@ describe('HeterogeneousAgentService', () => {
       expect(topicModel.clearRunningOperation).toHaveBeenCalledWith('topic-cancel', 'op-cancel');
     });
 
+    it('retains serialized hooks until racing terminal callbacks reach the lifecycle CAS', async () => {
+      const serializedHooks: SerializedHook[] = [
+        {
+          id: 'task-on-complete',
+          type: 'onComplete',
+          webhook: {
+            body: { taskId: 'task-race' },
+            delivery: 'qstash',
+            url: '/api/workflows/task/on-topic-complete',
+          },
+        },
+      ];
+      let marker:
+        { assistantMessageId: string; hooks: SerializedHook[]; operationId: string } | undefined = {
+        assistantMessageId: 'asst-race',
+        hooks: serializedHooks,
+        operationId: 'op-race',
+      };
+      const topicModel = {
+        clearRunningOperation: vi.fn(async () => {
+          marker = undefined;
+          return true;
+        }),
+        findById: vi.fn(async () => ({
+          metadata: marker ? { runningOperation: marker } : {},
+        })),
+      } as any;
+      const { manager } = createFakeStreamManager();
+      const service = new HeterogeneousAgentService({} as any, 'user-test', {
+        persistenceHandler: createFakePersistenceHandler(),
+        streamEventManager: manager,
+        topicModel,
+      });
+      const findByIdSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'findById')
+        .mockResolvedValue({ status: 'running' } as any);
+
+      let releaseFirst!: () => void;
+      let signalFirstEntered!: () => void;
+      const firstEntered = new Promise<void>((resolve) => {
+        signalFirstEntered = resolve;
+      });
+      const firstBlocked = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      const completionInputs: any[] = [];
+      const completionSpy = vi
+        .spyOn(CompletionLifecycle.prototype, 'completeOperation')
+        .mockImplementation(async (input) => {
+          completionInputs.push(input);
+          if (completionInputs.length === 1) {
+            signalFirstEntered();
+            await firstBlocked;
+          }
+        });
+
+      const first = service.heteroFinish({
+        agentType: 'opencode',
+        operationId: 'op-race',
+        result: 'cancelled',
+        topicId: 'topic-race',
+      });
+      await firstEntered;
+      expect(topicModel.clearRunningOperation).not.toHaveBeenCalled();
+
+      const second = service.heteroFinish({
+        agentType: 'opencode',
+        operationId: 'op-race',
+        result: 'cancelled',
+        topicId: 'topic-race',
+      });
+      await vi.waitFor(() => expect(completionInputs).toHaveLength(2));
+      releaseFirst();
+      await Promise.all([first, second]);
+
+      expect(completionInputs[0].serializedHooks).toEqual(serializedHooks);
+      expect(completionInputs[1].serializedHooks).toEqual(serializedHooks);
+
+      completionSpy.mockRestore();
+      findByIdSpy.mockRestore();
+    });
+
     it('ignores a late process-exit fallback after the operation is already interrupted', async () => {
       const findByIdSpy = vi
         .spyOn(AgentOperationModel.prototype, 'findById')
