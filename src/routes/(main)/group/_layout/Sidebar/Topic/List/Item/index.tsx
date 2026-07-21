@@ -14,7 +14,7 @@ import RingLoadingIcon from '@/components/RingLoading';
 import { isDesktop } from '@/const/version';
 import { useHasDraft } from '@/features/ChatInput/draftStorage';
 import NavItem from '@/features/NavPanel/components/NavItem';
-import TopicCreatorAvatar from '@/features/TopicCreatorAvatar';
+import TopicCreatorAvatar, { useTopicCreator } from '@/features/TopicCreatorAvatar';
 import { useFocusTopicPopup } from '@/features/TopicPopupGuard/useTopicPopupsRegistry';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
 import { useAgentGroupStore } from '@/store/agentGroup';
@@ -100,6 +100,9 @@ const TopicItem = memo<TopicItemProps>(({ id, title, fav, active, threadId, stat
   const addTab = useElectronStore((s) => s.addTab);
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
   const focusTopicPopup = useFocusTopicPopup({ groupId: activeGroupId });
+  // Creator of the topic — resolves only inside an active workspace; drives
+  // the identity-first icon layout below.
+  const author = useTopicCreator(userId);
 
   // Construct href for cmd+click support
   const href = useMemo(() => {
@@ -272,6 +275,37 @@ const TopicItem = memo<TopicItemProps>(({ id, title, fav, active, threadId, stat
     );
   }
 
+  // Execution / attention state. In workspace mode this moves to the row's
+  // trailing side so the leading slot can carry the creator identity.
+  const statusIconNode = (() => {
+    if (isWaitingForHuman) {
+      const visual = TOPIC_STATUS_VISUALS.waitingForHuman;
+      return <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />;
+    }
+    if (isLoading || isRunning) {
+      return (
+        <RingLoadingIcon
+          ringColor={loadingRingColor}
+          size={14}
+          style={{ color: cssVar.colorWarning }}
+        />
+      );
+    }
+    if (isFailed) {
+      const visual = TOPIC_STATUS_VISUALS.failed;
+      return (
+        <Tooltip title={t('failedStatusTip')}>
+          <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />
+        </Tooltip>
+      );
+    }
+    if (isCompleted) {
+      const visual = TOPIC_STATUS_VISUALS.completed;
+      return <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />;
+    }
+    return null;
+  })();
+
   return (
     <Flexbox style={{ position: 'relative' }}>
       <NavItem
@@ -279,40 +313,22 @@ const TopicItem = memo<TopicItemProps>(({ id, title, fav, active, threadId, stat
         active={active && !threadId}
         contextMenuItems={dropdownMenu}
         disabled={editing}
-        extra={<TopicCreatorAvatar userId={userId} />}
+        extra={author ? statusIconNode : undefined}
         href={!editing ? href : undefined}
         title={title === '...' ? <DotsLoading gap={3} size={4} /> : title}
         titleColor={cssVar.colorText}
-        icon={(() => {
-          if (isWaitingForHuman) {
-            const visual = TOPIC_STATUS_VISUALS.waitingForHuman;
-            return <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />;
-          }
-          if (isLoading || isRunning) {
-            return (
-              <RingLoadingIcon
-                ringColor={loadingRingColor}
-                size={14}
-                style={{ color: cssVar.colorWarning }}
-              />
-            );
-          }
-          if (isFailed) {
-            const visual = TOPIC_STATUS_VISUALS.failed;
-            return (
-              <Tooltip title={t('failedStatusTip')}>
-                <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />
-              </Tooltip>
-            );
-          }
-          if (isCompleted) {
-            const visual = TOPIC_STATUS_VISUALS.completed;
-            return <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />;
-          }
-          return (
-            <Icon icon={HashIcon} size={'small'} style={{ color: cssVar.colorTextDescription }} />
-          );
-        })()}
+        icon={
+          // Workspace mode: creator identity leads (round avatar replaces `#`)
+          // and status moves to the trailing side. Personal mode keeps the
+          // original status-first layout.
+          author ? (
+            <TopicCreatorAvatar userId={userId} />
+          ) : (
+            (statusIconNode ?? (
+              <Icon icon={HashIcon} size={'small'} style={{ color: cssVar.colorTextDescription }} />
+            ))
+          )
+        }
         slots={{
           iconPostfix: unreadNode,
           titlePrefix: draftPrefix,

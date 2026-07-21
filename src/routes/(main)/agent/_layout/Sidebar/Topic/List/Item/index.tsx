@@ -23,7 +23,10 @@ import DirIcon from '@/features/ChatInput/ControlBar/DirIcon';
 import { useHasDraft } from '@/features/ChatInput/draftStorage';
 import { startTopicDrag } from '@/features/ChatInput/InputEditor/ReferTopic/topicDragData';
 import NavItem from '@/features/NavPanel/components/NavItem';
-import TopicCreatorAvatar from '@/features/TopicCreatorAvatar';
+import TopicCreatorAvatar, {
+  TopicCreatorCorner,
+  useTopicCreator,
+} from '@/features/TopicCreatorAvatar';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
 import { getWorkingDirectoryName } from '@/helpers/workingDirectoryPath';
 import { getPlatformIcon } from '@/routes/(main)/agent/channel/const';
@@ -161,6 +164,9 @@ const TopicItem = memo<TopicItemProps>(
     const isHeterogeneousAgent = useAgentStore(agentSelectors.isCurrentAgentHeterogeneous);
     const addTab = useElectronStore((s) => s.addTab);
     const prefetchMessages = useChatStore((s) => s.prefetchMessages);
+    // Creator of the topic — resolves only inside an active workspace; drives
+    // the identity-first icon layout below.
+    const author = useTopicCreator(userId);
 
     const loadingRingColor = isDarkMode
       ? cssVar.colorWarningBorder
@@ -352,6 +358,113 @@ const TopicItem = memo<TopicItemProps>(
     // keeping the row itself clean.
     const metaCard = getTopicMetaCard(metadata);
 
+    // Execution / attention state. In workspace mode this moves to the row's
+    // trailing side so the leading slot can carry the creator identity.
+    const statusIconNode = (() => {
+      // A scheduled topic hasn't run yet — nothing else can be true of it,
+      // so its clock outranks the other states.
+      if (isScheduled) {
+        const visual = TOPIC_STATUS_VISUALS.scheduled;
+        const runAt = metadata?.scheduledRun?.runAt;
+        const icon = <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />;
+        return runAt ? (
+          <Tooltip title={t('scheduledStatusTip', { time: dayjs(runAt).format('MM-DD HH:mm') })}>
+            {icon}
+          </Tooltip>
+        ) : (
+          icon
+        );
+      }
+      if (isWaitingForHuman) {
+        const visual = TOPIC_STATUS_VISUALS.waitingForHuman;
+        return <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />;
+      }
+      if (shouldShowRunningIcon) {
+        return (
+          <RingLoadingIcon
+            ringColor={loadingRingColor}
+            size={14}
+            style={{ color: cssVar.colorWarning }}
+          />
+        );
+      }
+      if (isFailed) {
+        const visual = TOPIC_STATUS_VISUALS.failed;
+        return (
+          <Tooltip title={t('failedStatusTip')}>
+            <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />
+          </Tooltip>
+        );
+      }
+      // Unread is the third `pending` attention state (see `resolveStatusBucket`
+      // in `@lobechat/utils/client/topic`), so it ranks with its two siblings
+      // above — and above the PR marker, which shares this single icon slot.
+      if (hasUnread) return unreadIcon;
+      // Persisted execution state is the topic's primary status. Keep every
+      // non-idle state above git metadata so scheduled / paused / completed
+      // topics cannot be mistaken for merely open / merged / closed PRs.
+      // `running` is handled exclusively by shouldShowRunningIcon above so
+      // the masked post-output tail cannot fall back to a static running icon.
+      if (status && status !== 'active' && status !== 'running') {
+        const visual = TOPIC_STATUS_VISUALS[status];
+        return <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />;
+      }
+      return null;
+    })();
+
+    // Identity-flavored icons the row owns (bot platform, PR marker) — these
+    // keep the leading slot even in workspace mode, with the creator shrunk to
+    // a corner badge.
+    const identityIconNode = (() => {
+      // GitHub PR state marker (open=green, merged=purple, closed=red),
+      // like Codex. It is secondary metadata, so only an idle topic uses it
+      // as the leading icon.
+      if (metaCard?.pullRequest) {
+        const prVisual = PR_STATE_VISUAL[getPullRequestState(metaCard.pullRequest)];
+        return (
+          <Tooltip title={t(prVisual.labelKey)}>
+            <Icon icon={prVisual.icon} size={'small'} style={{ color: prVisual.color }} />
+          </Tooltip>
+        );
+      }
+      if (metadata?.bot?.platform) {
+        const ProviderIcon = getPlatformIcon(metadata.bot!.platform);
+        if (ProviderIcon) {
+          return <ProviderIcon color={cssVar.colorTextDescription} size={16} />;
+        }
+      }
+      return null;
+    })();
+
+    const hashIconNode = (
+      <Icon
+        icon={HashIcon}
+        size={'small'}
+        style={{
+          color: cssVar.colorTextDescription,
+          // Heterogeneous agents (Claude Code, Codex, …) have no chat-style
+          // topic semantics, so suppress the `#` glyph while keeping its
+          // box so the title stays aligned with sibling rows.
+          visibility: isHeterogeneousAgent ? 'hidden' : undefined,
+        }}
+      />
+    );
+
+    // Workspace mode (creator resolvable): the leading slot carries identity —
+    // the creator's round avatar replaces `#`; rows with their own identity
+    // icon (Discord / WeChat / PR marker) keep it, with the creator shrunk to a
+    // bottom-right corner badge. Status moves to the trailing side. Personal
+    // mode keeps the original layout untouched.
+    const leadingIconNode = author ? (
+      identityIconNode ? (
+        <TopicCreatorCorner userId={userId}>{identityIconNode}</TopicCreatorCorner>
+      ) : (
+        <TopicCreatorAvatar userId={userId} />
+      )
+    ) : (
+      (statusIconNode ?? identityIconNode ?? hashIconNode)
+    );
+
     const navItem = (
       <NavItem
         actions={<Actions dropdownMenu={dropdownMenu} />}
@@ -361,97 +474,16 @@ const TopicItem = memo<TopicItemProps>(
         disabled={editing}
         draggable={!editing}
         href={href}
+        icon={leadingIconNode}
         slots={{ titlePrefix: draftPrefix }}
         title={title === '...' ? <DotsLoading gap={3} size={4} /> : title}
         titleColor={cssVar.colorText}
         extra={
           <>
             <RunningElapsedTime agentId={activeAgentId} topicId={id} />
-            <TopicCreatorAvatar userId={userId} />
+            {author ? statusIconNode : null}
           </>
         }
-        icon={(() => {
-          // A scheduled topic hasn't run yet — nothing else can be true of it,
-          // so its clock outranks the other states.
-          if (isScheduled) {
-            const visual = TOPIC_STATUS_VISUALS.scheduled;
-            const runAt = metadata?.scheduledRun?.runAt;
-            const icon = <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />;
-            return runAt ? (
-              <Tooltip
-                title={t('scheduledStatusTip', { time: dayjs(runAt).format('MM-DD HH:mm') })}
-              >
-                {icon}
-              </Tooltip>
-            ) : (
-              icon
-            );
-          }
-          if (isWaitingForHuman) {
-            const visual = TOPIC_STATUS_VISUALS.waitingForHuman;
-            return <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />;
-          }
-          if (shouldShowRunningIcon) {
-            return (
-              <RingLoadingIcon
-                ringColor={loadingRingColor}
-                size={14}
-                style={{ color: cssVar.colorWarning }}
-              />
-            );
-          }
-          if (isFailed) {
-            const visual = TOPIC_STATUS_VISUALS.failed;
-            return (
-              <Tooltip title={t('failedStatusTip')}>
-                <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />
-              </Tooltip>
-            );
-          }
-          // Unread is the third `pending` attention state (see `resolveStatusBucket`
-          // in `@lobechat/utils/client/topic`), so it ranks with its two siblings
-          // above — and above the PR marker, which shares this single icon slot.
-          if (hasUnread) return unreadIcon;
-          // Persisted execution state is the topic's primary status. Keep every
-          // non-idle state above git metadata so scheduled / paused / completed
-          // topics cannot be mistaken for merely open / merged / closed PRs.
-          // `running` is handled exclusively by shouldShowRunningIcon above so
-          // the masked post-output tail cannot fall back to a static running icon.
-          if (status && status !== 'active' && status !== 'running') {
-            const visual = TOPIC_STATUS_VISUALS[status];
-            return <Icon icon={visual.icon} size={'small'} style={{ color: visual.color }} />;
-          }
-          // GitHub PR state marker (open=green, merged=purple, closed=red),
-          // like Codex. It is secondary metadata, so only an idle topic uses it
-          // as the leading icon.
-          if (metaCard?.pullRequest) {
-            const prVisual = PR_STATE_VISUAL[getPullRequestState(metaCard.pullRequest)];
-            return (
-              <Tooltip title={t(prVisual.labelKey)}>
-                <Icon icon={prVisual.icon} size={'small'} style={{ color: prVisual.color }} />
-              </Tooltip>
-            );
-          }
-          if (metadata?.bot?.platform) {
-            const ProviderIcon = getPlatformIcon(metadata.bot!.platform);
-            if (ProviderIcon) {
-              return <ProviderIcon color={cssVar.colorTextDescription} size={16} />;
-            }
-          }
-          return (
-            <Icon
-              icon={HashIcon}
-              size={'small'}
-              style={{
-                color: cssVar.colorTextDescription,
-                // Heterogeneous agents (Claude Code, Codex, …) have no chat-style
-                // topic semantics, so suppress the `#` glyph while keeping its
-                // box so the title stays aligned with sibling rows.
-                visibility: isHeterogeneousAgent ? 'hidden' : undefined,
-              }}
-            />
-          );
-        })()}
         onClick={handleClick}
         onDoubleClick={() => void handleDoubleClick()}
         onDragStart={handleDragStart}
