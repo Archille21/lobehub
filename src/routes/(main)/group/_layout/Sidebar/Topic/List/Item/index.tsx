@@ -14,7 +14,10 @@ import RingLoadingIcon from '@/components/RingLoading';
 import { isDesktop } from '@/const/version';
 import { useHasDraft } from '@/features/ChatInput/draftStorage';
 import NavItem from '@/features/NavPanel/components/NavItem';
-import TopicCreatorAvatar, { useTopicCreator } from '@/features/TopicCreatorAvatar';
+import TopicCreatorAvatar, {
+  TopicCreatorCorner,
+  useTopicCreator,
+} from '@/features/TopicCreatorAvatar';
 import { useFocusTopicPopup } from '@/features/TopicPopupGuard/useTopicPopupsRegistry';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
 import { useAgentGroupStore } from '@/store/agentGroup';
@@ -313,16 +316,20 @@ const TopicItem = memo<TopicItemProps>(({ id, title, fav, active, threadId, stat
         active={active && !threadId}
         contextMenuItems={dropdownMenu}
         disabled={editing}
-        extra={author ? statusIconNode : undefined}
         href={!editing ? href : undefined}
         title={title === '...' ? <DotsLoading gap={3} size={4} /> : title}
         titleColor={cssVar.colorText}
         icon={
-          // Workspace mode: creator identity leads (round avatar replaces `#`)
-          // and status moves to the trailing side. Personal mode keeps the
-          // original status-first layout.
+          // Workspace mode: the row's own status icon keeps the leading slot
+          // with the creator shrunk to a bottom-right corner badge; a plain
+          // `#` row is fully replaced by the creator's round avatar. Personal
+          // mode keeps the original status-first layout.
           author ? (
-            <TopicCreatorAvatar userId={userId} />
+            statusIconNode ? (
+              <TopicCreatorCorner userId={userId}>{statusIconNode}</TopicCreatorCorner>
+            ) : (
+              <TopicCreatorAvatar userId={userId} />
+            )
           ) : (
             (statusIconNode ?? (
               <Icon icon={HashIcon} size={'small'} style={{ color: cssVar.colorTextDescription }} />

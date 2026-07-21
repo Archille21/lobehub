@@ -450,19 +450,20 @@ const TopicItem = memo<TopicItemProps>(
       />
     );
 
-    // Workspace mode (creator resolvable): the leading slot carries identity —
-    // the creator's round avatar replaces `#`; rows with their own identity
-    // icon (Discord / WeChat / PR marker) keep it, with the creator shrunk to a
-    // bottom-right corner badge. Status moves to the trailing side. Personal
-    // mode keeps the original layout untouched.
+    // Workspace mode (creator resolvable): the row's own icon — execution
+    // status first, then identity icons (Discord / WeChat / PR marker) — keeps
+    // the leading slot with the creator shrunk to a bottom-right corner badge;
+    // only a plain `#` row is fully replaced by the creator's round avatar.
+    // Personal mode keeps the original layout untouched.
+    const ownIconNode = statusIconNode ?? identityIconNode;
     const leadingIconNode = author ? (
-      identityIconNode ? (
-        <TopicCreatorCorner userId={userId}>{identityIconNode}</TopicCreatorCorner>
+      ownIconNode ? (
+        <TopicCreatorCorner userId={userId}>{ownIconNode}</TopicCreatorCorner>
       ) : (
         <TopicCreatorAvatar userId={userId} />
       )
     ) : (
-      (statusIconNode ?? identityIconNode ?? hashIconNode)
+      (ownIconNode ?? hashIconNode)
     );
 
     const navItem = (
@@ -473,17 +474,12 @@ const TopicItem = memo<TopicItemProps>(
         description={workingDirectoryNode}
         disabled={editing}
         draggable={!editing}
+        extra={<RunningElapsedTime agentId={activeAgentId} topicId={id} />}
         href={href}
         icon={leadingIconNode}
         slots={{ titlePrefix: draftPrefix }}
         title={title === '...' ? <DotsLoading gap={3} size={4} /> : title}
         titleColor={cssVar.colorText}
-        extra={
-          <>
-            <RunningElapsedTime agentId={activeAgentId} topicId={id} />
-            {author ? statusIconNode : null}
-          </>
-        }
         onClick={handleClick}
         onDoubleClick={() => void handleDoubleClick()}
         onDragStart={handleDragStart}
