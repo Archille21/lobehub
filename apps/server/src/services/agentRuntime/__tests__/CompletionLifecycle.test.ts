@@ -492,6 +492,23 @@ describe('CompletionLifecycle.dispatchHooks — error persistence', () => {
   });
 });
 
+describe('CompletionLifecycle.completeOperation — terminal claim', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns false and skips hooks when another callback already claimed the terminal CAS', async () => {
+    const lifecycle = buildLifecycle();
+    vi.spyOn(lifecycle as any, 'persistCompletion').mockResolvedValue(false);
+    const dispatchSpy = vi.spyOn(hookDispatcher, 'dispatch').mockResolvedValue(undefined as any);
+
+    const claimed = await lifecycle.completeOperation({ operationId: 'op-1' }, 'done');
+
+    expect(claimed).toBe(false);
+    expect(dispatchSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe('CompletionLifecycle.dispatchHooks — verify plan race', () => {
   afterEach(() => {
     vi.restoreAllMocks();

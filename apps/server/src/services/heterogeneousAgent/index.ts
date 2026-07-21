@@ -202,39 +202,39 @@ export class HeterogeneousAgentService {
       sessionId ?? '<none>',
     );
 
+    const agentOperationModel = new AgentOperationModel(this.db, this.userId, this.workspaceId);
+
     // Terminal callbacks are re-deliverable: Desktop/CLI may send a process-exit
     // fallback after Stop already persisted `interrupted`. Never let that late
     // callback rewrite the terminal result or surface a contradictory error.
+    let persistedTerminal: Awaited<ReturnType<AgentOperationModel['findById']>> | null = null;
+    const publishPersistedTerminal = (terminal: NonNullable<typeof persistedTerminal>) =>
+      this.streamEventManager.publishStreamEvent(operationId, {
+        data: {
+          agentType,
+          error: terminal.error ?? undefined,
+          operationId,
+          reason:
+            terminal.status === 'done'
+              ? 'success'
+              : terminal.status === 'error'
+                ? 'error'
+                : 'cancelled',
+          sessionId,
+        },
+        stepIndex: 0,
+        type: 'agent_runtime_end',
+      });
+
     try {
-      const existing = await new AgentOperationModel(
-        this.db,
-        this.userId,
-        this.workspaceId,
-      ).findById(operationId);
+      const existing = await agentOperationModel.findById(operationId);
       if (
         existing &&
         (existing.status === 'done' ||
           existing.status === 'error' ||
           existing.status === 'interrupted')
       ) {
-        // The durable terminal result is immutable, but a same-replica callback
-        // may still own buffered ingest state (and the CLI's native session id).
-        // Drain that state before returning. Normalize a duplicate error to
-        // cancelled so a generic process-exit fallback cannot overwrite a richer
-        // message error or clear a valid resume id after another terminal path won.
-        await this.persistenceHandler.finish({
-          operationId,
-          result: result === 'error' ? 'cancelled' : result,
-          sessionId,
-          topicId,
-        });
-        await this.topicModel.clearRunningOperation(topicId, operationId).catch(() => false);
-        log(
-          'heteroFinish: ignore duplicate terminal callback op=%s status=%s',
-          operationId,
-          existing.status,
-        );
-        return;
+        persistedTerminal = existing;
       }
       if (!existing) {
         const topic = await this.topicModel.findById(topicId);
@@ -247,6 +247,40 @@ export class HeterogeneousAgentService {
       // Operation tracing is best-effort. If the start row is unavailable,
       // continue so the topic marker and UI stream still reach a terminal state.
       log('heteroFinish: terminal idempotency lookup failed (non-fatal): %O', err);
+    }
+
+    // Duplicate delivery: the durable terminal result is immutable, but this
+    // callback still owes side effects. Kept OUTSIDE the lookup try/catch so a
+    // failure below rejects the call and drives another redelivery, instead of
+    // being swallowed and falling through into the full terminal funnel.
+    if (persistedTerminal) {
+      // A same-replica callback may still own buffered ingest state (and the
+      // CLI's native session id) — drain it. Normalize a duplicate error to
+      // cancelled so a generic process-exit fallback cannot overwrite a richer
+      // message error or clear a valid resume id after another terminal path won.
+      await this.persistenceHandler.finish({
+        operationId,
+        result: result === 'error' ? 'cancelled' : result,
+        sessionId,
+        topicId,
+      });
+      await this.topicModel.clearRunningOperation(topicId, operationId).catch(() => false);
+      // Re-publish the terminal stream event. The first delivery publishes
+      // AFTER the durable writes, so a transient publish failure surfaces as a
+      // tRPC error and the caller redelivers this callback — acknowledging the
+      // retry without re-publishing would leave connected gateway clients with
+      // no `agent_runtime_end`, stuck on a running spinner. Mirror the DURABLE
+      // result (not this callback's payload) so a late process-exit fallback
+      // cannot flash an error over a run that actually succeeded. Gateway closes
+      // this operation's session on terminal delivery and completion side effects
+      // are idempotent, so a repeated publish is safe.
+      await publishPersistedTerminal(persistedTerminal);
+      log(
+        'heteroFinish: drained + re-published duplicate terminal callback op=%s status=%s',
+        operationId,
+        persistedTerminal.status,
+      );
+      return;
     }
 
     // Drain any pending state in the persistence handler — flushes trailing
@@ -315,6 +349,31 @@ export class HeterogeneousAgentService {
       }
     };
 
+    const publishClaimedTerminal = async (isFirstTerminalTransition: boolean) => {
+      await clearRunningOperation();
+      if (isFirstTerminalTransition) {
+        await publishTerminal();
+        return;
+      }
+
+      // Both Stop and the CLI finish can read `running` before either reaches
+      // the terminal CAS. The loser must mirror the winner's durable result;
+      // publishing its callback payload could otherwise flash success/error over
+      // an interrupted run (or cancellation over a completed run).
+      const terminal = await agentOperationModel.findById(operationId);
+      if (
+        !terminal ||
+        (terminal.status !== 'done' &&
+          terminal.status !== 'error' &&
+          terminal.status !== 'interrupted')
+      ) {
+        throw new Error(
+          `Terminal operation not found after losing completion claim: ${operationId}`,
+        );
+      }
+      await publishPersistedTerminal(terminal);
+    };
+
     // The owning agentId is authoritatively encoded in the operationId
     // (op_<ts>_agt_<id>_tpc_<id>_<suffix>, built at dispatch from the resolved
     // agent), so derive it from there. Reading it back off the final assistant
@@ -325,7 +384,11 @@ export class HeterogeneousAgentService {
     const agentId = parseOperationId(operationId)?.agentId;
 
     if (result === 'cancelled') {
-      await new CompletionLifecycle(this.db, this.userId, this.workspaceId).completeOperation(
+      const isFirstTerminalTransition = await new CompletionLifecycle(
+        this.db,
+        this.userId,
+        this.workspaceId,
+      ).completeOperation(
         {
           agentId,
           assistantMessageId,
@@ -336,10 +399,9 @@ export class HeterogeneousAgentService {
         },
         'interrupted',
       );
-      await clearRunningOperation();
       // Publish only after the durable operation + reconnect marker are terminal,
       // so a refresh triggered by this event cannot resurrect the run.
-      await publishTerminal();
+      await publishClaimedTerminal(isFirstTerminalTransition);
       log('heteroFinish: finalized cancellation for op=%s', operationId);
       return;
     }
@@ -425,7 +487,11 @@ export class HeterogeneousAgentService {
     // and on success the delivery-checker card + verify gate run against the task's
     // plan. `completeOperation` owns the (formerly hand-rolled) synthetic-state
     // build, so the goal+reply turns and trace aggregates are mapped in ONE place.
-    await new CompletionLifecycle(this.db, this.userId, this.workspaceId).completeOperation(
+    const isFirstTerminalTransition = await new CompletionLifecycle(
+      this.db,
+      this.userId,
+      this.workspaceId,
+    ).completeOperation(
       {
         agentId,
         assistantMessageId,
@@ -455,8 +521,7 @@ export class HeterogeneousAgentService {
       },
       completionReason,
     );
-    await clearRunningOperation();
-    await publishTerminal();
+    await publishClaimedTerminal(isFirstTerminalTransition);
     log('heteroFinish: dispatched completion lifecycle for op=%s result=%s', operationId, result);
   }
 

@@ -474,6 +474,7 @@ describe('HeterogeneousAgentService', () => {
             signalFirstEntered();
             await firstBlocked;
           }
+          return true;
         });
 
       const first = service.heteroFinish({
@@ -502,7 +503,172 @@ describe('HeterogeneousAgentService', () => {
       findByIdSpy.mockRestore();
     });
 
-    it('ignores a late process-exit fallback after the operation is already interrupted', async () => {
+    it('publishes the durable interruption when a process-exit error loses the terminal CAS to Stop', async () => {
+      const topicModel = {
+        clearRunningOperation: vi.fn(async () => true),
+        findById: vi.fn(async () => ({
+          metadata: { runningOperation: { operationId: 'op-stop-wins' } },
+        })),
+      } as any;
+      const { manager } = createFakeStreamManager();
+      const service = new HeterogeneousAgentService({} as any, 'user-test', {
+        persistenceHandler: createFakePersistenceHandler(),
+        streamEventManager: manager,
+        topicModel,
+      });
+      const findByIdSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'findById')
+        .mockResolvedValueOnce({ status: 'running' } as any)
+        .mockResolvedValueOnce({ status: 'running' } as any)
+        .mockResolvedValue({ error: null, status: 'interrupted' } as any);
+      const finalizeSpy = vi
+        .spyOn(HeteroTraceRecorder.prototype, 'finalize')
+        .mockResolvedValue(null);
+
+      let releaseWinner!: () => void;
+      let signalWinnerClaimed!: () => void;
+      const winnerClaimed = new Promise<void>((resolve) => {
+        signalWinnerClaimed = resolve;
+      });
+      const winnerBlocked = new Promise<void>((resolve) => {
+        releaseWinner = resolve;
+      });
+      const completionSpy = vi
+        .spyOn(CompletionLifecycle.prototype, 'completeOperation')
+        .mockImplementationOnce(async () => {
+          signalWinnerClaimed();
+          await winnerBlocked;
+          return true;
+        })
+        .mockResolvedValueOnce(false);
+
+      const stop = service.heteroFinish({
+        agentType: 'opencode',
+        operationId: 'op-stop-wins',
+        result: 'cancelled',
+        topicId: 'topic-stop-wins',
+      });
+      await winnerClaimed;
+
+      await service.heteroFinish({
+        agentType: 'opencode',
+        error: { message: 'child exited', type: 'HeterogeneousAgentProcessExit' },
+        operationId: 'op-stop-wins',
+        result: 'error',
+        topicId: 'topic-stop-wins',
+      });
+
+      expect(manager.publishStreamEvent).toHaveBeenCalledTimes(1);
+      expect(manager.publishStreamEvent).toHaveBeenLastCalledWith('op-stop-wins', {
+        data: {
+          agentType: 'opencode',
+          error: undefined,
+          operationId: 'op-stop-wins',
+          reason: 'cancelled',
+          sessionId: undefined,
+        },
+        stepIndex: 0,
+        type: 'agent_runtime_end',
+      });
+
+      releaseWinner();
+      await stop;
+      expect(
+        vi
+          .mocked(manager.publishStreamEvent)
+          .mock.calls.every(
+            ([, event]) => (event.data as { reason?: string }).reason === 'cancelled',
+          ),
+      ).toBe(true);
+
+      completionSpy.mockRestore();
+      finalizeSpy.mockRestore();
+      findByIdSpy.mockRestore();
+    });
+
+    it('publishes the durable error when Stop loses the terminal CAS to a CLI error', async () => {
+      const topicModel = {
+        clearRunningOperation: vi.fn(async () => true),
+        findById: vi.fn(async () => ({
+          metadata: { runningOperation: { operationId: 'op-error-wins' } },
+        })),
+      } as any;
+      const { manager } = createFakeStreamManager();
+      const service = new HeterogeneousAgentService({} as any, 'user-test', {
+        persistenceHandler: createFakePersistenceHandler(),
+        streamEventManager: manager,
+        topicModel,
+      });
+      const durableError = { message: 'auth required', type: 'AuthRequired' };
+      const findByIdSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'findById')
+        .mockResolvedValueOnce({ status: 'running' } as any)
+        .mockResolvedValueOnce({ status: 'running' } as any)
+        .mockResolvedValue({ error: durableError, status: 'error' } as any);
+      const finalizeSpy = vi
+        .spyOn(HeteroTraceRecorder.prototype, 'finalize')
+        .mockResolvedValue(null);
+
+      let releaseWinner!: () => void;
+      let signalWinnerClaimed!: () => void;
+      const winnerClaimed = new Promise<void>((resolve) => {
+        signalWinnerClaimed = resolve;
+      });
+      const winnerBlocked = new Promise<void>((resolve) => {
+        releaseWinner = resolve;
+      });
+      const completionSpy = vi
+        .spyOn(CompletionLifecycle.prototype, 'completeOperation')
+        .mockImplementationOnce(async () => {
+          signalWinnerClaimed();
+          await winnerBlocked;
+          return true;
+        })
+        .mockResolvedValueOnce(false);
+
+      const finish = service.heteroFinish({
+        agentType: 'codex',
+        error: durableError,
+        operationId: 'op-error-wins',
+        result: 'error',
+        topicId: 'topic-error-wins',
+      });
+      await winnerClaimed;
+
+      await service.heteroFinish({
+        agentType: 'codex',
+        operationId: 'op-error-wins',
+        result: 'cancelled',
+        topicId: 'topic-error-wins',
+      });
+
+      expect(manager.publishStreamEvent).toHaveBeenCalledTimes(1);
+      expect(manager.publishStreamEvent).toHaveBeenLastCalledWith('op-error-wins', {
+        data: {
+          agentType: 'codex',
+          error: durableError,
+          operationId: 'op-error-wins',
+          reason: 'error',
+          sessionId: undefined,
+        },
+        stepIndex: 0,
+        type: 'agent_runtime_end',
+      });
+
+      releaseWinner();
+      await finish;
+      expect(
+        vi
+          .mocked(manager.publishStreamEvent)
+          .mock.calls.every(([, event]) => (event.data as { reason?: string }).reason === 'error'),
+      ).toBe(true);
+
+      completionSpy.mockRestore();
+      finalizeSpy.mockRestore();
+      findByIdSpy.mockRestore();
+    });
+
+    it('normalizes a late process-exit fallback after Stop and re-publishes the persisted terminal', async () => {
       const findByIdSpy = vi
         .spyOn(AgentOperationModel.prototype, 'findById')
         .mockResolvedValue({ status: 'interrupted' } as any);
@@ -531,7 +697,21 @@ describe('HeterogeneousAgentService', () => {
         sessionId: undefined,
         topicId: 'topic-interrupted',
       });
-      expect(manager.publishStreamEvent).not.toHaveBeenCalled();
+      // The end event mirrors the DURABLE interrupted result — not this
+      // callback's synthetic process-exit error — so gateway clients that
+      // missed the first publish still shut down without an error flash.
+      expect(manager.publishStreamEvent).toHaveBeenCalledTimes(1);
+      expect(manager.publishStreamEvent).toHaveBeenCalledWith('op-interrupted', {
+        data: {
+          agentType: 'opencode',
+          error: undefined,
+          operationId: 'op-interrupted',
+          reason: 'cancelled',
+          sessionId: undefined,
+        },
+        stepIndex: 0,
+        type: 'agent_runtime_end',
+      });
       expect(topicModel.clearRunningOperation).toHaveBeenCalledWith(
         'topic-interrupted',
         'op-interrupted',
@@ -568,7 +748,88 @@ describe('HeterogeneousAgentService', () => {
         sessionId: 'session-after-stop',
         topicId: 'topic-interrupted',
       });
-      expect(manager.publishStreamEvent).not.toHaveBeenCalled();
+      // Re-published end event mirrors the persisted interrupted result while
+      // still relaying the late native session id.
+      expect(manager.publishStreamEvent).toHaveBeenCalledWith('op-interrupted', {
+        data: {
+          agentType: 'claude-code',
+          error: undefined,
+          operationId: 'op-interrupted',
+          reason: 'cancelled',
+          sessionId: 'session-after-stop',
+        },
+        stepIndex: 0,
+        type: 'agent_runtime_end',
+      });
+      findByIdSpy.mockRestore();
+    });
+
+    it('re-publishes the durable terminal result when a fallback is redelivered after a failed publish', async () => {
+      // First delivery persisted `done` but its publishTerminal failed — the
+      // caller redelivers (process-exit fallback). The duplicate branch must
+      // still emit `agent_runtime_end`, or connected gateway clients spin
+      // forever; and it must mirror the durable success, not this callback's
+      // synthetic error.
+      const findByIdSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'findById')
+        .mockResolvedValue({ error: null, status: 'done' } as any);
+      const topicModel = { clearRunningOperation: vi.fn(async () => true) } as any;
+      const { manager } = createFakeStreamManager();
+      const persistenceHandler = createFakePersistenceHandler();
+      const service = new HeterogeneousAgentService({} as any, 'user-test', {
+        persistenceHandler,
+        streamEventManager: manager,
+        topicModel,
+      });
+
+      await service.heteroFinish({
+        agentType: 'codex',
+        error: {
+          message: 'CLI child exited after acceptance (code=1, signal=none)',
+          type: 'HeterogeneousAgentProcessExit',
+        },
+        operationId: 'op-republish',
+        result: 'error',
+        topicId: 'topic-republish',
+      });
+
+      expect(manager.publishStreamEvent).toHaveBeenCalledTimes(1);
+      expect(manager.publishStreamEvent).toHaveBeenCalledWith('op-republish', {
+        data: {
+          agentType: 'codex',
+          error: undefined,
+          operationId: 'op-republish',
+          reason: 'success',
+          sessionId: undefined,
+        },
+        stepIndex: 0,
+        type: 'agent_runtime_end',
+      });
+      findByIdSpy.mockRestore();
+    });
+
+    it('rejects the duplicate delivery when the terminal re-publish fails, so the caller retries', async () => {
+      const findByIdSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'findById')
+        .mockResolvedValue({ error: null, status: 'done' } as any);
+      const topicModel = { clearRunningOperation: vi.fn(async () => true) } as any;
+      const manager: Partial<IStreamEventManager> = {
+        publishStreamEvent: vi.fn().mockRejectedValue(new Error('redis down')),
+      };
+      const service = new HeterogeneousAgentService({} as any, 'user-test', {
+        persistenceHandler: createFakePersistenceHandler(),
+        streamEventManager: manager as IStreamEventManager,
+        topicModel,
+      });
+
+      await expect(
+        service.heteroFinish({
+          agentType: 'codex',
+          operationId: 'op-republish-fail',
+          result: 'success',
+          topicId: 'topic-republish',
+        }),
+      ).rejects.toThrow('redis down');
       findByIdSpy.mockRestore();
     });
 
@@ -653,7 +914,7 @@ describe('HeterogeneousAgentService', () => {
       } as any);
       const dispatchSpy = vi
         .spyOn(CompletionLifecycle.prototype, 'dispatchHooks')
-        .mockResolvedValue();
+        .mockResolvedValue(true);
 
       await service.heteroFinish({
         agentType: 'claude-code',
@@ -698,7 +959,7 @@ describe('HeterogeneousAgentService', () => {
         .mockResolvedValue();
       const dispatchSpy = vi
         .spyOn(CompletionLifecycle.prototype, 'dispatchHooks')
-        .mockResolvedValue();
+        .mockResolvedValue(true);
 
       await service.heteroFinish({
         agentType: 'claude-code',
@@ -735,7 +996,7 @@ describe('HeterogeneousAgentService', () => {
         .mockResolvedValue();
       const dispatchSpy = vi
         .spyOn(CompletionLifecycle.prototype, 'dispatchHooks')
-        .mockResolvedValue();
+        .mockResolvedValue(true);
 
       await service.heteroFinish({
         agentType: 'claude-code',

@@ -522,13 +522,14 @@ export class CompletionLifecycle {
    * terminal op row, fire onComplete/onError hooks, and (on `done`) run the
    * delivery-checker verify gate. This is what makes those paths true lifecycle
    * peers instead of firing a stripped-down hooks-only funnel.
+   * Returns `false` only when another callback already owns the terminal CAS.
    */
   async completeOperation(
     input: OperationCompletionInput,
     reason: 'done' | 'error' | 'interrupted',
     options?: CompleteOperationOptions,
-  ): Promise<void> {
-    await this.dispatchHooks(input.operationId, this.buildStateFromInput(input), reason, options);
+  ): Promise<boolean> {
+    return this.dispatchHooks(input.operationId, this.buildStateFromInput(input), reason, options);
   }
 
   /**
@@ -536,13 +537,14 @@ export class CompletionLifecycle {
    * the global `hookDispatcher`. On the error path, also writes the error
    * back onto the assistant message row so the frontend can render it.
    * Fire-and-forget; always unregisters the operation from the dispatcher.
+   * Returns `false` only for a known duplicate/late terminal transition.
    */
   async dispatchHooks(
     operationId: string,
     state: any,
     reason: string,
     options?: CompleteOperationOptions,
-  ): Promise<void> {
+  ): Promise<boolean> {
     // `waiting_for_async_tool` parks the SAME operation: it persists the parked
     // status (the async-tool resume CAS reads it) but must NOT fire `onComplete`
     // or unregister hooks — the op resumes under this same id and reaches its
@@ -561,9 +563,9 @@ export class CompletionLifecycle {
       // Finalize the agent_operations row before user hooks fire so
       // downstream consumers see the row in its terminal shape.
       const isFirstTerminalTransition = await this.persistCompletion(operationId, state, reason);
-      if (isFirstTerminalTransition === false) return;
+      if (isFirstTerminalTransition === false) return false;
 
-      if (isAsyncToolPark) return;
+      if (isAsyncToolPark) return true;
 
       // `lastAssistantContent` comes off the Redis-backed `state.messages`,
       // while the assistant message row is persisted through a separate
@@ -667,6 +669,8 @@ export class CompletionLifecycle {
         this.verifyPlanInstantiations.delete(operationId);
       }
     }
+
+    return true;
   }
 
   /**
