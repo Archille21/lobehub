@@ -129,3 +129,32 @@ activity into their real browsing context, and erodes trust in automated runs.
 report auth as ❌ Blocked and request ONE manual sign-in. The corrected policy
 lives in `references/auth.md` ("When the instance comes up signed out") and
 PROJECT.md §4 Electron.
+
+## A white-screening conversation route after `pnpm install` is a duplicate-instance problem, not an app bug
+
+**Wrong approach**: the agent conversation route dies in the error boundary with
+`Please wrap your app with <ConfigProvider> (or <MotionProvider>)` (thrown from a
+@lobehub/ui component such as `TypewriterEffect`), and the run burns hours treating
+it as an app regression or stale-cache problem — clearing `node_modules/.vite`,
+restarting the dev server, bisecting the feature branch.
+
+**Why it's wrong**: this repo has **no lockfile**, so every `pnpm install` (which
+IS the default step after a branch switch or submodule bump) re-resolves floating
+ranges and can leave **two `@lobehub/ui@X` peer-hash instances** under
+`node_modules/.pnpm`. Each instance carries its own React context, so the provider
+and the consumer stop sharing one — the error message points at providers, but the
+cause is the dependency graph. Sidebar-only routes may still render, which
+disguises it; cache clears and restarts cannot fix it.
+
+**What it breaks**: every conversation-route verification on that machine — and it
+equally breaks the user's own local dev, so it deserves a heads-up to the user, not
+just a silent workaround.
+
+**Correct approach**: after any `pnpm install`, before debugging UI crashes, check
+for duplicates: `ls node_modules/.pnpm | grep '@lobehub+ui@'` (2+ entries = this
+problem). Remediate via a clean reinstall (`rm -rf node_modules && pnpm install`)
+or `pnpm dedupe`; when peer sets genuinely differ, the verification-time workaround
+is a temporary Vite `resolve.dedupe` (full recipe in
+`probe-mock-patterns.md → "Duplicate @lobehub/ui instances crash the conversation
+route in dev"`) — snapshot `vite.config.ts` first and revert it after evidence
+capture. Report the condition to the user either way.
