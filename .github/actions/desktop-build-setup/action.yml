@@ -17,6 +17,10 @@ inputs:
     description: GitHub token with permission to read the Cloud repository
     required: false
     default: ''
+  install-isolated-desktop-deps:
+    description: Install the isolated Desktop dependency tree after the root workspace install
+    required: false
+    default: 'true'
 
 runs:
   using: composite
@@ -142,6 +146,7 @@ runs:
         fi
 
     - name: Install deps on Desktop
+      if: inputs.install-isolated-desktop-deps == 'true'
       shell: bash
       run: |
         set -euo pipefail

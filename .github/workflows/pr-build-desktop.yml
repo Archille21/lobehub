@@ -30,6 +30,7 @@ jobs:
       - name: Setup test environment
         uses: ./.github/actions/desktop-build-setup
         with:
+          install-isolated-desktop-deps: 'false'
           node-version: 24.11.1
 
       - name: Check PTY sidecar
