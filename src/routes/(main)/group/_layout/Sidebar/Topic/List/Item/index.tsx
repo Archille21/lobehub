@@ -11,6 +11,7 @@ import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspa
 import DotsLoading from '@/components/DotsLoading';
 import { TOPIC_STATUS_VISUALS } from '@/components/ExecutionStatus';
 import RingLoadingIcon from '@/components/RingLoading';
+import UnreadDot from '@/components/UnreadDot';
 import { isDesktop } from '@/const/version';
 import { useHasDraft } from '@/features/ChatInput/draftStorage';
 import NavItem from '@/features/NavPanel/components/NavItem';
@@ -282,8 +283,8 @@ const TopicItem = memo<TopicItemProps>(({ id, title, fav, active, threadId, stat
     );
   }
 
-  // Execution / attention state. In workspace mode this moves to the row's
-  // trailing side so the leading slot can carry the creator identity.
+  // Execution / attention state. In workspace mode this shrinks into the
+  // creator avatar's corner badge so the leading slot can carry identity.
   const statusIconNode = (() => {
     if (isWaitingForHuman) {
       const visual = TOPIC_STATUS_VISUALS.waitingForHuman;
@@ -313,6 +314,20 @@ const TopicItem = memo<TopicItemProps>(({ id, title, fav, active, threadId, stat
     return null;
   })();
 
+  // Workspace corner badge: unread ranks between failed and completed — same
+  // ordering as the agent sidebar's status chain — so an unread-completed
+  // topic reads as "needs attention" instead of merely completed. The
+  // iconPostfix dot stays a personal-mode-only affordance; rendering it next
+  // to the creator avatar would look like part of the identity.
+  const workspaceCornerNode =
+    isWaitingForHuman || isLoading || isRunning || isFailed ? (
+      statusIconNode
+    ) : hasUnread ? (
+      <UnreadDot />
+    ) : (
+      statusIconNode
+    );
+
   return (
     <Flexbox style={{ position: 'relative' }}>
       <NavItem
@@ -328,7 +343,7 @@ const TopicItem = memo<TopicItemProps>(({ id, title, fav, active, threadId, stat
           // the row's own status icon shrinks into a bottom-right corner
           // badge. Personal mode keeps the original status-first layout.
           author ? (
-            <TopicCreatorAvatar corner={statusIconNode} userId={userId} />
+            <TopicCreatorAvatar corner={workspaceCornerNode} userId={userId} />
           ) : (
             (statusIconNode ?? (
               <Icon icon={HashIcon} size={'small'} style={{ color: cssVar.colorTextDescription }} />
@@ -336,7 +351,7 @@ const TopicItem = memo<TopicItemProps>(({ id, title, fav, active, threadId, stat
           )
         }
         slots={{
-          iconPostfix: unreadNode,
+          iconPostfix: author ? undefined : unreadNode,
           titlePrefix: draftPrefix,
         }}
         onClick={handleClick}
