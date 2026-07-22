@@ -1650,7 +1650,7 @@ export class AiAgentService {
     }
 
     if (appContext?.newThread) {
-      const { parentThreadId, sourceMessageId } = appContext.newThread;
+      const { parentThreadId: requestedParentThreadId, sourceMessageId } = appContext.newThread;
       const sourceMessage = sourceMessageId
         ? await this.messageModel.findById(sourceMessageId)
         : undefined;
@@ -1660,6 +1660,10 @@ export class AiAgentService {
           message: 'Thread source message does not belong to the target topic',
         });
       }
+      // The current thread UI only carries the source message when forking.
+      // Derive its parent thread from that server-authoritative message while
+      // still rejecting callers that explicitly provide a contradictory one.
+      const parentThreadId = requestedParentThreadId ?? sourceMessage?.threadId ?? undefined;
       if (parentThreadId) {
         const parentThread = await this.threadModel.findById(parentThreadId);
         if (!parentThread || parentThread.topicId !== topicId) {
@@ -1669,7 +1673,11 @@ export class AiAgentService {
           });
         }
       }
-      if (sourceMessage && (sourceMessage.threadId ?? undefined) !== parentThreadId) {
+      if (
+        sourceMessage &&
+        requestedParentThreadId !== undefined &&
+        (sourceMessage.threadId ?? undefined) !== requestedParentThreadId
+      ) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
           message: 'Thread source message does not belong to the parent thread',

@@ -337,27 +337,29 @@ describe('AiAgentService.execAgent - threadId handling', () => {
       expect(mockThreadCreate).not.toHaveBeenCalled();
     });
 
-    it('rejects a threaded source when its parent thread is omitted', async () => {
+    it('infers the parent thread from a threaded source when the client omits it', async () => {
       mockMessageFindById.mockResolvedValue({
         id: 'source-message-1',
         threadId: 'parent-thread-1',
         topicId: 'topic-1',
       });
 
-      await expect(
-        service.execAgent({
-          agentId: 'agent-1',
-          appContext: {
-            newThread: {
-              sourceMessageId: 'source-message-1',
-              type: ThreadType.Continuation,
-            },
-            topicId: 'topic-1',
+      await service.execAgent({
+        agentId: 'agent-1',
+        appContext: {
+          newThread: {
+            sourceMessageId: 'source-message-1',
+            type: ThreadType.Continuation,
           },
-          prompt: 'Continue in a nested subtopic',
-        }),
-      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
-      expect(mockThreadCreate).not.toHaveBeenCalled();
+          topicId: 'topic-1',
+        },
+        prompt: 'Continue in a nested subtopic',
+      });
+
+      expect(mockThreadFindById).toHaveBeenCalledWith('parent-thread-1');
+      expect(mockThreadCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ parentThreadId: 'parent-thread-1' }),
+      );
     });
 
     it('rejects a source message from a different parent thread', async () => {
