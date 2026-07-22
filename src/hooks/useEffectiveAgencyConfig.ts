@@ -29,7 +29,7 @@ export interface UseEffectiveAgencyConfigResult {
  * The agent's EFFECTIVE `agencyConfig` for the current caller.
  *
  * The workspace-shared `agents.agencyConfig` is one row per agent, but each
- * member picks their own execution device (LOBE-11689) — that pick lives in
+ * member picks their own execution device — that pick lives in
  * `workspace_user_settings.preference.agentDeviceOverrides[agentId]` and must
  * be merged over the shared row via `resolveAgencyConfig` at read time.
  * Reading the shared row alone shows whichever device landed there (usually

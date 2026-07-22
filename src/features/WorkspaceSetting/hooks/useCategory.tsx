@@ -108,7 +108,7 @@ export const useWorkspaceSettingCategory = (): WorkspaceSettingCategoryGroup[] =
         {
           items: [
             // AI provider config (keys/endpoints) is shared workspace infra —
-            // owner-only, hidden from members entirely (LOBE-11834).
+            // owner-only, hidden from members entirely.
             isOwner && {
               icon: Brain,
               key: WorkspaceSettingsTabs.Provider,

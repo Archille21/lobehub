@@ -203,7 +203,7 @@ const buildTopicOrderBy = (topicActivityAt: SQL, sortBy?: TopicQuerySortBy): SQL
  * COALESCE(metadata ->> 'status', '') <> 'done'                   -- IS DISTINCT FROM
  * ```
  *
- * This has now bitten twice: `getLatestSpineMessageId` (LOBE-11376, #16693) and
+ * This has now bitten twice: `getLatestSpineMessageId` (#16693) and
  * `getDueScheduledTopics` (#17077 — the scheduled-run cron crashed on every tick
  * from the day it shipped, so rate-limit continuations never once resumed).
  */
@@ -363,7 +363,7 @@ export class TopicModel {
                 // display `updatedAt` above matches the client-side sort key to the server
                 // order (otherwise the two disagree and the list visibly jumps) while a
                 // rename/favorite edit still shows its real edit time. See rankTopics for
-                // the same activity-time pattern. (LOBE-11543)
+                // the same activity-time pattern.
                 sortUpdatedAt: topicActivityAt,
                 // Workspace sidebars filter maintenance actions client-side by
                 // ownership (own vs workspace scope) — the filter needs the row
@@ -437,7 +437,7 @@ export class TopicModel {
                 // display `updatedAt` above matches the client-side sort key to the server
                 // order (otherwise the two disagree and the list visibly jumps) while a
                 // rename/favorite edit still shows its real edit time. See rankTopics for
-                // the same activity-time pattern. (LOBE-11543)
+                // the same activity-time pattern.
                 sortUpdatedAt: topicActivityAt,
                 // Workspace sidebars filter maintenance actions client-side by
                 // ownership (own vs workspace scope) — the filter needs the row
@@ -507,7 +507,7 @@ export class TopicModel {
               // display `updatedAt` above matches the client-side sort key to the server
               // order (otherwise the two disagree and the list visibly jumps) while a
               // rename/favorite edit still shows its real edit time. See rankTopics for
-              // the same activity-time pattern. (LOBE-11543)
+              // the same activity-time pattern.
               sortUpdatedAt: topicActivityAt,
               // Workspace sidebars filter maintenance actions client-side by
               // ownership (own vs workspace scope) — the filter needs the row
