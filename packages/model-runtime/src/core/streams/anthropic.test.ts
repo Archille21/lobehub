@@ -917,4 +917,163 @@ describe('AnthropicStream', () => {
       ].map((item) => `${item}\n`),
     );
   });
+
+  describe('deepseek </think> leak guard', () => {
+    const collectEvents = async (
+      streams: any[],
+      model: string,
+    ): Promise<{ data: string; event: string }[]> => {
+      const mockReadableStream = new ReadableStream({
+        start(controller) {
+          streams.forEach((chunk) => controller.enqueue(chunk));
+          controller.close();
+        },
+      });
+
+      const protocolStream = AnthropicStream(mockReadableStream, {
+        payload: { model, provider: 'deepseek' },
+      });
+
+      const decoder = new TextDecoder();
+      const chunks: string[] = [];
+      // @ts-ignore
+      for await (const chunk of protocolStream) {
+        chunks.push(decoder.decode(chunk, { stream: true }));
+      }
+
+      // reassemble the line-based SSE output into { event, data } pairs
+      const events: { data: string; event: string }[] = [];
+      let currentEvent = '';
+      for (const line of chunks.join('').split('\n')) {
+        if (line.startsWith('event: ')) currentEvent = line.replace('event: ', '');
+        if (line.startsWith('data: '))
+          events.push({ data: line.replace('data: ', ''), event: currentEvent });
+      }
+      return events;
+    };
+
+    const messageStart = {
+      type: 'message_start',
+      message: {
+        id: 'msg_leak',
+        type: 'message',
+        role: 'assistant',
+        model: 'deepseek-v4-pro',
+        content: [],
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 10, output_tokens: 1 },
+      },
+    };
+
+    it('should split leaked reasoning terminated by a bare </think> into reasoning + text', async () => {
+      const events = await collectEvents(
+        [
+          messageStart,
+          // deepseek may emit an empty placeholder thinking block before the leak;
+          // it must not disarm the guard
+          {
+            type: 'content_block_start',
+            index: 0,
+            content_block: { type: 'thinking', thinking: '', signature: '' },
+          },
+          {
+            type: 'content_block_delta',
+            index: 1,
+            delta: {
+              type: 'text_delta',
+              text: 'Let me parse the refund policy first.</think>Dear user, here is the answer.',
+            },
+          },
+        ],
+        'deepseek-v4-pro',
+      );
+
+      expect(events).toContainEqual({
+        data: JSON.stringify('Let me parse the refund policy first.'),
+        event: 'reasoning',
+      });
+      expect(events).toContainEqual({
+        data: JSON.stringify('Dear user, here is the answer.'),
+        event: 'text',
+      });
+      expect(events.some(({ data }) => data.includes('</think>'))).toBe(false);
+    });
+
+    it('should split at the delta carrying </think> when the leak spans multiple deltas', async () => {
+      const events = await collectEvents(
+        [
+          messageStart,
+          {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'leaked reasoning part one, ' },
+          },
+          {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'part two.</think>The real answer.' },
+          },
+        ],
+        'deepseek-v4-pro',
+      );
+
+      // deltas before the tag were already emitted as text — only the tag-carrying
+      // delta can still be split, and the literal tag never surfaces
+      expect(events).toContainEqual({
+        data: JSON.stringify('leaked reasoning part one, '),
+        event: 'text',
+      });
+      expect(events).toContainEqual({ data: JSON.stringify('part two.'), event: 'reasoning' });
+      expect(events).toContainEqual({ data: JSON.stringify('The real answer.'), event: 'text' });
+      expect(events.some(({ data }) => data.includes('</think>'))).toBe(false);
+    });
+
+    it('should leave the tag untouched once real reasoning has been received', async () => {
+      const text = 'the closing tag is `</think>` in that template';
+      const events = await collectEvents(
+        [
+          messageStart,
+          {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'thinking_delta', thinking: 'real reasoning happened here' },
+          },
+          { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text } },
+        ],
+        'deepseek-v4-pro',
+      );
+
+      expect(events).toContainEqual({ data: JSON.stringify(text), event: 'text' });
+    });
+
+    it('should leave content untouched when a literal <think> tag appeared first', async () => {
+      const opening = 'streaming shows `<think>` first, ';
+      const closing = 'then `</think>` at the end';
+      const events = await collectEvents(
+        [
+          messageStart,
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: opening } },
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: closing } },
+        ],
+        'deepseek-v4-pro',
+      );
+
+      expect(events).toContainEqual({ data: JSON.stringify(opening), event: 'text' });
+      expect(events).toContainEqual({ data: JSON.stringify(closing), event: 'text' });
+    });
+
+    it('should not apply the guard to non-deepseek models', async () => {
+      const text = 'to close a thinking span emit </think> as a single token';
+      const events = await collectEvents(
+        [
+          messageStart,
+          { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } },
+        ],
+        'claude-sonnet-4-6',
+      );
+
+      expect(events).toContainEqual({ data: JSON.stringify(text), event: 'text' });
+    });
+  });
 });

@@ -24,6 +24,15 @@ export interface StreamContext {
   chunkIndex?: number;
   id: string;
   /**
+   * Whether any non-empty thinking/reasoning content has been received in the current
+   * message. DeepSeek's anthropic-compatible endpoint prefills `<think>` server-side;
+   * when its parser fails to capture the reasoning into a thinking block, the raw
+   * tokens leak into the text channel as `reasoning…</think>answer` — closing tag only,
+   * with the thinking block empty. A message that already produced real reasoning
+   * cannot be in that failure mode, so this flag disarms the leak guard.
+   */
+  receivedNonEmptyReasoning?: boolean;
+  /**
    * As pplx citations is in every chunk, but we only need to return it once
    * this flag is used to check if the pplx citation is returned,and then not return it again.
    * Same as Hunyuan and Wenxin
@@ -36,6 +45,12 @@ export interface StreamContext {
    * This array accumulates all citation items received during the streaming response.
    */
   returnedCitationArray?: ChatCitationItem[];
+  /**
+   * Whether a literal `<think>` tag has been seen in the text channel of the current
+   * message. Content that carries the opening tag (e.g. a user-visible discussion of
+   * think tags) is not the prefill-leak shape, so the leak guard must leave it intact.
+   */
+  sawLiteralThinkOpenTag?: boolean;
   /**
    * O series models need a condition to separate part
    */

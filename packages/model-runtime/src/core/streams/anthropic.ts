@@ -3,6 +3,7 @@ import type { Stream } from '@anthropic-ai/sdk/streaming';
 import type { ChatCitationItem } from '@lobechat/types';
 
 import type { ChatStreamCallbacks } from '../../types';
+import { isDeepSeekThinkingEligibleModel } from '../../utils/modelParse';
 import { convertAnthropicUsage } from '../usageConverters';
 import type {
   ChatPayloadForTransformStream,
@@ -105,6 +106,10 @@ export const transformAnthropicStream = (
         case 'thinking': {
           const thinkingChunk = chunk.content_block;
 
+          if (typeof thinkingChunk.thinking === 'string' && thinkingChunk.thinking.trim()) {
+            context.receivedNonEmptyReasoning = true;
+          }
+
           // if there is signature in the thinking block, return both thinking and signature
           if (!!thinkingChunk.signature) {
             return [
@@ -130,7 +135,41 @@ export const transformAnthropicStream = (
     case 'content_block_delta': {
       switch (chunk.delta.type) {
         case 'text_delta': {
-          return { data: chunk.delta.text, id: context.id, type: 'text' };
+          const text = chunk.delta.text;
+
+          // DeepSeek's anthropic-compatible endpoint prefills `<think>` server-side; when its
+          // parser fails to capture the reasoning into a thinking block, the raw tokens leak
+          // into the text channel as `reasoning…</think>answer` — closing tag only, thinking
+          // block empty. Split such deltas so the literal tag never reaches user-visible
+          // content. Gated to DeepSeek thinking models with no real reasoning received and no
+          // literal `<think>` seen, so ordinary content that merely mentions the closing tag
+          // (after a real thinking block, or alongside the opening tag) is left untouched.
+          if (
+            typeof text === 'string' &&
+            isDeepSeekThinkingEligibleModel(payload?.model) &&
+            !context.receivedNonEmptyReasoning &&
+            !context.sawLiteralThinkOpenTag
+          ) {
+            if (text.includes('<think>')) {
+              context.sawLiteralThinkOpenTag = true;
+            } else if (text.includes('</think>')) {
+              const [leakedReasoning, ...rest] = text.split('</think>');
+              const afterThink = rest.join('</think>');
+
+              // reasoning was emitted for this message now — disarm the guard so later
+              // occurrences of the tag are treated as ordinary content again
+              context.receivedNonEmptyReasoning = true;
+
+              const results: StreamProtocolChunk[] = [];
+              if (leakedReasoning)
+                results.push({ data: leakedReasoning, id: context.id, type: 'reasoning' });
+              if (afterThink) results.push({ data: afterThink, id: context.id, type: 'text' });
+
+              return results.length > 0 ? results : { data: '', id: context.id, type: 'text' };
+            }
+          }
+
+          return { data: text, id: context.id, type: 'text' };
         }
 
         case 'input_json_delta': {
@@ -158,6 +197,10 @@ export const transformAnthropicStream = (
         }
 
         case 'thinking_delta': {
+          if (typeof chunk.delta.thinking === 'string' && chunk.delta.thinking.trim()) {
+            context.receivedNonEmptyReasoning = true;
+          }
+
           return {
             data: chunk.delta.thinking,
             id: context.id,
