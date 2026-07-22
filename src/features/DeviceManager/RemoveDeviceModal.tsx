@@ -106,9 +106,13 @@ const RemoveWorkspaceDeviceContent = memo<RemoveWorkspaceDeviceContentProps>(
       // Lock dismissal so the mutation can't be interrupted mid-flight.
       setCanDismissByClickOutside?.(false);
       try {
+        // The checked-off agents are a client-side acknowledgment; the server
+        // releases every caller-visible binding (a boolean, not an id list, so
+        // removal can't dead-end on a wire-schema cap) and still refuses when
+        // anything unreleasable remains.
         await removeDevice.mutateAsync({
           deviceId: device.deviceId,
-          ...(selected.size > 0 ? { unbindAgentIds: [...selected] } : {}),
+          ...(selected.size > 0 ? { unbindBoundAgents: true } : {}),
         });
         refreshDeviceList();
         close();

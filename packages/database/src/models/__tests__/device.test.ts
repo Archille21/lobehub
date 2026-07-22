@@ -1,4 +1,5 @@
 // @vitest-environment node
+import type { LobeAgentAgencyConfig } from '@lobechat/types';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -195,7 +196,7 @@ describe('DeviceModel', () => {
         visibility: 'public',
         workspaceId: wsId,
       });
-      const fixedBinding = {
+      const fixedBinding: LobeAgentAgencyConfig = {
         boundDeviceId: 'bound-device',
         executionTarget: 'device',
         executionTargetSelectionPolicy: 'fixed',
@@ -261,7 +262,7 @@ describe('DeviceModel', () => {
     });
 
     it('unlocking the agent policy to member releases the fixed binding guard', async () => {
-      // The removeWorkspaceDevice `unbindAgentIds` path writes exactly this
+      // The removeWorkspaceDevice `unbindBoundAgents` path writes exactly this
       // patch per agent — verify it releases `hasFixedAgentBinding` so the
       // removal guard passes afterwards.
       await serverDB.insert(devices).values({

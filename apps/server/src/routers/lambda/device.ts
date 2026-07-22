@@ -19,6 +19,7 @@ import {
 import { AgentModel } from '@/database/models/agent';
 import { DeviceModel, WorkspaceDevicePrivateConflictError } from '@/database/models/device';
 import { UserModel } from '@/database/models/user';
+import type { LobeChatDatabase } from '@/database/type';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { signWorkspaceDeviceToken } from '@/libs/trpc/utils/internalJwt';
@@ -1225,7 +1226,7 @@ export const deviceRouter = router({
    * List the workspace agents that pin this device as their fixed execution
    * target — the exact rows {@link assertDeviceNotBoundToFixedAgent} trips
    * over. The remove-device modal shows them so the caller can unbind (via
-   * `removeWorkspaceDevice.unbindAgentIds`) instead of dead-ending on
+   * `removeWorkspaceDevice.unbindBoundAgents`) instead of dead-ending on
    * PRECONDITION_FAILED. Each visible binding carries `canUnbind` (the same
    * edit gate the unbind write enforces); other members' PRIVATE fixed agents
    * surface only as `hiddenCount` — see `DeviceModel.listFixedAgentBindings`.
@@ -1264,20 +1265,29 @@ export const deviceRouter = router({
    * {@link canEditWorkspaceDevice}: owners may remove any device in the pool;
    * members may remove only devices they enrolled themselves.
    *
-   * `unbindAgentIds` lets the caller atomically release fixed-agent bindings
-   * (the {@link assertDeviceNotBoundToFixedAgent} guard) in the same call:
-   * each listed agent — validated to be currently bound to THIS device and
-   * editable by the caller — is flipped back to member-choice execution
-   * (`executionTargetSelectionPolicy: 'member'`), the same write the profile
-   * editor's unlock action performs. The guard still runs afterwards, so any
-   * binding that was not (or could not be) released keeps blocking removal.
+   * `unbindBoundAgents` lets the caller release the fixed-agent bindings that
+   * would otherwise block removal (the {@link assertDeviceNotBoundToFixedAgent}
+   * guard) in the same call: every caller-visible bound agent — after the same
+   * permission + edit-lock gates as `agent.updateAgentConfig` — is flipped back
+   * to member-choice execution (`executionTargetSelectionPolicy: 'member'`),
+   * the same write the profile editor's unlock action performs. It is a
+   * boolean, not an id list, so removal can't dead-end on a wire-schema cap
+   * however many agents pin the device; the modal still collects per-agent
+   * acknowledgment client-side before sending it.
+   *
+   * Ordering keeps the whole action all-or-nothing: releasability is verified
+   * read-only up front (hidden bindings, permissions, edit locks — nothing
+   * mutated on failure), the live-socket unenroll runs next while the DB is
+   * still untouched, and only then do the unbinds + guard re-check + row
+   * delete commit inside ONE transaction — a binding added mid-flight rolls
+   * everything back, so a failed removal never leaves agents unbound.
    */
   removeWorkspaceDevice: wsWritableProcedure
     .use(serverDatabase)
     .input(
       z.object({
         deviceId: z.string(),
-        unbindAgentIds: z.array(z.string()).max(100).optional(),
+        unbindBoundAgents: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1293,18 +1303,23 @@ export const deviceRouter = router({
           message: 'Only the enrolling member or a workspace owner can remove this device.',
         });
       }
-      if (input.unbindAgentIds?.length) {
-        // Only ids that are ACTUALLY caller-visible fixed bindings of this
-        // device are processed: already-unbound ids no-op (idempotent retry),
-        // and another member's private agent can never be touched through this
-        // path — it stays hidden and keeps blocking via the guard below.
-        const bindings = await model.listFixedAgentBindings(input.deviceId);
-        const boundIds = new Set(bindings.agents.map((agent) => agent.id));
-        const targets = [...new Set(input.unbindAgentIds)].filter((id) => boundIds.has(id));
 
-        const agentModel = new AgentModel(ctx.serverDB, ctx.userId, ctx.workspaceId);
+      // Preflight, all read-only: resolve which bindings to release and prove
+      // the removal can go through BEFORE any side effect (socket unenroll,
+      // agent writes).
+      let unbindTargets: string[] = [];
+      if (input.unbindBoundAgents) {
+        const bindings = await model.listFixedAgentBindings(input.deviceId);
+        // Other members' PRIVATE fixed agents can never be released through
+        // this path — surface the standard guard error while nothing has been
+        // mutated yet.
+        if (bindings.hiddenCount > 0) {
+          await assertDeviceNotBoundToFixedAgent(model, input.deviceId);
+        }
+        unbindTargets = bindings.agents.map((agent) => agent.id);
+
         const editLockService = new EditLockService(ctx.userId);
-        for (const agentId of targets) {
+        for (const agentId of unbindTargets) {
           // Same gates as `agent.updateAgentConfig`: resource edit permission
           // plus the collaborative edit lock.
           await assertCanPerformResourceAction({
@@ -1323,12 +1338,10 @@ export const deviceRouter = router({
               message: 'Agent is being edited by another user',
             });
           }
-          await agentModel.updateConfig(agentId, {
-            agencyConfig: { executionTargetSelectionPolicy: 'member' },
-          });
         }
+      } else {
+        await assertDeviceNotBoundToFixedAgent(model, input.deviceId);
       }
-      await assertDeviceNotBoundToFixedAgent(model, input.deviceId);
       // Tell a live device to drop its workspace connection and stop
       // auto-reconnecting, so removal doesn't leave an online ghost. For most
       // rows this stays best-effort — an offline device simply stops resolving.
@@ -1355,7 +1368,23 @@ export const deviceRouter = router({
           });
         }
       }
-      await model.deleteWorkspaceDevice(input.deviceId);
+      // Atomic commit: release the bindings, re-run the guard, delete the
+      // row. The guard re-check inside the transaction closes the race with
+      // bindings added after preflight — its failure (or any other) rolls the
+      // unbinds back too, so agent policies only change when the device row
+      // is actually gone.
+      await ctx.serverDB.transaction(async (tx) => {
+        const txDB = tx as LobeChatDatabase;
+        const agentModel = new AgentModel(txDB, ctx.userId, ctx.workspaceId);
+        for (const agentId of unbindTargets) {
+          await agentModel.updateConfig(agentId, {
+            agencyConfig: { executionTargetSelectionPolicy: 'member' },
+          });
+        }
+        const txModel = new DeviceModel(txDB, ctx.userId, ctx.workspaceId);
+        await assertDeviceNotBoundToFixedAgent(txModel, input.deviceId);
+        await txModel.deleteWorkspaceDevice(input.deviceId);
+      });
       return { success: true };
     }),
 
