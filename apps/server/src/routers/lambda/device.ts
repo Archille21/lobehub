@@ -16,12 +16,18 @@ import {
   wsCompatProcedure,
   wsProcedure,
 } from '@/business/server/trpc-middlewares/workspaceAuth';
+import { AgentModel } from '@/database/models/agent';
 import { DeviceModel, WorkspaceDevicePrivateConflictError } from '@/database/models/device';
 import { UserModel } from '@/database/models/user';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { signWorkspaceDeviceToken } from '@/libs/trpc/utils/internalJwt';
 import { type DeviceAttachment, deviceGateway } from '@/server/services/deviceGateway';
+import { EditLockService } from '@/server/services/editLock';
+import {
+  assertCanPerformResourceAction,
+  canPerformResourceAction,
+} from '@/server/services/resourcePermission';
 
 import { preserveWorkspaceCache } from './deviceWorkingDirs';
 import { assertWorkspaceDeviceVisible, assertWorkspaceRootApproved } from './deviceWorkspaceGuard';
@@ -1216,13 +1222,64 @@ export const deviceRouter = router({
     }),
 
   /**
+   * List the workspace agents that pin this device as their fixed execution
+   * target — the exact rows {@link assertDeviceNotBoundToFixedAgent} trips
+   * over. The remove-device modal shows them so the caller can unbind (via
+   * `removeWorkspaceDevice.unbindAgentIds`) instead of dead-ending on
+   * PRECONDITION_FAILED. Each visible binding carries `canUnbind` (the same
+   * edit gate the unbind write enforces); other members' PRIVATE fixed agents
+   * surface only as `hiddenCount` — see `DeviceModel.listFixedAgentBindings`.
+   */
+  getWorkspaceDeviceAgentBindings: wsWritableProcedure
+    .use(serverDatabase)
+    .input(z.object({ deviceId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const model = new DeviceModel(ctx.serverDB, ctx.userId, ctx.workspaceId);
+      const row = await model.findWorkspaceDeviceById(input.deviceId);
+      if (!row) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace device not found.' });
+      }
+
+      const { agents, hiddenCount } = await model.listFixedAgentBindings(input.deviceId);
+      const items = await Promise.all(
+        agents.map(async ({ userId, visibility, ...agent }) => ({
+          ...agent,
+          canUnbind: await canPerformResourceAction({
+            action: 'edit',
+            db: ctx.serverDB,
+            meta: { userId, visibility, workspaceId: ctx.workspaceId },
+            resourceId: agent.id,
+            resourceType: 'agent',
+            userId: ctx.userId,
+            workspaceId: ctx.workspaceId,
+          }),
+        })),
+      );
+
+      return { agents: items, hiddenCount };
+    }),
+
+  /**
    * Remove a WORKSPACE device. Scoped by `workspace_id` and gated by
    * {@link canEditWorkspaceDevice}: owners may remove any device in the pool;
    * members may remove only devices they enrolled themselves.
+   *
+   * `unbindAgentIds` lets the caller atomically release fixed-agent bindings
+   * (the {@link assertDeviceNotBoundToFixedAgent} guard) in the same call:
+   * each listed agent — validated to be currently bound to THIS device and
+   * editable by the caller — is flipped back to member-choice execution
+   * (`executionTargetSelectionPolicy: 'member'`), the same write the profile
+   * editor's unlock action performs. The guard still runs afterwards, so any
+   * binding that was not (or could not be) released keeps blocking removal.
    */
   removeWorkspaceDevice: wsWritableProcedure
     .use(serverDatabase)
-    .input(z.object({ deviceId: z.string() }))
+    .input(
+      z.object({
+        deviceId: z.string(),
+        unbindAgentIds: z.array(z.string()).max(100).optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const model = new DeviceModel(ctx.serverDB, ctx.userId, ctx.workspaceId);
       const row = await model.findWorkspaceDeviceById(input.deviceId);
@@ -1235,6 +1292,41 @@ export const deviceRouter = router({
           code: 'FORBIDDEN',
           message: 'Only the enrolling member or a workspace owner can remove this device.',
         });
+      }
+      if (input.unbindAgentIds?.length) {
+        // Only ids that are ACTUALLY caller-visible fixed bindings of this
+        // device are processed: already-unbound ids no-op (idempotent retry),
+        // and another member's private agent can never be touched through this
+        // path — it stays hidden and keeps blocking via the guard below.
+        const bindings = await model.listFixedAgentBindings(input.deviceId);
+        const boundIds = new Set(bindings.agents.map((agent) => agent.id));
+        const targets = [...new Set(input.unbindAgentIds)].filter((id) => boundIds.has(id));
+
+        const agentModel = new AgentModel(ctx.serverDB, ctx.userId, ctx.workspaceId);
+        const editLockService = new EditLockService(ctx.userId);
+        for (const agentId of targets) {
+          // Same gates as `agent.updateAgentConfig`: resource edit permission
+          // plus the collaborative edit lock.
+          await assertCanPerformResourceAction({
+            action: 'edit',
+            db: ctx.serverDB,
+            resourceId: agentId,
+            resourceType: 'agent',
+            userId: ctx.userId,
+            workspaceId: ctx.workspaceId,
+          });
+          const blockedBy = await editLockService.getBlockingHolder('agent', agentId);
+          if (blockedBy) {
+            throw new TRPCError({
+              cause: { data: { code: 'DocumentLocked' } },
+              code: 'CONFLICT',
+              message: 'Agent is being edited by another user',
+            });
+          }
+          await agentModel.updateConfig(agentId, {
+            agencyConfig: { executionTargetSelectionPolicy: 'member' },
+          });
+        }
       }
       await assertDeviceNotBoundToFixedAgent(model, input.deviceId);
       // Tell a live device to drop its workspace connection and stop
