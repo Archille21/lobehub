@@ -5,6 +5,8 @@ import { agents } from './agent';
 
 export interface AgentShareConfig {
   allowReadMemory?: boolean;
+  /** Tool whitelist — only the listed MCP/plugin/skill ids are exposed to visitors. */
+  enabledToolIds?: string[];
   filePermissionConfig?: {
     agentFiles?: 'none' | 'read';
     knowledgeBase?: 'none' | 'read';
@@ -12,6 +14,10 @@ export interface AgentShareConfig {
   };
   guestEnabled?: boolean;
   maxGuestTopics?: number;
+  /** Per-visitor cap: max share topics a single senderId can create. */
+  maxTopicsPerVisitor?: number;
+  /** Per-topic cap: max message turns within a single share topic. */
+  maxTurnsPerTopic?: number;
   // tipSplitRatio is platform-controlled, not configurable by the creator
 }
 
