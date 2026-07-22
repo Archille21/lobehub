@@ -1650,7 +1650,7 @@ export class AiAgentService {
     }
 
     if (appContext?.newThread) {
-      const { parentThreadId: requestedParentThreadId, sourceMessageId } = appContext.newThread;
+      const { sourceMessageId } = appContext.newThread;
       const sourceMessage = sourceMessageId
         ? await this.messageModel.findById(sourceMessageId)
         : undefined;
@@ -1660,32 +1660,18 @@ export class AiAgentService {
           message: 'Thread source message does not belong to the target topic',
         });
       }
-      // The current thread UI only carries the source message when forking.
-      // Derive its parent thread from that server-authoritative message while
-      // still rejecting callers that explicitly provide a contradictory one.
-      const parentThreadId = requestedParentThreadId ?? sourceMessage?.threadId ?? undefined;
-      if (parentThreadId) {
-        const parentThread = await this.threadModel.findById(parentThreadId);
-        if (!parentThread || parentThread.topicId !== topicId) {
-          throw new TRPCError({
-            code: 'BAD_REQUEST',
-            message: 'Parent thread does not belong to the target topic',
-          });
-        }
-      }
-      if (
-        sourceMessage &&
-        requestedParentThreadId !== undefined &&
-        (sourceMessage.threadId ?? undefined) !== requestedParentThreadId
-      ) {
+      // User-created threads branch from the main topic only. Nested thread
+      // ancestry is not part of MessageModel's history contract: continuation
+      // history deliberately walks the main-topic spine, not parentThreadId.
+      if (sourceMessage?.threadId) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: 'Thread source message does not belong to the parent thread',
+          message: 'Nested thread branching is not supported',
         });
       }
 
       const thread = await this.threadModel.create({
-        parentThreadId,
+        parentThreadId: undefined,
         sourceMessageId,
         title: appContext.newThread.title,
         topicId,

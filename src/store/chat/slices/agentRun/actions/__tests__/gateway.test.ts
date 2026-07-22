@@ -674,7 +674,6 @@ describe('GatewayActionImpl', () => {
           scope: 'thread',
           topicId: 'topic-1',
         },
-        existingMessageIds: ['source-message-1'],
         message: 'Continue in a subtopic',
         newThread: {
           sourceMessageId: 'source-message-1',
@@ -692,7 +691,6 @@ describe('GatewayActionImpl', () => {
             threadId: undefined,
             topicId: 'topic-1',
           }),
-          existingMessageIds: ['source-message-1'],
         }),
         expect.anything(),
       );

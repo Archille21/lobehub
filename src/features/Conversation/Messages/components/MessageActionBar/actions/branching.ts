@@ -14,7 +14,7 @@ export const branchingAction = defineAction({
     const { message } = App.useApp();
     const [topic, openThreadCreator] = useChatStore((s) => [s.activeTopicId, s.openThreadCreator]);
 
-    return useMemo(
+    const action = useMemo(
       () => ({
         handleClick: () => {
           if (!topic) {
@@ -29,5 +29,9 @@ export const branchingAction = defineAction({
       }),
       [t, ctx.id, topic, openThreadCreator, message],
     );
+
+    // User-created threads branch from main-topic messages only. The message
+    // history model does not define recursive ancestry for nested threads.
+    return ctx.data.threadId ? null : action;
   },
 });

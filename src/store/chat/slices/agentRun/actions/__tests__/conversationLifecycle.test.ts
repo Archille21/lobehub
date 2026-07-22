@@ -1545,7 +1545,6 @@ describe('ConversationLifecycle actions', () => {
 
         expect(executeGatewayAgent).toHaveBeenCalledWith(
           expect.objectContaining({
-            existingMessageIds: ['source-message-1'],
             newThread: {
               sourceMessageId: 'source-message-1',
               type: 'continuation',

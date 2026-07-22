@@ -1065,7 +1065,6 @@ export class ConversationLifecycleActionImpl {
         // and the send button would flicker back to "send".
         const result = await this.#get().executeGatewayAgent({
           context: operationContext,
-          existingMessageIds: newThread ? messages.map((item) => item.id) : undefined,
           fileIds: fileIdList,
           message,
           metadata: requestMetadata,

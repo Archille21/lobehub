@@ -211,7 +211,6 @@ const ExecAgentSchema = z
           .optional(),
         newThread: z
           .object({
-            parentThreadId: z.string().optional(),
             sourceMessageId: z.string().optional(),
             title: z.string().optional(),
             type: z.enum([ThreadType.Continuation, ThreadType.Standalone, ThreadType.Isolation]),

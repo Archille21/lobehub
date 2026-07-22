@@ -372,8 +372,6 @@ export class GatewayActionImpl {
    */
   executeGatewayAgent = async (params: {
     context: ConversationContext;
-    /** Existing context messages to include when creating a thread. */
-    existingMessageIds?: string[];
     /** File IDs of already-uploaded attachments to attach to the new user message */
     fileIds?: string[];
     message: string;
@@ -440,7 +438,6 @@ export class GatewayActionImpl {
   }): Promise<ExecAgentResult> => {
     const {
       context,
-      existingMessageIds,
       fileIds,
       message,
       metadata,
@@ -534,7 +531,6 @@ export class GatewayActionImpl {
           topicId: context.topicId,
         },
         deviceId: localDeviceId,
-        existingMessageIds,
         fileIds,
         mentionedAgents,
         parentMessageId,

@@ -102,7 +102,6 @@ export interface ExecAgentAppContext {
    * the server instead of through the client aiChat path.
    */
   newThread?: {
-    parentThreadId?: string;
     sourceMessageId?: string;
     title?: string;
     type: ChatThreadType;
