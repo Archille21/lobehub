@@ -12,6 +12,16 @@ import { z } from 'zod';
 export type AgentPluginMode = 'pinned' | 'auto' | 'disabled';
 
 export interface AgentPluginConfigItem {
+  /**
+   * Which specific connector rows of this identifier the agent may use.
+   *
+   * Absent = every connection of this identifier (today's behavior: one
+   * identifier resolves to whatever single connector wins). Present = restrict
+   * to exactly these `user_connectors.id`s. This is what turns the
+   * identifier→connector relationship from one-to-one into one-to-many without
+   * a schema change — it rides in the same JSONB column as `mode`.
+   */
+  connectorIds?: string[];
   identifier: string;
   /**
    * @default 'pinned' — absent on legacy string entries and on object
@@ -33,7 +43,11 @@ export const AgentPluginModeSchema = z.enum(['pinned', 'auto', 'disabled']);
  */
 export const AgentPluginEntrySchema: z.ZodType<AgentPluginEntry> = z.union([
   z.string(),
-  z.object({ identifier: z.string(), mode: AgentPluginModeSchema.optional() }),
+  z.object({
+    connectorIds: z.array(z.string()).optional(),
+    identifier: z.string(),
+    mode: AgentPluginModeSchema.optional(),
+  }),
 ]);
 
 /**
@@ -43,10 +57,14 @@ export const AgentPluginEntrySchema: z.ZodType<AgentPluginEntry> = z.union([
  */
 export const parsePluginEntry = (
   entry: AgentPluginEntry,
-): { identifier: string; mode: AgentPluginMode } =>
+): { connectorIds?: string[]; identifier: string; mode: AgentPluginMode } =>
   typeof entry === 'string'
     ? { identifier: entry, mode: 'pinned' }
-    : { identifier: entry.identifier, mode: entry.mode ?? 'pinned' };
+    : {
+        connectorIds: entry.connectorIds,
+        identifier: entry.identifier,
+        mode: entry.mode ?? 'pinned',
+      };
 
 /**
  * Resolves an identifier's mode. An identifier absent from `plugins`
@@ -60,6 +78,24 @@ export const getPluginMode = (
 ): AgentPluginMode => {
   const entry = plugins?.find((item) => parsePluginEntry(item).identifier === identifier);
   return entry ? parsePluginEntry(entry).mode : 'auto';
+};
+
+/**
+ * The connector rows `identifier` is restricted to, or `undefined` for "no
+ * restriction — every connection of this identifier is available". Legacy
+ * string entries and objects written before this field existed both return
+ * `undefined`, i.e. today's all-connections behavior.
+ *
+ * An empty array is normalized to `undefined`: "restricted to nothing" is not
+ * a state we want to persist or resolve, and reads as all-connections instead.
+ */
+export const getPluginConnectorIds = (
+  plugins: AgentPluginEntry[] | undefined,
+  identifier: string,
+): string[] | undefined => {
+  const entry = plugins?.find((item) => parsePluginEntry(item).identifier === identifier);
+  const ids = entry ? parsePluginEntry(entry).connectorIds : undefined;
+  return ids && ids.length > 0 ? ids : undefined;
 };
 
 const getPluginIdsByMode = (

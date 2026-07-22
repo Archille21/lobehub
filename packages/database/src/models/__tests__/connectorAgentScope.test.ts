@@ -196,6 +196,120 @@ describe('ConnectorModel agent-scoped resolution', () => {
     });
   });
 
+  // Multi-account resolution (LOBE-12140): one identifier may now have several
+  // connected accounts. `resolveAccountsByIdentifiers` / `resolveAllAccounts`
+  // keep every DISTINCT account (keyed by Composio connectedAccountId) while
+  // still collapsing scope COPIES of the SAME account (agent-owned shadows base).
+  const composioMeta = (connectedAccountId: string) => ({ composio: { connectedAccountId } });
+
+  describe('resolveAccountsByIdentifiers (multi-account)', () => {
+    it('keeps two distinct personal accounts of the same identifier side by side', async () => {
+      const work = await insertConnector({
+        identifier: 'gmail',
+        metadata: composioMeta('acc-work'),
+        name: 'Work Gmail',
+      });
+      const personal = await insertConnector({
+        identifier: 'gmail',
+        metadata: composioMeta('acc-personal'),
+        name: 'Personal Gmail',
+      });
+
+      const model = new ConnectorModel(serverDB, userId);
+
+      // The single-account resolver still collapses to one (unchanged behavior).
+      expect(await model.resolveByIdentifiers(['gmail'])).toHaveLength(1);
+
+      // The multi-account resolver returns both.
+      const accounts = await model.resolveAccountsByIdentifiers(['gmail']);
+      expect(accounts.map((r) => r.id).sort()).toEqual([work.id, personal.id].sort());
+    });
+
+    it('collapses scope copies of the same account (agent-owned shadows base)', async () => {
+      await insertConnector({
+        identifier: 'gmail',
+        metadata: composioMeta('acc-1'),
+        name: 'Base Gmail',
+      });
+      const agentRow = await insertConnector({
+        agentId: agentA,
+        identifier: 'gmail',
+        metadata: composioMeta('acc-1'),
+        name: 'Agent Gmail',
+      });
+
+      const model = new ConnectorModel(serverDB, userId);
+      const accounts = await model.resolveAccountsByIdentifiers(['gmail'], agentA);
+
+      expect(accounts).toHaveLength(1);
+      expect(accounts[0].id).toBe(agentRow.id);
+    });
+
+    it('mixes both rules: sibling account survives while the shadowed one collapses', async () => {
+      // acc-1: base + agent-owned copy → agent copy wins
+      await insertConnector({
+        identifier: 'gmail',
+        metadata: composioMeta('acc-1'),
+        name: 'Base acc-1',
+      });
+      const agentAcc1 = await insertConnector({
+        agentId: agentA,
+        identifier: 'gmail',
+        metadata: composioMeta('acc-1'),
+        name: 'Agent acc-1',
+      });
+      // acc-2: base only → survives as a sibling
+      const baseAcc2 = await insertConnector({
+        identifier: 'gmail',
+        metadata: composioMeta('acc-2'),
+        name: 'Base acc-2',
+      });
+
+      const model = new ConnectorModel(serverDB, userId);
+      const accounts = await model.resolveAccountsByIdentifiers(['gmail'], agentA);
+
+      expect(accounts.map((r) => r.id).sort()).toEqual([agentAcc1.id, baseAcc2.id].sort());
+    });
+
+    it('falls back to identifier grouping for non-Composio rows (multi-account is Composio-only)', async () => {
+      // No composio metadata → both keyed by identifier → collapse to one.
+      await insertConnector({ identifier: 'custom-mcp', name: 'Custom A' });
+      await insertConnector({ identifier: 'custom-mcp', name: 'Custom B' });
+
+      const model = new ConnectorModel(serverDB, userId);
+      const accounts = await model.resolveAccountsByIdentifiers(['custom-mcp']);
+
+      expect(accounts).toHaveLength(1);
+    });
+  });
+
+  describe('resolveAllAccounts (multi-account)', () => {
+    it('returns every sibling account across identifiers, collapsing same-account copies', async () => {
+      const work = await insertConnector({
+        identifier: 'gmail',
+        metadata: composioMeta('acc-work'),
+        name: 'Work Gmail',
+      });
+      const personal = await insertConnector({
+        identifier: 'gmail',
+        metadata: composioMeta('acc-personal'),
+        name: 'Personal Gmail',
+      });
+      const notion = await insertConnector({
+        identifier: 'notion',
+        metadata: composioMeta('acc-notion'),
+        name: 'Notion',
+      });
+
+      const model = new ConnectorModel(serverDB, userId);
+      const all = await model.resolveAllAccounts();
+
+      // resolveAll (single) would return 2 (one gmail + notion); accounts returns all 3.
+      expect(await model.resolveAll()).toHaveLength(2);
+      expect(all.map((r) => r.id).sort()).toEqual([work.id, personal.id, notion.id].sort());
+    });
+  });
+
   describe('queryByAgent', () => {
     it('returns only the given agent rows and excludes base + other-agent rows', async () => {
       await insertConnector({ identifier: 'gmail', name: 'Personal Gmail' });

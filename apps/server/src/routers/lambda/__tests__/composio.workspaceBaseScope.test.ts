@@ -50,6 +50,8 @@ describe('composioRouter — workspace base scope', () => {
     linkMock.mockResolvedValue({ id: 'acc-1', redirectUrl: 'http://redirect' });
     connectorModelMock = {
       create: vi.fn().mockResolvedValue({ id: 'conn-new' }),
+      delete: vi.fn(),
+      findScopedByComposioAccount: vi.fn().mockResolvedValue(null),
       findScopedByIdentifier: vi.fn().mockResolvedValue(null),
       query: vi.fn().mockResolvedValue([]),
       update: vi.fn().mockResolvedValue(undefined),

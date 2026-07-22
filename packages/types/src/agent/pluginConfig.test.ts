@@ -4,6 +4,7 @@ import {
   getActivePluginIds,
   getDisabledPluginIds,
   getPinnedPluginIds,
+  getPluginConnectorIds,
   getPluginMode,
   parsePluginEntry,
   upsertPluginMode,
@@ -34,6 +35,66 @@ describe('parsePluginEntry', () => {
       identifier: 'web-search',
       mode: 'pinned',
     });
+  });
+});
+
+describe('parsePluginEntry — connectorIds', () => {
+  it('is undefined for a legacy string entry', () => {
+    expect(parsePluginEntry('gmail').connectorIds).toBeUndefined();
+  });
+
+  it('is undefined for an object entry without the field', () => {
+    expect(parsePluginEntry({ identifier: 'gmail' }).connectorIds).toBeUndefined();
+  });
+
+  it('carries the restricted connector ids through', () => {
+    expect(
+      parsePluginEntry({ connectorIds: ['conn-1', 'conn-2'], identifier: 'gmail', mode: 'pinned' }),
+    ).toEqual({ connectorIds: ['conn-1', 'conn-2'], identifier: 'gmail', mode: 'pinned' });
+  });
+});
+
+describe('getPluginConnectorIds', () => {
+  it('returns undefined (all connections) when plugins is undefined', () => {
+    expect(getPluginConnectorIds(undefined, 'gmail')).toBeUndefined();
+  });
+
+  it('returns undefined when the identifier is absent — auto plugins use all connections', () => {
+    expect(getPluginConnectorIds(['other'], 'gmail')).toBeUndefined();
+  });
+
+  it('returns undefined for a legacy string entry', () => {
+    expect(getPluginConnectorIds(['gmail'], 'gmail')).toBeUndefined();
+  });
+
+  it('returns undefined for an object entry with no restriction', () => {
+    expect(
+      getPluginConnectorIds([{ identifier: 'gmail', mode: 'pinned' }], 'gmail'),
+    ).toBeUndefined();
+  });
+
+  it('returns the restricted ids when present', () => {
+    expect(
+      getPluginConnectorIds([{ connectorIds: ['conn-1', 'conn-2'], identifier: 'gmail' }], 'gmail'),
+    ).toEqual(['conn-1', 'conn-2']);
+  });
+
+  it('normalizes an empty restriction back to all-connections', () => {
+    expect(
+      getPluginConnectorIds([{ connectorIds: [], identifier: 'gmail' }], 'gmail'),
+    ).toBeUndefined();
+  });
+
+  it('resolves within a mixed-shape array', () => {
+    const plugins = [
+      'legacy-a',
+      { connectorIds: ['conn-x'], identifier: 'gmail', mode: 'pinned' as const },
+      { identifier: 'notion', mode: 'disabled' as const },
+    ];
+
+    expect(getPluginConnectorIds(plugins, 'gmail')).toEqual(['conn-x']);
+    expect(getPluginConnectorIds(plugins, 'legacy-a')).toBeUndefined();
+    expect(getPluginConnectorIds(plugins, 'notion')).toBeUndefined();
   });
 });
 
@@ -110,6 +171,14 @@ describe('upsertPluginMode', () => {
 
     expect(upsertPluginMode(plugins, 'a', 'disabled')).toEqual([
       { identifier: 'a', mode: 'disabled', extra: 'keep-me' },
+    ]);
+  });
+
+  it('preserves connectorIds when only the mode changes', () => {
+    const plugins = [{ connectorIds: ['conn-1'], identifier: 'gmail', mode: 'pinned' as const }];
+
+    expect(upsertPluginMode(plugins, 'gmail', 'disabled')).toEqual([
+      { connectorIds: ['conn-1'], identifier: 'gmail', mode: 'disabled' },
     ]);
   });
 

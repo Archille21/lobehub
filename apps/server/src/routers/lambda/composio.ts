@@ -128,9 +128,17 @@ async function upsertComposioConnector(
         ? ConnectorStatus.error
         : ConnectorStatus.disconnected;
 
-  // Exact-scope idempotency: an agent connection updates/creates the agent's own
-  // row, a personal connection the base row — never crossing scopes.
-  const existing = await connectorModel.findScopedByIdentifier(params.identifier, params.agentId);
+  // Idempotency key is the connected ACCOUNT, not the identifier: a second
+  // account of the same identifier must create its OWN row, not overwrite the
+  // first one's. Falls back to scope+identifier only when no connectedAccountId
+  // is available (defensive — Composio rows always carry one). Scope is still
+  // honored (agent row vs base row) via the agentId passed through.
+  const existing = params.composio.connectedAccountId
+    ? await connectorModel.findScopedByComposioAccount(
+        params.composio.connectedAccountId,
+        params.agentId,
+      )
+    : await connectorModel.findScopedByIdentifier(params.identifier, params.agentId);
   let connectorId: string;
   if (existing) {
     await connectorModel.update(existing.id, {
@@ -176,13 +184,21 @@ async function upsertComposioConnector(
   }
 }
 
-/** Remove the connector projection for a Composio identifier (tools cascade). */
+/**
+ * Remove the connector projection for ONE Composio account (tools cascade).
+ * Prefers the exact-account lookup so deleting one account of a multi-account
+ * identifier can't remove a sibling; falls back to scope+identifier only when no
+ * connectedAccountId is supplied (e.g. removeComposioPlugin, which has none).
+ */
 async function deleteComposioConnector(
   connectorModel: ConnectorModel,
   identifier: string,
   agentId?: string,
+  connectedAccountId?: string,
 ): Promise<void> {
-  const existing = await connectorModel.findScopedByIdentifier(identifier, agentId);
+  const existing = connectedAccountId
+    ? await connectorModel.findScopedByComposioAccount(connectedAccountId, agentId)
+    : await connectorModel.findScopedByIdentifier(identifier, agentId);
   if (existing) await connectorModel.delete(existing.id);
 }
 
@@ -219,6 +235,21 @@ export const composioRouter = router({
       const { appSlug, identifier, label, agentId } = input;
       const { userId } = ctx;
       const isPersonalScope = !agentId && !ctx.workspaceId;
+
+      // Personal multi-account: is this a SECOND (or later) account of the same
+      // identifier in personal scope? The first personal connection keeps the
+      // legacy behavior (single-account default + legacy plugin-table
+      // projection); additional ones must ask Composio for an extra account
+      // (allowMultiple) and skip the legacy table — keyed by (user_id,
+      // identifier), it structurally can't hold two. See LOBE-12140.
+      let isAdditionalPersonalAccount = false;
+      if (isPersonalScope) {
+        const [existingLegacy, existingBase] = await Promise.all([
+          ctx.pluginModel.findById(identifier),
+          ctx.connectorModel.findScopedByIdentifier(identifier),
+        ]);
+        isAdditionalPersonalAccount = !!(existingLegacy || existingBase);
+      }
 
       if (agentId)
         await assertCanEditAgent(ctx.serverDB, userId, agentId, ctx.workspaceId ?? undefined);
@@ -265,11 +296,15 @@ export const composioRouter = router({
       // connectedAccountId. That applies to workspace connections exactly as it
       // does to agent ones; omitting it there made "connect Gmail inside a
       // workspace" fail outright for anyone who had already connected Gmail
-      // personally. Only a personal connection keeps the one-account default.
+      // personally. Only the FIRST personal connection keeps the one-account
+      // default; additional personal accounts pass allowMultiple too (LOBE-12140).
       const connReq = await (ctx.composioClient.connectedAccounts as any).link(
         userId,
         authConfigId,
-        { callbackUrl, ...(isPersonalScope ? {} : { allowMultiple: true }) },
+        {
+          callbackUrl,
+          ...(isPersonalScope && !isAdditionalPersonalAccount ? {} : { allowMultiple: true }),
+        },
       );
 
       let rawTools: any[] = [];
@@ -313,7 +348,10 @@ export const composioRouter = router({
       // workspace with no row at all. So workspace connections skip it, the way
       // agent connections already do, and resolve off the connector row's
       // metadata instead — see `getComposioPlugins`, which unions both sources.
-      if (isPersonalScope) {
+      // A personal SECOND+ account skips it for the same structural reason (the
+      // PK can't hold two per identifier); only the first personal account, which
+      // is the one that PK can hold, keeps the legacy projection (LOBE-12140).
+      if (isPersonalScope && !isAdditionalPersonalAccount) {
         await ctx.pluginModel.create({
           customParams: {
             composio: {
@@ -382,12 +420,24 @@ export const composioRouter = router({
         console.warn('[Composio] Failed to delete remote connection:', error);
       }
 
-      // Only personal connections have a plugin-table row (see createConnection);
-      // agent and workspace ones live solely in `user_connectors`. The delete is
-      // ownership-scoped so it would be a no-op elsewhere anyway, but keeping the
-      // condition aligned with the write side is what stops the two from drifting.
-      if (!input.agentId && !ctx.workspaceId) await ctx.pluginModel.delete(input.identifier);
-      await deleteComposioConnector(ctx.connectorModel, input.identifier, input.agentId);
+      // The legacy plugin-table row exists only for the FIRST personal account
+      // (see createConnection). Delete it only when the account being removed IS
+      // that one — matched by connectedAccountId. Deleting a personal SECOND+
+      // account (which lives only in user_connectors) must NOT wipe the first
+      // account's legacy row: the legacy delete is by identifier and can't tell
+      // the accounts apart, so gate it on the account id. See LOBE-12140.
+      if (!input.agentId && !ctx.workspaceId) {
+        const legacy = await ctx.pluginModel.findById(input.identifier);
+        if (legacy?.customParams?.composio?.connectedAccountId === input.connectedAccountId) {
+          await ctx.pluginModel.delete(input.identifier);
+        }
+      }
+      await deleteComposioConnector(
+        ctx.connectorModel,
+        input.identifier,
+        input.agentId,
+        input.connectedAccountId,
+      );
 
       return { success: true };
     }),
@@ -406,8 +456,12 @@ export const composioRouter = router({
    *   `/settings/connector` — and the connect button would restart an OAuth
    *   flow that has already been completed.
    *
-   * Plugin rows win on identifier collision: in personal scope both stores are
-   * written, and the plugin row is the one the legacy client shape came from.
+   * Plugin rows win on ACCOUNT collision: in personal scope the first account is
+   * written to both stores, and the plugin row is the one the legacy client shape
+   * came from. Dedup is by `connectedAccountId`, NOT identifier, so a second
+   * account of the same identifier (workspace, or a personal multi-account — only
+   * in `user_connectors`) is a distinct account and survives instead of being
+   * swallowed by the first one's plugin row. See LOBE-12140.
    */
   getComposioPlugins: composioProcedure.query(async ({ ctx }) => {
     const plugins = (await ctx.pluginModel.query()).filter(
@@ -419,7 +473,19 @@ export const composioRouter = router({
     );
     if (composioConnectors.length === 0) return plugins;
 
-    const seen = new Set(plugins.map((plugin) => plugin.identifier));
+    // Dedup by connected account. An account already surfaced from the legacy
+    // plugin table must not be re-projected from its connector-row twin (the
+    // personal dual-write), but a genuinely different account of the same
+    // identifier has a different connectedAccountId and is kept. Falls back to
+    // identifier when a row carries no connectedAccountId (defensive — collapses
+    // to the pre-multi-account behavior rather than risking a duplicate).
+    const accountKey = (
+      composio: { connectedAccountId?: string } | undefined,
+      identifier: string,
+    ) => composio?.connectedAccountId ?? identifier;
+    const seen = new Set(
+      plugins.map((plugin) => accountKey(plugin.customParams?.composio, plugin.identifier)),
+    );
     const tools = await ctx.connectorToolModel.queryByConnectorIds(
       composioConnectors.map((connector) => connector.id),
     );
@@ -433,7 +499,9 @@ export const composioRouter = router({
     // Project connector rows into the legacy plugin shape the client renders,
     // so the union is invisible to callers.
     const projected = composioConnectors
-      .filter((connector) => !seen.has(connector.identifier))
+      .filter(
+        (connector) => !seen.has(accountKey(connector.metadata?.composio, connector.identifier)),
+      )
       .map((connector) => ({
         customParams: { composio: connector.metadata!.composio },
         identifier: connector.identifier,

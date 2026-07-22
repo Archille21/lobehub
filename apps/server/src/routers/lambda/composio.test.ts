@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   connectedAccountsLink: vi.fn(),
   connectorCreate: vi.fn(),
   connectorDelete: vi.fn(),
+  connectorFindScopedByComposioAccount: vi.fn(),
   connectorFindScopedByIdentifier: vi.fn(),
   connectorToolDeleteToolsNotIn: vi.fn(),
   connectorToolUpsertMany: vi.fn(),
@@ -44,6 +45,7 @@ vi.mock('@/database/models/connector', () => ({
   ConnectorModel: vi.fn().mockImplementation(() => ({
     create: mocks.connectorCreate,
     delete: mocks.connectorDelete,
+    findScopedByComposioAccount: mocks.connectorFindScopedByComposioAccount,
     findScopedByIdentifier: mocks.connectorFindScopedByIdentifier,
     update: mocks.connectorUpdate,
   })),
@@ -69,6 +71,7 @@ const caller = () => composioRouter.createCaller({ userId: 'user-1' } as any);
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.connectorFindScopedByIdentifier.mockResolvedValue(null);
+  mocks.connectorFindScopedByComposioAccount.mockResolvedValue(null);
   mocks.connectorCreate.mockResolvedValue({ id: 'conn-new' });
   mocks.pluginFindById.mockResolvedValue(undefined);
 });
@@ -131,7 +134,8 @@ describe('composioRouter.updateComposioPlugin dual-write', () => {
   });
 
   it('updates an existing connector projection instead of duplicating it', async () => {
-    mocks.connectorFindScopedByIdentifier.mockResolvedValue({ id: 'conn-existing' });
+    // Idempotency is now by connected account, not identifier.
+    mocks.connectorFindScopedByComposioAccount.mockResolvedValue({ id: 'conn-existing' });
 
     await caller().updateComposioPlugin(input);
 
@@ -152,7 +156,7 @@ describe('composioRouter.updateComposioPlugin dual-write', () => {
   });
 
   it('prunes all connector tools when the refreshed list is empty', async () => {
-    mocks.connectorFindScopedByIdentifier.mockResolvedValue({ id: 'conn-existing' });
+    mocks.connectorFindScopedByComposioAccount.mockResolvedValue({ id: 'conn-existing' });
 
     await caller().updateComposioPlugin({ ...input, tools: [] });
 
@@ -174,7 +178,14 @@ describe('composioRouter delete paths clean up the connector projection', () => 
 
   it('deleteConnection deletes both plugin and connector', async () => {
     mocks.connectedAccountsDelete.mockResolvedValue(undefined);
-    mocks.connectorFindScopedByIdentifier.mockResolvedValue({ id: 'conn-existing' });
+    // The legacy row belongs to THIS account (matched by connectedAccountId), so
+    // deleting it removes the legacy projection too; the connector row is located
+    // by the same account id.
+    mocks.pluginFindById.mockResolvedValue({
+      customParams: { composio: { connectedAccountId: 'ca-1' } },
+      identifier: 'gmail',
+    });
+    mocks.connectorFindScopedByComposioAccount.mockResolvedValue({ id: 'conn-existing' });
 
     await caller().deleteConnection({ connectedAccountId: 'ca-1', identifier: 'gmail' });
 

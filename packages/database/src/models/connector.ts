@@ -80,23 +80,61 @@ export class ConnectorModel {
   };
 
   /**
+   * Scope priority of a candidate row for the current run: agent-OWNED (2) >
+   * MOUNTED by this agent (1) > free base (0). Used to pick the winner among
+   * scope COPIES of one account.
+   */
+  private rank = (row: UserConnectorItem, agentId?: string): number => {
+    if (agentId && row.agentId === agentId) return 2;
+    if (agentId && row.metadata?.mountedByAgentId === agentId) return 1;
+    return 0;
+  };
+
+  /**
+   * Identity that collapses scope COPIES of one account while keeping DISTINCT
+   * accounts apart.
+   *
+   * A Composio row is keyed by its `connectedAccountId`: an agent-owned copy and
+   * its base original share it, so the copy still shadows the original — while
+   * two different Gmail accounts get different keys and BOTH survive. Non-Composio
+   * rows fall back to `identifier`, preserving today's one-row-per-identifier
+   * behavior (multi-account is Composio-only for now — see LOBE-12140).
+   */
+  private accountKey = (row: UserConnectorItem): string =>
+    row.metadata?.composio?.connectedAccountId ?? row.identifier;
+
+  /**
    * Reduce candidate rows to at most one per identifier by priority within the
    * current scope: agent-OWNED (2) > MOUNTED by this agent (1) > free base (0).
    * Resolution never crosses the base scope: a workspace run resolves within the
    * workspace, a personal run within personal — no cross-scope personal fallback.
    */
   private pickByPriority = (rows: UserConnectorItem[], agentId?: string): UserConnectorItem[] => {
-    const rank = (row: UserConnectorItem): number => {
-      if (agentId && row.agentId === agentId) return 2;
-      if (agentId && row.metadata?.mountedByAgentId === agentId) return 1;
-      return 0;
-    };
     const byIdentifier = new Map<string, UserConnectorItem>();
     for (const row of rows) {
       const current = byIdentifier.get(row.identifier);
-      if (!current || rank(row) > rank(current)) byIdentifier.set(row.identifier, row);
+      if (!current || this.rank(row, agentId) > this.rank(current, agentId))
+        byIdentifier.set(row.identifier, row);
     }
     return [...byIdentifier.values()];
+  };
+
+  /**
+   * Multi-account counterpart of {@link pickByPriority}: keeps EVERY distinct
+   * account, collapsing only the scope copies of the SAME account (agent-owned
+   * shadows its base original). Grouping is by {@link accountKey}, so two Gmail
+   * connections survive side by side while an agent's copy of one still wins over
+   * that one's base row.
+   */
+  private pickAllByAccount = (rows: UserConnectorItem[], agentId?: string): UserConnectorItem[] => {
+    const byAccount = new Map<string, UserConnectorItem>();
+    for (const row of rows) {
+      const key = this.accountKey(row);
+      const current = byAccount.get(key);
+      if (!current || this.rank(row, agentId) > this.rank(current, agentId))
+        byAccount.set(key, row);
+    }
+    return [...byAccount.values()];
   };
 
   create = async (
@@ -292,6 +330,44 @@ export class ConnectorModel {
   };
 
   /**
+   * Multi-account variant of {@link resolveByIdentifiers}: returns EVERY
+   * resolvable account for the given identifiers, not just one per identifier.
+   * Sibling accounts (e.g. two Gmail connections) both survive; only scope copies
+   * of the SAME account collapse (agent-owned shadows base). Runtime paths that
+   * must offer the model a choice between accounts use this; single-account
+   * callers keep {@link resolveByIdentifiers}. See LOBE-12140.
+   */
+  resolveAccountsByIdentifiers = async (
+    identifiers: string[],
+    agentId?: string,
+    gateKeeper: GateKeeper | undefined = this.gateKeeper,
+  ): Promise<DecryptedConnector[]> => {
+    if (identifiers.length === 0) return [];
+
+    const rows = await this.db
+      .select()
+      .from(userConnectors)
+      .where(and(this.scopePredicate(agentId), inArray(userConnectors.identifier, identifiers)));
+
+    return Promise.all(this.pickAllByAccount(rows, agentId).map((r) => decryptRow(r, gateKeeper)));
+  };
+
+  /**
+   * Multi-account variant of {@link resolveAll}: every resolvable account in the
+   * current scope, sibling accounts kept and same-account scope copies collapsed.
+   * Powers manifest building when an identifier may have several connected
+   * accounts. See LOBE-12140.
+   */
+  resolveAllAccounts = async (
+    agentId?: string,
+    gateKeeper: GateKeeper | undefined = this.gateKeeper,
+  ): Promise<DecryptedConnector[]> => {
+    const rows = await this.db.select().from(userConnectors).where(this.scopePredicate(agentId));
+
+    return Promise.all(this.pickAllByAccount(rows, agentId).map((r) => decryptRow(r, gateKeeper)));
+  };
+
+  /**
    * Exact-scope lookup for write-path idempotency: finds the row for one
    * specific scope — the given agent (`agent_id = agentId`) or, when `agentId`
    * is omitted, the base row (`agent_id IS NULL`). Unlike
@@ -312,6 +388,36 @@ export class ConnectorModel {
           this.ownership(),
           eq(userConnectors.identifier, identifier),
           agentId ? eq(userConnectors.agentId, agentId) : isNull(userConnectors.agentId),
+        ),
+      )
+      .limit(1);
+
+    if (!row) return null;
+    return decryptRow(row, gateKeeper);
+  };
+
+  /**
+   * Exact-scope lookup by Composio connected account. This is the multi-account
+   * idempotency key: unlike {@link findScopedByIdentifier}, which collapses all
+   * accounts of an identifier onto one row, this pins the ONE row for a specific
+   * `connectedAccountId` — so the Composio dual-write can update the right
+   * account's row and create a new one for a genuinely new account, instead of
+   * overwriting the first. Scope is the same (agent row when `agentId` is given,
+   * else the base row). See LOBE-12140.
+   */
+  findScopedByComposioAccount = async (
+    connectedAccountId: string,
+    agentId?: string,
+    gateKeeper: GateKeeper | undefined = this.gateKeeper,
+  ): Promise<DecryptedConnector | null> => {
+    const [row] = await this.db
+      .select()
+      .from(userConnectors)
+      .where(
+        and(
+          this.ownership(),
+          agentId ? eq(userConnectors.agentId, agentId) : isNull(userConnectors.agentId),
+          sql`${userConnectors.metadata} -> 'composio' ->> 'connectedAccountId' = ${connectedAccountId}`,
         ),
       )
       .limit(1);

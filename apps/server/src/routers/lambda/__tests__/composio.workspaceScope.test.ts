@@ -52,6 +52,8 @@ describe('composioRouter — workspace scoping (workspace-agent connector bug)',
     vi.clearAllMocks();
     connectorModelMock = {
       create: vi.fn().mockResolvedValue({ id: 'conn-new' }),
+      delete: vi.fn(),
+      findScopedByComposioAccount: vi.fn().mockResolvedValue(null),
       findScopedByIdentifier: vi.fn().mockResolvedValue(null),
       update: vi.fn().mockResolvedValue(undefined),
     };
