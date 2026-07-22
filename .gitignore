@@ -154,3 +154,6 @@ docs/superpowers/
 
 # Kagura agent runtime
 .kagura/
+
+# runtime-injected custom branding assets (BRANDING_LOGO_URL deployments)
+/public/branding/

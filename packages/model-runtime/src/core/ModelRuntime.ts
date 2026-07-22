@@ -81,6 +81,20 @@ export interface ModelRuntimeHooks {
     options?: GenerateObjectOptions,
   ) => Promise<void>;
   /**
+   * Runs before any other chat hook (including `beforeChat`, so intercepted
+   * requests never reserve budget). Return a `Response` to short-circuit the
+   * whole chat — the LLM request is never sent and the caller receives the
+   * returned response as-is (e.g. input-side content moderation answering with
+   * an in-band SSE reply). Return `undefined` to continue normally.
+   *
+   * Throwing aborts the call like `beforeChat`; implementations that must not
+   * block chat on their own failure (fail-open) should catch internally.
+   */
+  interceptChat?: (
+    payload: ChatStreamPayload,
+    options?: ChatMethodOptions,
+  ) => Promise<Response | undefined>;
+  /**
    * Called when chat() throws. Handle side effects (sanitize, log, DB record).
    * The error is re-thrown after the hook completes — callers still handle response formatting.
    */
@@ -136,6 +150,20 @@ export interface ModelRuntimeHooks {
     data: { speed?: ModelPerformance; usage?: ModelUsage },
     context: { options?: GenerateObjectOptions; payload: GenerateObjectPayload },
   ) => void | Promise<void>;
+
+  /**
+   * Transforms the chat response before it is returned to the caller (e.g.
+   * output-side content moderation over the SSE stream). Return a new
+   * `Response` to replace the original, or `undefined` to keep it.
+   *
+   * Fail-open by contract: if the hook throws, the original response is
+   * returned — so implementations must not partially consume `response.body`
+   * before failing (build the transform pipeline first, then let it stream).
+   */
+  transformChatResponse?: (
+    response: Response,
+    context: { options?: ChatMethodOptions; payload: ChatStreamPayload },
+  ) => Promise<Response | undefined> | Response | undefined;
 }
 
 export class ModelRuntime {
@@ -197,6 +225,22 @@ export class ModelRuntime {
     }
 
     try {
+      if (this._hooks?.interceptChat) {
+        const interceptStartedAt = Date.now();
+        const intercepted = await this._hooks.interceptChat(payload, options);
+        if (intercepted) {
+          if (metadata) {
+            timing(
+              'ModelRuntime.chat intercepted model=%s durationMs=%d traceId=%s',
+              payload.model,
+              getDurationMs(interceptStartedAt),
+              metadata.traceId,
+            );
+          }
+          return intercepted;
+        }
+      }
+
       const hooksStartedAt = Date.now();
       const finalOptions = await this.applyHooks(payload, options);
       if (metadata) {
@@ -217,6 +261,21 @@ export class ModelRuntime {
           getDurationMs(startedAt),
           metadata.traceId,
         );
+      }
+      if (this._hooks?.transformChatResponse) {
+        try {
+          const transformed = await this._hooks.transformChatResponse(response, {
+            options,
+            payload,
+          });
+          if (transformed) return transformed;
+        } catch (error) {
+          // Fail-open: a broken response transform must never break the chat itself.
+          console.error('[ModelRuntime] transformChatResponse failed, using original response', {
+            error,
+            model: payload.model,
+          });
+        }
       }
       return response;
     } catch (error) {

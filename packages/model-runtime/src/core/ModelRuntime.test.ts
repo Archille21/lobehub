@@ -659,6 +659,77 @@ describe('ModelRuntime', () => {
       });
     });
 
+    describe('interceptChat hook', () => {
+      it('returning a Response short-circuits: no runtime.chat, no beforeChat', async () => {
+        const blocked = new Response('blocked', { status: 200 });
+        const interceptChat = vi.fn().mockResolvedValue(blocked);
+        const beforeChat = vi.fn();
+        const { runtime, mockRuntimeAI } = createMockRuntime({ beforeChat, interceptChat });
+
+        await expect(runtime.chat(chatPayload)).resolves.toBe(blocked);
+        expect(interceptChat).toHaveBeenCalledWith(chatPayload, undefined);
+        expect(beforeChat).not.toHaveBeenCalled();
+        expect(mockRuntimeAI.chat).not.toHaveBeenCalled();
+      });
+
+      it('returning undefined continues the normal flow', async () => {
+        const interceptChat = vi.fn().mockResolvedValue(undefined);
+        const beforeChat = vi.fn();
+        const { runtime, mockRuntimeAI } = createMockRuntime({ beforeChat, interceptChat });
+        const normal = new Response('');
+        mockRuntimeAI.chat.mockResolvedValue(normal);
+
+        await expect(runtime.chat(chatPayload)).resolves.toBe(normal);
+        expect(beforeChat).toHaveBeenCalled();
+        expect(mockRuntimeAI.chat).toHaveBeenCalled();
+      });
+
+      it('throwing aborts the call and triggers onChatError', async () => {
+        const gateError = new Error('moderation backend exploded');
+        const interceptChat = vi.fn().mockRejectedValue(gateError);
+        const onChatError = vi.fn();
+        const { runtime, mockRuntimeAI } = createMockRuntime({ interceptChat, onChatError });
+
+        await expect(runtime.chat(chatPayload)).rejects.toBe(gateError);
+        expect(mockRuntimeAI.chat).not.toHaveBeenCalled();
+        expect(onChatError).toHaveBeenCalled();
+      });
+    });
+
+    describe('transformChatResponse hook', () => {
+      it('replaces the response when a new Response is returned', async () => {
+        const original = new Response('original');
+        const replaced = new Response('moderated');
+        const transformChatResponse = vi.fn().mockResolvedValue(replaced);
+        const { runtime, mockRuntimeAI } = createMockRuntime({ transformChatResponse });
+        mockRuntimeAI.chat.mockResolvedValue(original);
+
+        await expect(runtime.chat(chatPayload)).resolves.toBe(replaced);
+        expect(transformChatResponse).toHaveBeenCalledWith(original, {
+          options: undefined,
+          payload: chatPayload,
+        });
+      });
+
+      it('keeps the original response when the hook returns undefined', async () => {
+        const original = new Response('original');
+        const transformChatResponse = vi.fn().mockResolvedValue(undefined);
+        const { runtime, mockRuntimeAI } = createMockRuntime({ transformChatResponse });
+        mockRuntimeAI.chat.mockResolvedValue(original);
+
+        await expect(runtime.chat(chatPayload)).resolves.toBe(original);
+      });
+
+      it('fails open: hook throwing returns the original response', async () => {
+        const original = new Response('original');
+        const transformChatResponse = vi.fn().mockRejectedValue(new Error('transform broke'));
+        const { runtime, mockRuntimeAI } = createMockRuntime({ transformChatResponse });
+        mockRuntimeAI.chat.mockResolvedValue(original);
+
+        await expect(runtime.chat(chatPayload)).resolves.toBe(original);
+      });
+    });
+
     describe('generateObject hooks', () => {
       it('beforeGenerateObject is called before runtime.generateObject', async () => {
         const beforeGenerateObject = vi.fn();

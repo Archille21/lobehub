@@ -9,6 +9,9 @@ import type { ModelRuntimeHooks } from './ModelRuntime';
  * - Chained hooks run sequentially (`a` first, then `b`); the second hook only
  *   runs if the first resolves. Place load-bearing hooks (the ones whose
  *   failure should abort the call) in `a`.
+ * - Value-returning hooks get dedicated semantics instead of the void chain:
+ *   `interceptChat` short-circuits on the first `Response` (`a` wins, `b` is
+ *   skipped); `transformChatResponse` pipelines (`b` receives `a`'s output).
  */
 export const mergeModelRuntimeHooks = (
   a?: ModelRuntimeHooks,
@@ -27,6 +30,25 @@ export const mergeModelRuntimeHooks = (
       (merged[key] as unknown) = next;
       continue;
     }
+
+    if (key === 'interceptChat') {
+      const first = existing as NonNullable<ModelRuntimeHooks['interceptChat']>;
+      const second = next as NonNullable<ModelRuntimeHooks['interceptChat']>;
+      merged.interceptChat = async (payload, options) =>
+        (await first(payload, options)) ?? (await second(payload, options));
+      continue;
+    }
+
+    if (key === 'transformChatResponse') {
+      const first = existing as NonNullable<ModelRuntimeHooks['transformChatResponse']>;
+      const second = next as NonNullable<ModelRuntimeHooks['transformChatResponse']>;
+      merged.transformChatResponse = async (response, context) => {
+        const firstResult = (await first(response, context)) ?? response;
+        return (await second(firstResult, context)) ?? firstResult;
+      };
+      continue;
+    }
+
     (merged[key] as unknown) = async (...args: unknown[]) => {
       await (existing as (...args: unknown[]) => Promise<unknown>)(...args);
       await (next as (...args: unknown[]) => Promise<unknown>)(...args);

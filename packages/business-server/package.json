@@ -6,6 +6,7 @@
     "./*": "./src/*.ts"
   },
   "dependencies": {
+    "@lobechat/business-model-runtime": "workspace:*",
     "@lobechat/database": "workspace:*",
     "@lobechat/model-runtime": "workspace:*",
     "@lobechat/trpc": "workspace:*",
