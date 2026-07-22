@@ -9,6 +9,7 @@ import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import * as agentGroupStore from '@/store/agentGroup';
 import { setPendingTopicRepos } from '@/store/chat/pendingTopicRepos';
+import { PortalViewType } from '@/store/chat/slices/portal/initialState';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { topicMapKey } from '@/store/chat/utils/topicMapKey';
 import { getSessionStoreState } from '@/store/session';
@@ -1484,6 +1485,122 @@ describe('ConversationLifecycle actions', () => {
             context: expect.not.objectContaining({ documentId: expect.anything() }),
           }),
         );
+      });
+    });
+
+    describe('gateway thread creation', () => {
+      it('forwards the staged thread request and returns the created thread id', async () => {
+        const { result } = renderHook(() => useChatStore());
+        const executeGatewayAgent = vi.fn().mockResolvedValue({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          createdThreadId: 'thread-created',
+          operationId: 'op-thread',
+          topicId: TEST_IDS.TOPIC_ID,
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
+
+        act(() => {
+          useChatStore.setState({
+            executeGatewayAgent,
+            isGatewayModeEnabled: () => true,
+          });
+        });
+
+        let sendResult;
+        await act(async () => {
+          sendResult = await result.current.sendMessage({
+            context: {
+              agentId: TEST_IDS.SESSION_ID,
+              isNew: true,
+              scope: 'thread',
+              sourceMessageId: 'source-message-1',
+              threadType: 'continuation',
+              topicId: TEST_IDS.TOPIC_ID,
+            },
+            message: 'Continue in a subtopic',
+            messages: [createMockMessage({ id: 'source-message-1', role: 'assistant' })],
+          });
+        });
+
+        expect(executeGatewayAgent).toHaveBeenCalledWith(
+          expect.objectContaining({
+            existingMessageIds: ['source-message-1'],
+            newThread: {
+              sourceMessageId: 'source-message-1',
+              type: 'continuation',
+            },
+          }),
+        );
+        expect(sendResult).toEqual({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          createdThreadId: 'thread-created',
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
+      });
+
+      it('switches the staged portal to a server-created thread when gateway startup fails', async () => {
+        const { result } = renderHook(() => useChatStore());
+        const stagedThreadKey = messageMapKey({
+          agentId: TEST_IDS.SESSION_ID,
+          isNew: true,
+          scope: 'thread',
+          topicId: TEST_IDS.TOPIC_ID,
+        });
+        const createdThreadKey = messageMapKey({
+          agentId: TEST_IDS.SESSION_ID,
+          isNew: true,
+          scope: 'thread',
+          threadId: 'thread-created',
+          topicId: TEST_IDS.TOPIC_ID,
+        });
+        const queuedMessage = {
+          content: 'queued while the gateway request was starting',
+          createdAt: Date.now(),
+          id: 'queued-before-thread-created',
+          interruptMode: 'soft' as const,
+        };
+        const gatewayError = Object.assign(new Error('Fixed agent device unavailable'), {
+          data: {
+            errorData: {
+              code: 'FixedAgentDeviceUnavailable',
+              createdThreadId: 'thread-created',
+            },
+          },
+        });
+
+        act(() => {
+          useChatStore.setState({
+            executeGatewayAgent: vi.fn().mockRejectedValue(gatewayError),
+            isGatewayModeEnabled: () => true,
+            portalStack: [{ startMessageId: 'source-message-1', type: PortalViewType.Thread }],
+            queuedMessages: { [stagedThreadKey]: [queuedMessage] },
+          });
+        });
+
+        await act(async () => {
+          await result.current.sendMessage({
+            context: {
+              agentId: TEST_IDS.SESSION_ID,
+              isNew: true,
+              scope: 'thread',
+              sourceMessageId: 'source-message-1',
+              threadType: 'continuation',
+              topicId: TEST_IDS.TOPIC_ID,
+            },
+            message: 'Continue in a subtopic',
+            messages: [createMockMessage({ id: 'source-message-1', role: 'assistant' })],
+          });
+        });
+
+        expect(result.current.portalThreadId).toBe('thread-created');
+        expect(result.current.startToForkThread).toBe(false);
+        expect(result.current.queuedMessages[stagedThreadKey] ?? []).toEqual([]);
+        expect(result.current.queuedMessages[createdThreadKey]).toEqual([queuedMessage]);
+        expect(result.current.portalStack.at(-1)).toMatchObject({
+          startMessageId: 'source-message-1',
+          threadId: 'thread-created',
+          type: 'thread',
+        });
       });
     });
 

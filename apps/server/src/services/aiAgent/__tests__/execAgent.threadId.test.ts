@@ -1,11 +1,22 @@
+import { ThreadType } from '@lobechat/types';
 import type * as ModelBankModule from 'model-bank';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiAgentService } from '../index';
 
 // Use vi.hoisted to ensure mock functions are available before vi.mock runs
-const { mockMessageCreate } = vi.hoisted(() => ({
+const {
+  mockMessageCreate,
+  mockMessageFindById,
+  mockMessageQuery,
+  mockThreadCreate,
+  mockThreadFindById,
+} = vi.hoisted(() => ({
   mockMessageCreate: vi.fn(),
+  mockMessageFindById: vi.fn(),
+  mockMessageQuery: vi.fn(),
+  mockThreadCreate: vi.fn(),
+  mockThreadFindById: vi.fn(),
 }));
 
 // Mock trusted client to avoid server-side env access
@@ -18,9 +29,10 @@ vi.mock('@/libs/trusted-client', () => ({
 vi.mock('@/database/models/message', () => ({
   MessageModel: vi.fn().mockImplementation(() => ({
     create: mockMessageCreate,
+    findById: mockMessageFindById,
     getLatestNonToolMessageId: vi.fn().mockResolvedValue(undefined),
     getLatestSpineMessageId: vi.fn().mockResolvedValue(undefined),
-    query: vi.fn().mockResolvedValue([]),
+    query: mockMessageQuery,
     update: vi.fn().mockResolvedValue({}),
   })),
 }));
@@ -77,8 +89,8 @@ vi.mock('@/database/models/topic', () => ({
 // Mock ThreadModel
 vi.mock('@/database/models/thread', () => ({
   ThreadModel: vi.fn().mockImplementation(() => ({
-    create: vi.fn(),
-    findById: vi.fn(),
+    create: mockThreadCreate,
+    findById: mockThreadFindById,
     update: vi.fn(),
   })),
 }));
@@ -172,6 +184,14 @@ describe('AiAgentService.execAgent - threadId handling', () => {
     // Explicitly clear the shared mock to prevent state pollution between tests
     mockMessageCreate.mockClear();
     mockMessageCreate.mockResolvedValue({ id: 'msg-1' });
+    mockMessageFindById.mockResolvedValue({
+      id: 'source-message-1',
+      threadId: null,
+      topicId: 'topic-1',
+    });
+    mockMessageQuery.mockResolvedValue([]);
+    mockThreadCreate.mockResolvedValue({ id: 'thread-created' });
+    mockThreadFindById.mockResolvedValue({ id: 'parent-thread-1', topicId: 'topic-1' });
 
     service = new AiAgentService(mockDb, userId);
   });
@@ -225,6 +245,143 @@ describe('AiAgentService.execAgent - threadId handling', () => {
         threadId: 'thread-123',
         topicId: 'topic-1',
       });
+    });
+  });
+
+  describe('when newThread is provided in appContext', () => {
+    it('creates the thread before persisting both messages in its scope', async () => {
+      const result = await service.execAgent({
+        agentId: 'agent-1',
+        appContext: {
+          newThread: {
+            sourceMessageId: 'source-message-1',
+            type: ThreadType.Continuation,
+          },
+          topicId: 'topic-1',
+        },
+        existingMessageIds: ['source-message-1'],
+        prompt: 'Continue in a subtopic',
+      });
+
+      expect(mockThreadCreate).toHaveBeenCalledWith({
+        parentThreadId: undefined,
+        sourceMessageId: 'source-message-1',
+        title: undefined,
+        topicId: 'topic-1',
+        type: ThreadType.Continuation,
+      });
+
+      const userMessageCall = mockMessageCreate.mock.calls.find((call) => call[0].role === 'user');
+      const assistantMessageCall = mockMessageCreate.mock.calls.find(
+        (call) => call[0].role === 'assistant',
+      );
+      expect(userMessageCall![0].threadId).toBe('thread-created');
+      expect(userMessageCall![0].parentId).toBe('source-message-1');
+      expect(assistantMessageCall![0].threadId).toBe('thread-created');
+      expect(result.createdThreadId).toBe('thread-created');
+      expect(mockMessageQuery).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: 'thread-created', topicId: 'topic-1' }),
+        expect.any(Object),
+      );
+    });
+
+    it('creates a source-less standalone thread with a root user message', async () => {
+      await service.execAgent({
+        agentId: 'agent-1',
+        appContext: {
+          newThread: { type: ThreadType.Standalone },
+          topicId: 'topic-1',
+        },
+        prompt: 'Start a standalone subtopic',
+      });
+
+      const userMessageCall = mockMessageCreate.mock.calls.find((call) => call[0].role === 'user');
+      expect(userMessageCall![0].parentId).toBeUndefined();
+    });
+
+    it('rejects a source message from another topic before creating the thread', async () => {
+      mockMessageFindById.mockResolvedValue({ id: 'source-message-1', topicId: 'other-topic' });
+
+      await expect(
+        service.execAgent({
+          agentId: 'agent-1',
+          appContext: {
+            newThread: {
+              sourceMessageId: 'source-message-1',
+              type: ThreadType.Continuation,
+            },
+            topicId: 'topic-1',
+          },
+          prompt: 'Continue in a subtopic',
+        }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      expect(mockThreadCreate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a parent thread from another topic before creating the thread', async () => {
+      mockThreadFindById.mockResolvedValue({ id: 'parent-thread-1', topicId: 'other-topic' });
+
+      await expect(
+        service.execAgent({
+          agentId: 'agent-1',
+          appContext: {
+            newThread: {
+              parentThreadId: 'parent-thread-1',
+              type: ThreadType.Isolation,
+            },
+            topicId: 'topic-1',
+          },
+          prompt: 'Start a nested subtopic',
+        }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      expect(mockThreadCreate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a threaded source when its parent thread is omitted', async () => {
+      mockMessageFindById.mockResolvedValue({
+        id: 'source-message-1',
+        threadId: 'parent-thread-1',
+        topicId: 'topic-1',
+      });
+
+      await expect(
+        service.execAgent({
+          agentId: 'agent-1',
+          appContext: {
+            newThread: {
+              sourceMessageId: 'source-message-1',
+              type: ThreadType.Continuation,
+            },
+            topicId: 'topic-1',
+          },
+          prompt: 'Continue in a nested subtopic',
+        }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      expect(mockThreadCreate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a source message from a different parent thread', async () => {
+      mockMessageFindById.mockResolvedValue({
+        id: 'source-message-1',
+        threadId: 'other-parent-thread',
+        topicId: 'topic-1',
+      });
+
+      await expect(
+        service.execAgent({
+          agentId: 'agent-1',
+          appContext: {
+            newThread: {
+              parentThreadId: 'parent-thread-1',
+              sourceMessageId: 'source-message-1',
+              type: ThreadType.Continuation,
+            },
+            topicId: 'topic-1',
+          },
+          prompt: 'Continue in a nested subtopic',
+        }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+      expect(mockThreadCreate).not.toHaveBeenCalled();
     });
   });
 

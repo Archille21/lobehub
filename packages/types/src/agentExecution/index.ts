@@ -1,6 +1,7 @@
 import type { WorkingDirConfig } from '../device';
 import type { TaskDetail, UIChatMessage } from '../message';
 import type { ChatTopic } from '../topic';
+import type { ChatThreadType } from '../topic/thread';
 
 export type AgentSignalOperationKind =
   'memory' | 'nightly-review' | 'self-feedback-intent' | 'self-reflection' | 'skill';
@@ -95,6 +96,17 @@ export interface ExecAgentAppContext {
    * recursive sub-agent dispatch.
    */
   isSubAgent?: boolean;
+  /**
+   * Create a thread before persisting this run's messages. Used by gateway
+   * executions, where message persistence and runtime startup both happen on
+   * the server instead of through the client aiChat path.
+   */
+  newThread?: {
+    parentThreadId?: string;
+    sourceMessageId?: string;
+    title?: string;
+    type: ChatThreadType;
+  };
   /**
    * Orchestration role of the agent for this group run. `'supervisor'` for the
    * group's coordinating agent (execGroupAgent), `'member'` for delegated members
@@ -238,6 +250,8 @@ export interface ExecAgentResult {
   autoStarted: boolean;
   /** Timestamp when operation was created */
   createdAt: string;
+  /** The thread created for this operation, when requested */
+  createdThreadId?: string;
   /** Error message if operation failed to start */
   error?: string;
   /** Status message */

@@ -1579,6 +1579,8 @@ export class AiAgentService {
 
     // 3. Handle topic creation: if no topicId provided, create a new topic; otherwise reuse existing
     let topicId = appContext?.topicId;
+    let threadId = appContext?.threadId ?? undefined;
+    let createdThreadId: string | undefined;
     const isNewTopic = !topicId;
     const isFixedExecutionTargetSelection =
       !!this.workspaceId && agentConfig.agencyConfig?.executionTargetSelectionPolicy === 'fixed';
@@ -1645,6 +1647,47 @@ export class AiAgentService {
       );
     } else {
       log('execAgent: reusing existing topic %s', topicId);
+    }
+
+    if (appContext?.newThread) {
+      const { parentThreadId, sourceMessageId } = appContext.newThread;
+      const sourceMessage = sourceMessageId
+        ? await this.messageModel.findById(sourceMessageId)
+        : undefined;
+      if (sourceMessageId && (!sourceMessage || sourceMessage.topicId !== topicId)) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Thread source message does not belong to the target topic',
+        });
+      }
+      if (parentThreadId) {
+        const parentThread = await this.threadModel.findById(parentThreadId);
+        if (!parentThread || parentThread.topicId !== topicId) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Parent thread does not belong to the target topic',
+          });
+        }
+      }
+      if (sourceMessage && (sourceMessage.threadId ?? undefined) !== parentThreadId) {
+        throw new TRPCError({
+          code: 'BAD_REQUEST',
+          message: 'Thread source message does not belong to the parent thread',
+        });
+      }
+
+      const thread = await this.threadModel.create({
+        parentThreadId,
+        sourceMessageId,
+        title: appContext.newThread.title,
+        topicId,
+        type: appContext.newThread.type,
+      });
+      if (!thread) throw new Error('Failed to create thread for agent execution');
+
+      threadId = thread.id;
+      createdThreadId = thread.id;
+      log('execAgent: created thread %s for topic %s', threadId, topicId);
     }
 
     await throwIfExecutionAborted('topic setup');
@@ -1721,12 +1764,19 @@ export class AiAgentService {
     const resolveUserMessageParentId = async () => {
       if (runFromHistory) return undefined;
       if (parentMessageId) return parentMessageId;
+      if (appContext?.newThread) return appContext.newThread.sourceMessageId;
 
-      const threadId = appContext?.threadId ?? null;
-      const spineId = await this.messageModel.getLatestSpineMessageId({ threadId, topicId });
+      const historyThreadId = threadId ?? null;
+      const spineId = await this.messageModel.getLatestSpineMessageId({
+        threadId: historyThreadId,
+        topicId,
+      });
       if (spineId) return spineId;
 
-      const fallbackId = await this.messageModel.getLatestNonToolMessageId({ threadId, topicId });
+      const fallbackId = await this.messageModel.getLatestNonToolMessageId({
+        threadId: historyThreadId,
+        topicId,
+      });
       if (fallbackId) {
         log(
           'execAgent: no spine head for topic %s, anchoring user turn on latest non-tool message %s',
@@ -1750,7 +1800,7 @@ export class AiAgentService {
           metadata: requestTriggerMetadata,
           parentId: userMessageParentId,
           role: 'user',
-          threadId: appContext?.threadId ?? undefined,
+          threadId,
           topicId,
         });
     if (userMessageRecord) {
@@ -1789,7 +1839,7 @@ export class AiAgentService {
       parentId: userMessageRecord?.id ?? parentMessageId,
       provider: isHeteroAgent ? heteroType : provider,
       role: 'assistant',
-      threadId: appContext?.threadId ?? undefined,
+      threadId,
       topicId,
     });
     selfMessageIds.add(assistantMessageRecord.id);
@@ -1811,7 +1861,7 @@ export class AiAgentService {
             agentId: resolvedAgentId,
             message: prompt,
             messageId: userMessageRecord.id,
-            threadId: appContext?.threadId ?? undefined,
+            threadId,
             topicId,
             trigger,
           },
@@ -1866,7 +1916,7 @@ export class AiAgentService {
           parentOperationId,
           provider: heteroType,
           taskId: operationTaskId ?? null,
-          threadId: appContext?.threadId ?? null,
+          threadId: threadId ?? null,
           topicId,
           trigger,
         });
@@ -1878,7 +1928,12 @@ export class AiAgentService {
       const heteroService = new HeterogeneousAgentService(this.db, this.userId, {
         workspaceId: this.workspaceId,
       });
-      const resumeSessionId = await heteroService.getHeterogeneousResumeSessionId(topicId);
+      // A newly-created thread is a distinct conversation scope. Reusing the
+      // topic-level native CLI session would restore context from the main
+      // conversation and bypass the thread's continuation/standalone semantics.
+      const resumeSessionId = appContext?.newThread
+        ? undefined
+        : await heteroService.getHeterogeneousResumeSessionId(topicId);
       // Sign an operation-scoped JWT so the CLI can authenticate against
       // heteroIngest / heteroFinish without full user credentials.
       let operationJwt: string;
@@ -1920,17 +1975,23 @@ export class AiAgentService {
       // When resuming, inject the recent conversation turns as context so CC can
       // orient itself even if the native session file was cleared (sandbox recycled
       // or context overflow caused the CLI to start a fresh session).
-      // Only fetch when there IS a stored session id — for first-turn runs CC has
-      // no prior history to inject.
+      // A resumed main-topic run gets fallback context for a missing native
+      // session file. A newly-created thread always gets its authoritative
+      // parent history because its native session intentionally starts fresh.
       let conversationHistory: ConversationHistoryEntry[] | undefined;
-      if (resumeSessionId) {
+      if (resumeSessionId || (appContext?.newThread && threadId)) {
         try {
-          const recentMsgs = await this.messageModel.query({ topicId, pageSize: 200 });
+          const recentMsgs = await this.messageModel.query({
+            pageSize: 200,
+            threadId: appContext?.newThread ? threadId : undefined,
+            topicId,
+          });
           const turns = recentMsgs
             .filter(
               (m) =>
                 (m.role === 'user' || m.role === 'assistant') &&
-                !m.threadId &&
+                !selfMessageIds.has(m.id) &&
+                (appContext?.newThread || !m.threadId) &&
                 m.content &&
                 m.content !== LOADING_FLAT,
             )
@@ -2015,7 +2076,7 @@ export class AiAgentService {
             : undefined),
           operationId,
           scope: appContext?.scope ?? undefined,
-          threadId: appContext?.threadId ?? undefined,
+          threadId,
         },
       });
 
@@ -2046,6 +2107,7 @@ export class AiAgentService {
             assistantMessageId: assistantMessageRecord.id,
             autoStarted: false,
             createdAt: new Date().toISOString(),
+            createdThreadId,
             error: 'Device access denied',
             message: 'Remote hetero agent requires device access',
             operationId,
@@ -2071,6 +2133,7 @@ export class AiAgentService {
             assistantMessageId: assistantMessageRecord.id,
             autoStarted: false,
             createdAt: new Date().toISOString(),
+            createdThreadId,
             error: 'No bound device',
             message: 'Remote hetero agent requires boundDeviceId',
             operationId,
@@ -2136,6 +2199,7 @@ export class AiAgentService {
             assistantMessageId: assistantMessageRecord.id,
             autoStarted: false,
             createdAt: new Date().toISOString(),
+            createdThreadId,
             error: result.error,
             message: 'Remote hetero agent dispatch failed',
             operationId,
@@ -2220,6 +2284,7 @@ export class AiAgentService {
               assistantMessageId: assistantMessageRecord.id,
               autoStarted: false,
               createdAt: new Date().toISOString(),
+              createdThreadId,
               error: 'No bound device',
               message: 'Hetero agent requires a bound device',
               operationId,
@@ -2301,6 +2366,7 @@ export class AiAgentService {
               assistantMessageId: assistantMessageRecord.id,
               autoStarted: false,
               createdAt: new Date().toISOString(),
+              createdThreadId,
               error: result.error,
               message: 'Hetero agent device dispatch failed',
               operationId,
@@ -2327,6 +2393,7 @@ export class AiAgentService {
               assistantMessageId: assistantMessageRecord.id,
               autoStarted: false,
               createdAt: new Date().toISOString(),
+              createdThreadId,
               error: message,
               message,
               operationId,
@@ -2393,6 +2460,7 @@ export class AiAgentService {
         assistantMessageId: assistantMessageRecord.id,
         autoStarted: true,
         createdAt: new Date().toISOString(),
+        createdThreadId,
         message: 'Hetero agent dispatched successfully',
         operationId,
         status: 'created',
@@ -2489,11 +2557,26 @@ export class AiAgentService {
     const loadHistoryMessages = async () => {
       if (historyMessagesCache) return historyMessagesCache;
 
-      if (existingMessageIds.length > 0) {
+      if (appContext?.newThread && threadId) {
+        // The persisted thread is the source of truth for parent-history
+        // semantics: continuation includes the main spine through its source,
+        // standalone includes only its source, and isolation/source-less
+        // threads include no parent messages. Do not trust a caller-supplied ID
+        // list to decide the new thread's context.
+        const messages = await this.messageModel.query(
+          {
+            sessionId: appContext.sessionId,
+            threadId,
+            topicId,
+          },
+          { postProcessUrl },
+        );
+        historyMessagesCache = messages.filter((msg) => !selfMessageIds.has(msg.id));
+      } else if (existingMessageIds.length > 0) {
         const messages = await this.messageModel.query(
           {
             sessionId: appContext?.sessionId,
-            threadId: appContext?.threadId,
+            threadId,
             topicId: appContext?.topicId ?? undefined,
           },
           { postProcessUrl },
@@ -2508,7 +2591,7 @@ export class AiAgentService {
         const messages = await this.messageModel.query(
           {
             sessionId: appContext?.sessionId,
-            threadId: appContext?.threadId,
+            threadId,
             topicId: appContext?.topicId,
           },
           { postProcessUrl },
@@ -2546,7 +2629,7 @@ export class AiAgentService {
         appContext?.topicId
       ) {
         const tree = await this.messageModel.queryTopicMessageTree({
-          threadId: appContext.threadId,
+          threadId,
           topicId: appContext.topicId,
         });
         historyMessagesCache = pruneRegeneratedBranch(historyMessagesCache, tree, parentMessageId);
@@ -2923,7 +3006,12 @@ export class AiAgentService {
           },
         });
         throw new TRPCError({
-          cause: { data: { code: 'FixedAgentDeviceUnavailable' } },
+          cause: {
+            data: {
+              code: 'FixedAgentDeviceUnavailable',
+              createdThreadId,
+            },
+          },
           code: 'PRECONDITION_FAILED',
           message: detail,
         });
@@ -4013,7 +4101,7 @@ export class AiAgentService {
           // loop can stream its running totals down the parent's gateway channel.
           subAgentProgress: appContext?.subAgentProgress,
           taskId: operationTaskId,
-          threadId: appContext?.threadId,
+          threadId,
           topicId,
           trigger,
         },
@@ -4058,7 +4146,7 @@ export class AiAgentService {
           assistantMessageId: assistantMessageRecord.id,
           operationId,
           scope: appContext?.scope ?? undefined,
-          threadId: appContext?.threadId ?? undefined,
+          threadId,
         },
       });
 
@@ -4075,6 +4163,7 @@ export class AiAgentService {
         assistantMessageId: assistantMessageRecord.id,
         autoStarted: result.autoStarted,
         createdAt: new Date().toISOString(),
+        createdThreadId,
         message: 'Agent operation created successfully',
         messageId: result.messageId,
         operationId,
@@ -4117,6 +4206,7 @@ export class AiAgentService {
         assistantMessageId: assistantMessageRecord.id,
         autoStarted: false,
         createdAt: new Date().toISOString(),
+        createdThreadId,
         error: errorMessage,
         message: 'Agent operation failed to start',
         operationId,

@@ -1065,6 +1065,7 @@ export class ConversationLifecycleActionImpl {
         // and the send button would flicker back to "send".
         const result = await this.#get().executeGatewayAgent({
           context: operationContext,
+          existingMessageIds: newThread ? messages.map((item) => item.id) : undefined,
           fileIds: fileIdList,
           message,
           metadata: requestMetadata,
@@ -1083,6 +1084,7 @@ export class ConversationLifecycleActionImpl {
           // reaches here). Non-group only — group @member mentions are handled by
           // the group orchestration path, not agent-management delegation.
           mentionedAgents: hasMentionedAgents ? mentionedAgents : undefined,
+          newThread,
           // Pass temp message IDs so the UI doesn't show a blank loading
           // state while waiting for the first step_start event to replace
           // messages with the server's real IDs.
@@ -1125,6 +1127,7 @@ export class ConversationLifecycleActionImpl {
 
         return {
           assistantMessageId: result.assistantMessageId,
+          createdThreadId: result.createdThreadId,
           userMessageId: result.userMessageId,
         };
       } catch (e) {
@@ -1135,6 +1138,24 @@ export class ConversationLifecycleActionImpl {
         if (op?.status === 'cancelled') {
           rollbackOptimisticTopic('sendMessage/rollbackOptimisticTopic');
           return;
+        }
+
+        const errorThreadId = (e as { data?: { errorData?: { createdThreadId?: unknown } } }).data
+          ?.errorData?.createdThreadId;
+        if (typeof errorThreadId === 'string') {
+          this.#get().updateOperationMetadata(operationId, { createdThreadId: errorThreadId });
+          this.#get().moveQueuedMessages(
+            currentContextKey,
+            messageMapKey({ ...operationContext, threadId: errorThreadId }),
+          );
+
+          const currentPortalViewType = chatPortalSelectors.currentViewType(this.#get());
+          if (currentPortalViewType === PortalViewType.Thread) {
+            this.#get().openThreadInPortal(errorThreadId, context.sourceMessageId);
+          } else {
+            this.#get().syncThreadInPortal(errorThreadId, context.sourceMessageId);
+          }
+          this.#get().refreshThreads();
         }
 
         console.error('[Gateway] Failed to start server-side agent:', e);

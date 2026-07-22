@@ -5,6 +5,7 @@ import {
   type ConnectionStatus,
 } from '@lobechat/agent-gateway-client';
 import type {
+  ChatThreadType,
   ChatTopicMetadata,
   ConversationContext,
   ExecAgentResult,
@@ -371,11 +372,18 @@ export class GatewayActionImpl {
    */
   executeGatewayAgent = async (params: {
     context: ConversationContext;
+    /** Existing context messages to include when creating a thread. */
+    existingMessageIds?: string[];
     /** File IDs of already-uploaded attachments to attach to the new user message */
     fileIds?: string[];
     message: string;
     /** Request metadata carried from the originating user message. */
     metadata?: Pick<MessageMetadata, 'trigger'>;
+    /** Create a thread before the gateway run persists its messages. */
+    newThread?: {
+      sourceMessageId: string;
+      type: ChatThreadType;
+    };
     /** Called when the gateway session completes (agent finished running) */
     onComplete?: () => void;
     /** Temporary sidebar topic inserted by sendMessage before the server creates the real topic. */
@@ -432,9 +440,11 @@ export class GatewayActionImpl {
   }): Promise<ExecAgentResult> => {
     const {
       context,
+      existingMessageIds,
       fileIds,
       message,
       metadata,
+      newThread,
       onComplete,
       optimisticTopic,
       parentMessageId,
@@ -517,12 +527,14 @@ export class GatewayActionImpl {
           // supervisor turn loses its role on the step_start snapshot / refetch
           // and renders as a generic assistant.
           orchestrationRole: context.orchestrationRole,
+          newThread,
           scope: context.scope,
           taskId,
           threadId: context.threadId,
           topicId: context.topicId,
         },
         deviceId: localDeviceId,
+        existingMessageIds,
         fileIds,
         mentionedAgents,
         parentMessageId,
@@ -593,7 +605,11 @@ export class GatewayActionImpl {
     }
 
     // Use the server-created topicId for the execution context
-    const execContext = { ...context, topicId: result.topicId };
+    const execContext = {
+      ...context,
+      threadId: result.createdThreadId ?? context.threadId,
+      topicId: result.topicId,
+    };
     this.#get().moveQueuedMessages(messageMapKey(context), messageMapKey(execContext));
 
     if (result.topicId) {

@@ -648,6 +648,62 @@ describe('GatewayActionImpl', () => {
       );
     });
 
+    it('should forward new thread context and use the created thread for the gateway operation', async () => {
+      const { action, startOperation } = createExecuteTestAction();
+
+      vi.mocked(aiAgentService.execAgentTask).mockResolvedValue({
+        agentId: 'agent-1',
+        assistantMessageId: 'ast-1',
+        autoStarted: true,
+        createdAt: new Date().toISOString(),
+        createdThreadId: 'thread-created',
+        message: 'ok',
+        operationId: 'server-op-1',
+        status: 'created',
+        success: true,
+        timestamp: new Date().toISOString(),
+        token: 'test-token',
+        topicId: 'topic-1',
+        userMessageId: 'usr-1',
+      });
+
+      const result = await action.executeGatewayAgent({
+        context: {
+          agentId: 'agent-1',
+          isNew: true,
+          scope: 'thread',
+          topicId: 'topic-1',
+        },
+        existingMessageIds: ['source-message-1'],
+        message: 'Continue in a subtopic',
+        newThread: {
+          sourceMessageId: 'source-message-1',
+          type: 'continuation',
+        },
+      });
+
+      expect(aiAgentService.execAgentTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appContext: expect.objectContaining({
+            newThread: {
+              sourceMessageId: 'source-message-1',
+              type: 'continuation',
+            },
+            threadId: undefined,
+            topicId: 'topic-1',
+          }),
+          existingMessageIds: ['source-message-1'],
+        }),
+        expect.anything(),
+      );
+      expect(startOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: expect.objectContaining({ threadId: 'thread-created', topicId: 'topic-1' }),
+        }),
+      );
+      expect(result.createdThreadId).toBe('thread-created');
+    });
+
     it('should move queued follow-ups from the new-topic key to the server-created topic key', async () => {
       const { action, moveQueuedMessages } = createExecuteTestAction();
       const context = { agentId: 'agent-1', topicId: null, threadId: null };

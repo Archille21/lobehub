@@ -7,6 +7,8 @@ const {
   mockDeviceFindWorkspaceDeviceById,
   mockDispatchAgentRun,
   mockMessageCreate,
+  mockMessageFindById,
+  mockMessageQuery,
   mockResolveAttachmentsByFileIds,
   mockSpawnHeteroSandbox,
   mockIngestAttachment,
@@ -18,6 +20,8 @@ const {
   mockDispatchAgentRun: vi.fn().mockResolvedValue({ success: true }),
   mockIngestAttachment: vi.fn(),
   mockMessageCreate: vi.fn(),
+  mockMessageFindById: vi.fn(),
+  mockMessageQuery: vi.fn(),
   mockPublishAgentRuntimeEnd: vi.fn().mockResolvedValue('end-event-id'),
   mockPublishAgentRuntimeInit: vi.fn().mockResolvedValue('init-event-id'),
   mockResolveAttachmentsByFileIds: vi.fn(),
@@ -67,9 +71,10 @@ vi.mock('@/libs/trpc/utils/internalJwt', () => ({
 vi.mock('@/database/models/message', () => ({
   MessageModel: vi.fn().mockImplementation(() => ({
     create: mockMessageCreate,
+    findById: mockMessageFindById,
     getLatestNonToolMessageId: vi.fn().mockResolvedValue(undefined),
     getLatestSpineMessageId: vi.fn().mockResolvedValue(undefined),
-    query: vi.fn().mockResolvedValue([]),
+    query: mockMessageQuery,
     update: vi.fn().mockResolvedValue({}),
   })),
 }));
@@ -123,7 +128,7 @@ vi.mock('@/database/models/topic', () => ({
 
 vi.mock('@/database/models/thread', () => ({
   ThreadModel: vi.fn().mockImplementation(() => ({
-    create: vi.fn(),
+    create: vi.fn().mockResolvedValue({ id: 'thread-created' }),
     findById: vi.fn(),
     update: vi.fn(),
   })),
@@ -204,6 +209,12 @@ describe('AiAgentService.execAgent - hetero early-exit file attachments', () => 
     topicMock.findById.mockResolvedValue(undefined);
     topicMock.updateMetadata.mockResolvedValue(undefined);
     mockMessageCreate.mockResolvedValue({ id: 'msg-1' });
+    mockMessageFindById.mockResolvedValue({
+      id: 'source-message-1',
+      threadId: null,
+      topicId: 'topic-1',
+    });
+    mockMessageQuery.mockResolvedValue([]);
     mockResolveAttachmentsByFileIds.mockResolvedValue({ ...emptyResolvedAttachments });
     mockSpawnHeteroSandbox.mockResolvedValue(undefined);
     mockDispatchAgentRun.mockResolvedValue({ success: true });
@@ -286,6 +297,36 @@ describe('AiAgentService.execAgent - hetero early-exit file attachments', () => 
 
     const userCall = findUserMessageCreate();
     expect(userCall![0].files).toBeUndefined();
+  });
+
+  it('returns and loads authoritative thread context for a gateway-created hetero thread', async () => {
+    mockMessageQuery.mockResolvedValue([
+      { content: 'Earlier context', id: 'source-message-1', role: 'assistant', threadId: null },
+      { content: 'Current prompt', id: 'msg-1', role: 'user', threadId: 'thread-created' },
+    ]);
+
+    const result = await service.execAgent({
+      agentId: 'agent-1',
+      appContext: {
+        newThread: {
+          sourceMessageId: 'source-message-1',
+          type: 'continuation',
+        },
+        topicId: 'topic-1',
+      },
+      existingMessageIds: ['source-message-1'],
+      prompt: 'Continue in a subtopic',
+    });
+
+    expect(result.createdThreadId).toBe('thread-created');
+    expect(mockMessageQuery).toHaveBeenCalledWith({
+      pageSize: 200,
+      threadId: 'thread-created',
+      topicId: 'topic-1',
+    });
+    expect(mockSpawnHeteroSandbox).toHaveBeenCalledWith(
+      expect.objectContaining({ resumeSessionId: undefined }),
+    );
   });
 
   it('should pass resolved Claude Code model and effort args to sandbox dispatch', async () => {
