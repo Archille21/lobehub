@@ -161,9 +161,16 @@ const TopicItem = memo<TopicItemProps>(
     const isHeterogeneousAgent = useAgentStore(agentSelectors.isCurrentAgentHeterogeneous);
     const addTab = useElectronStore((s) => s.addTab);
     const prefetchMessages = useChatStore((s) => s.prefetchMessages);
+    // A workspace-private agent is a purely personal conversation space even
+    // inside a workspace — its topics all belong to the viewer, so the creator
+    // avatar carries no information there. Only workspace-shared (`public`)
+    // agents get the avatar treatment.
+    const isSharedAgent = useAgentStore(
+      (s) => agentSelectors.currentAgentVisibility(s) === 'public',
+    );
     // Creator of the topic — resolves only inside an active workspace; drives
     // the identity-first icon layout below.
-    const author = useTopicCreator(userId);
+    const author = useTopicCreator(isSharedAgent ? userId : undefined);
 
     const loadingRingColor = isDarkMode
       ? cssVar.colorWarningBorder

@@ -100,9 +100,16 @@ const TopicItem = memo<TopicItemProps>(({ id, title, fav, active, threadId, stat
   const addTab = useElectronStore((s) => s.addTab);
   const activeWorkspaceSlug = useActiveWorkspaceSlug();
   const focusTopicPopup = useFocusTopicPopup({ groupId: activeGroupId });
+  // A workspace-private group is a purely personal conversation space even
+  // inside a workspace — its topics all belong to the viewer, so the creator
+  // avatar carries no information there. Only workspace-shared (`public`)
+  // groups get the avatar treatment.
+  const isSharedGroup = useAgentGroupStore((s) =>
+    s.activeGroupId ? s.groupMap[s.activeGroupId]?.visibility === 'public' : false,
+  );
   // Creator of the topic — resolves only inside an active workspace; drives
   // the identity-first icon layout below.
-  const author = useTopicCreator(userId);
+  const author = useTopicCreator(isSharedGroup ? userId : undefined);
 
   // Construct href for cmd+click support
   const href = useMemo(() => {
