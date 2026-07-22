@@ -1,5 +1,5 @@
 {
-  "buildCommand": "bun run build:vercel",
+  "buildCommand": "cd .. && pnpm run build:vercel",
   "headers": [
     {
       "source": "/_spa/(.*)",
@@ -49,7 +49,7 @@
       ]
     }
   ],
-  "installCommand": "npx pnpm@10.26.2 install",
+  "installCommand": "cd .. && pnpm install",
   "rewrites": [
     {
       "source": "/_dangerous_local_dev_proxy",
