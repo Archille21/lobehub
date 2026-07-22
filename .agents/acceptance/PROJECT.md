@@ -294,6 +294,14 @@ in `.agents/acceptance/references/agent-gateway.md`.
 - **`apps/desktop` and `apps/cli` are standalone installs** (see §1) — run
   `pnpm install` inside each app the test will touch, not only at the root.
 
+- **A root install is not done until deduped.** This repo has no lockfile, so
+  every `pnpm install` re-resolves floating ranges and can leave duplicate
+  `@lobehub/ui` peer-hash instances that white-screen the conversation route
+  (MotionProvider context split — see the common-mistakes entry). Treat
+  "install" as `pnpm install && pnpm dedupe`, then verify a singleton:
+  `ls node_modules/.pnpm | grep '@lobehub+ui@'` must print exactly one entry.
+  The agent owns this cleanliness — never leave a duplicated graph behind.
+
 - **Server restart picks up server-side code changes.** Next.js hot-reload may
   miss changes in workspace packages. Restart when changing `apps/server/src/`,
   `src/server/`, `packages/database/`, `packages/types/`, `packages/prompts/`;

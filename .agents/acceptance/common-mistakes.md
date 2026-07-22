@@ -147,14 +147,16 @@ cause is the dependency graph. Sidebar-only routes may still render, which
 disguises it; cache clears and restarts cannot fix it.
 
 **What it breaks**: every conversation-route verification on that machine — and it
-equally breaks the user's own local dev, so it deserves a heads-up to the user, not
-just a silent workaround.
+equally breaks the user's own local dev until the graph is deduped.
 
-**Correct approach**: after any `pnpm install`, before debugging UI crashes, check
-for duplicates: `ls node_modules/.pnpm | grep '@lobehub+ui@'` (2+ entries = this
-problem). Remediate via a clean reinstall (`rm -rf node_modules && pnpm install`)
-or `pnpm dedupe`; when peer sets genuinely differ, the verification-time workaround
-is a temporary Vite `resolve.dedupe` (full recipe in
+**Correct approach**: the agent OWNS environment health — leave the graph clean,
+don't hand the problem to the user. **`pnpm install` is not done until deduped**:
+follow every install with `pnpm dedupe` (treat "install" as
+`pnpm install && pnpm dedupe`), then verify singletons —
+`ls node_modules/.pnpm | grep '@lobehub+ui@'` must show exactly one entry. Still
+2+ → clean reinstall (`rm -rf node_modules && pnpm install && pnpm dedupe`). Only
+when peer sets genuinely cannot converge, fall back to a temporary Vite
+`resolve.dedupe` for the capture (full recipe in
 `probe-mock-patterns.md → "Duplicate @lobehub/ui instances crash the conversation
-route in dev"`) — snapshot `vite.config.ts` first and revert it after evidence
-capture. Report the condition to the user either way.
+route in dev"` — snapshot `vite.config.ts` first, revert after), and fix the
+graph properly before ending the run.
