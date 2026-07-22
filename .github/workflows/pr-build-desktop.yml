@@ -27,13 +27,13 @@ jobs:
       - name: Checkout base
         uses: actions/checkout@v6
 
-      - name: Setup environment
-        uses: ./.github/actions/setup-env
+      - name: Setup test environment
+        uses: ./.github/actions/desktop-build-setup
+        with:
+          node-version: 24.11.1
 
-      - name: Install deps
-        run: pnpm install
-        env:
-          NODE_OPTIONS: --max-old-space-size=8192
+      - name: Check PTY sidecar
+        run: npm run pty:check --prefix=./apps/desktop
 
       - name: Lint
         run: bun run lint
@@ -107,6 +107,17 @@ jobs:
         with:
           cloud-token: ${{ secrets.LOBEHUB_CLOUD_TOKEN }}
           node-version: 24.11.1
+
+      - name: Test PTY sidecar on Windows
+        if: runner.os == 'Windows'
+        run: npm run pty:test --prefix=./apps/desktop
+
+      - name: Build and smoke PTY sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run pty:prepare:release --prefix=./apps/desktop
+          echo "LOBE_PTY_SIDECAR_PREPARED=1" >> "$GITHUB_ENV"
 
       # 设置 package.json 的版本号
       - name: Set package version

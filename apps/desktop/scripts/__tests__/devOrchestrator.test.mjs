@@ -22,6 +22,7 @@ const createHarness = (overrides = {}) => {
     log: vi.fn(),
     logError: vi.fn(),
     nodeBin: '/bin/node',
+    sidecarPath: '/cargo/target/custom/debug/lobe-pty-sidecar',
     spawn: vi.fn((bin, args, opts) => {
       const child = new FakeChild();
       spawned.push({ args, bin, child, opts });
@@ -112,6 +113,7 @@ describe('createDevOrchestrator', () => {
     const { args, opts } = h.electronSpawns()[0];
     expect(args).toEqual(['.']);
     expect(opts.env.ELECTRON_RENDERER_URL).toBe('http://127.0.0.1:5199');
+    expect(opts.env.LOBE_PTY_SIDECAR_PATH).toBe('/cargo/target/custom/debug/lobe-pty-sidecar');
     expect(opts.env.NODE_ENV).toBe('development');
     expect(h.options.watch).toHaveBeenCalledTimes(2);
   });

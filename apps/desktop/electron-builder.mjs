@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,16 +16,27 @@ import {
   getAsarUnpackPatterns,
   getNativeModulesFilesConfig,
 } from './native-deps.config.mjs';
+import {
+  assertPtySidecarBinary,
+  getPtySidecarBinaryName,
+  getPtySidecarBinaryPath,
+} from './scripts/buildPtySidecar.mjs';
+import { smokePtySidecar } from './scripts/smokePtySidecar.mjs';
+import { verifyPackagedSignatures } from './scripts/verifyPtySidecarSigning.mjs';
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const require = createRequire(import.meta.url);
+const { listPackage } = require('@electron/asar');
 
 const packageJSON = JSON.parse(await fs.readFile(path.join(__dirname, 'package.json'), 'utf8'));
 
 const channel = process.env.UPDATE_CHANNEL;
 const arch = os.arch();
 const hasAppleCertificate = Boolean(process.env.CSC_LINK);
+const ptySidecarBinaryName = getPtySidecarBinaryName();
+const ptySidecarReleasePath = getPtySidecarBinaryPath({ release: true });
 
 // 自定义更新服务器 URL (用于 stable 频道)
 const updateServerUrl = process.env.UPDATE_SERVER_URL;
@@ -94,6 +106,135 @@ const getIconFileName = () => {
   return 'Icon-nightly';
 };
 
+const ELECTRON_BUILDER_ARCHITECTURES = new Map([
+  [0, 'ia32'],
+  [1, 'x64'],
+  [2, 'armv7l'],
+  [3, 'arm64'],
+  [4, 'universal'],
+]);
+
+const getPackagedArchitecture = (context) =>
+  typeof context.arch === 'string'
+    ? context.arch
+    : ELECTRON_BUILDER_ARCHITECTURES.get(context.arch) || arch;
+
+const getPackagedResourcesPath = (context) => {
+  if (['darwin', 'mas'].includes(context.electronPlatformName)) {
+    return path.join(
+      context.appOutDir,
+      `${context.packager.appInfo.productFilename}.app`,
+      'Contents',
+      'Resources',
+    );
+  }
+
+  return path.join(context.appOutDir, 'resources');
+};
+
+const listFilesRecursively = async (root) => {
+  try {
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    const files = [];
+
+    for (const entry of entries) {
+      const entryPath = path.join(root, entry.name);
+      if (entry.isDirectory()) files.push(...(await listFilesRecursively(entryPath)));
+      else files.push(entryPath);
+    }
+
+    return files;
+  } catch (error) {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  }
+};
+
+const isLegacyPtyArtifact = (artifactPath) => {
+  const segments = artifactPath.replaceAll('\\', '/').toLowerCase().split('/').filter(Boolean);
+  const basename = segments.at(-1);
+
+  return (
+    segments.some((segment) => segment === 'node-pty' || segment.startsWith('node-pty-')) ||
+    basename === 'pty.node' ||
+    basename === 'spawn-helper'
+  );
+};
+
+const verifyPackagedPtySidecar = async (context, resourcesPath) => {
+  const binPath = path.join(resourcesPath, 'bin');
+  const binEntries = await fs.readdir(binPath, { withFileTypes: true });
+  const sidecarEntries = binEntries.filter(
+    (entry) =>
+      entry.isFile() &&
+      (entry.name === 'lobe-pty-sidecar' || entry.name === 'lobe-pty-sidecar.exe'),
+  );
+
+  if (sidecarEntries.length !== 1 || sidecarEntries[0].name !== ptySidecarBinaryName) {
+    throw new Error(
+      `Packaged app must contain exactly one ${ptySidecarBinaryName}; found ${sidecarEntries.map((entry) => entry.name).join(', ') || 'none'}`,
+    );
+  }
+
+  const packagedSidecarPath = path.join(binPath, sidecarEntries[0].name);
+  const expectedArchitecture = getPackagedArchitecture(context);
+  await assertPtySidecarBinary({
+    binaryPath: packagedSidecarPath,
+    expectedArchitecture,
+    requireExecutable: context.electronPlatformName !== 'win32',
+  });
+  await smokePtySidecar(packagedSidecarPath, { expectedArchitecture, timeoutMs: 15_000 });
+  await fs.access(path.join(resourcesPath, 'THIRD_PARTY_NOTICES.md'));
+
+  const applicationEntries = [];
+  const asarPath = path.join(resourcesPath, 'app.asar');
+  try {
+    applicationEntries.push(...listPackage(asarPath).map((entry) => `app.asar${entry}`));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  applicationEntries.push(
+    ...(await listFilesRecursively(path.join(resourcesPath, 'app.asar.unpacked'))),
+    ...(await listFilesRecursively(path.join(resourcesPath, 'app'))),
+  );
+
+  const resourceFiles = await listFilesRecursively(resourcesPath);
+  const resourceSidecars = resourceFiles.filter((entry) => {
+    const basename = path.basename(entry.replaceAll('\\', '/'));
+    return basename === 'lobe-pty-sidecar' || basename === 'lobe-pty-sidecar.exe';
+  });
+  if (
+    resourceSidecars.length !== 1 ||
+    path.resolve(resourceSidecars[0]) !== path.resolve(packagedSidecarPath)
+  ) {
+    throw new Error(
+      `Packaged resources must contain only ${packagedSidecarPath}; found:\n${resourceSidecars.join('\n') || 'none'}`,
+    );
+  }
+  const legacyArtifacts = [...new Set([...applicationEntries, ...resourceFiles])].filter(
+    isLegacyPtyArtifact,
+  );
+  if (legacyArtifacts.length > 0) {
+    throw new Error(
+      `Packaged app still contains legacy node-pty artifacts:\n${legacyArtifacts.join('\n')}`,
+    );
+  }
+
+  const bundledSidecars = applicationEntries.filter((entry) => {
+    const basename = path.basename(entry.replaceAll('\\', '/'));
+    return basename === 'lobe-pty-sidecar' || basename === 'lobe-pty-sidecar.exe';
+  });
+  if (bundledSidecars.length > 0) {
+    throw new Error(
+      `PTY sidecar must only be packaged as an extra resource, not inside the application bundle:\n${bundledSidecars.join('\n')}`,
+    );
+  }
+
+  console.info(
+    `✅ Verified packaged PTY sidecar (${expectedArchitecture}) and removed node-pty payload`,
+  );
+};
+
 /**
  * @type {import('electron-builder').Configuration}
  * @see https://www.electron.build/configuration
@@ -104,6 +245,11 @@ const config = {
    * This ensures native modules are properly included in the asar archive.
    */
   beforePack: async () => {
+    await assertPtySidecarBinary({
+      binaryPath: ptySidecarReleasePath,
+      expectedArchitecture: arch,
+      requireExecutable: process.platform !== 'win32',
+    });
     await copyNativeModulesToSource();
     await copyExternalRuntimeModulesToSource();
 
@@ -140,30 +286,28 @@ const config = {
    */
   afterPack: async (context) => {
     const isMac = ['darwin', 'mas'].includes(context.electronPlatformName);
+    const resourcesPath = getPackagedResourcesPath(context);
 
-    if (!isMac) {
-      return;
+    if (isMac) {
+      const iconFileName = getIconFileName();
+      const assetsCarSource = path.join(__dirname, 'build', `${iconFileName}.Assets.car`);
+      const assetsCarDest = path.join(resourcesPath, 'Assets.car');
+
+      try {
+        await fs.access(assetsCarSource);
+        await fs.copyFile(assetsCarSource, assetsCarDest);
+        console.info(`✅ Copied Liquid Glass icon: ${iconFileName}.Assets.car`);
+      } catch {
+        // Non-critical: Assets.car not found or copy failed
+        // App will use fallback .icns icon on all macOS versions
+        console.info(`⏭️  Skipping Assets.car (not found or copy failed)`);
+      }
     }
 
-    const resourcesPath = path.join(
-      context.appOutDir,
-      `${context.packager.appInfo.productFilename}.app`,
-      'Contents',
-      'Resources',
-    );
-    const iconFileName = getIconFileName();
-    const assetsCarSource = path.join(__dirname, 'build', `${iconFileName}.Assets.car`);
-    const assetsCarDest = path.join(resourcesPath, 'Assets.car');
-
-    try {
-      await fs.access(assetsCarSource);
-      await fs.copyFile(assetsCarSource, assetsCarDest);
-      console.info(`✅ Copied Liquid Glass icon: ${iconFileName}.Assets.car`);
-    } catch {
-      // Non-critical: Assets.car not found or copy failed
-      // App will use fallback .icns icon on all macOS versions
-      console.info(`⏭️  Skipping Assets.car (not found or copy failed)`);
-    }
+    await verifyPackagedPtySidecar(context, resourcesPath);
+  },
+  afterSign: async (context) => {
+    await verifyPackagedSignatures(context, getPackagedResourcesPath(context));
   },
   appId: 'com.lobehub.lobehub-desktop',
   appImage: {
@@ -210,6 +354,8 @@ const config = {
     'dist',
     'resources',
     'dist/renderer/**/*',
+    '!resources/bin/**/*',
+    '!resources/cli-package.json',
     '!resources/locales',
     '!resources/dmg.png',
     // Exclude all node_modules first
@@ -227,6 +373,7 @@ const config = {
     target: ['AppImage', 'snap', 'deb', 'rpm', 'tar.gz'],
   },
   mac: {
+    binaries: ['Contents/Resources/bin/lobe-pty-sidecar'],
     compression: 'maximum',
     entitlementsInherit: 'build/entitlements.mac.plist',
     extendInfo: {
@@ -285,8 +432,10 @@ const config = {
   },
 
   extraResources: [
-    { from: 'resources/bin', to: 'bin' },
+    { from: ptySidecarReleasePath, to: `bin/${ptySidecarBinaryName}` },
+    { from: 'resources/bin/lobe-cli.js', to: 'bin/lobe-cli.js' },
     { from: 'resources/cli-package.json', to: 'package.json' },
+    { from: 'THIRD_PARTY_NOTICES.md', to: 'THIRD_PARTY_NOTICES.md' },
   ],
 
   win: {

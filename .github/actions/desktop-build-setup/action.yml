@@ -1,5 +1,5 @@
 name: Desktop Build Setup
-description: Setup Node.js, pnpm and install dependencies for desktop build
+description: Setup Node.js, pnpm, pinned Rust and dependencies for desktop build
 
 inputs:
   node-version:
@@ -25,6 +25,38 @@ runs:
       uses: ./.github/actions/setup-env
       with:
         node-version: ${{ inputs.node-version }}
+
+    - name: Resolve pinned Rust toolchain
+      id: rust-toolchain
+      shell: bash
+      run: |
+        set -euo pipefail
+        toolchain_file="$GITHUB_WORKSPACE/apps/desktop/native/pty-sidecar/rust-toolchain.toml"
+        toolchain="$(sed -n 's/^channel = "\([^"]*\)"/\1/p' "$toolchain_file")"
+        if [ -z "$toolchain" ]; then
+          echo "Unable to read the pinned Rust toolchain from $toolchain_file" >&2
+          exit 1
+        fi
+        echo "version=$toolchain" >> "$GITHUB_OUTPUT"
+
+    - name: Restore PTY sidecar Cargo cache
+      uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+      with:
+        path: |
+          ~/.cargo/git/db
+          ~/.cargo/registry/cache
+          ~/.cargo/registry/index
+        key: desktop-pty-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-toolchain.outputs.version }}-${{ hashFiles('apps/desktop/native/pty-sidecar/Cargo.lock', 'apps/desktop/native/pty-sidecar/Cargo.toml') }}
+        restore-keys: |
+          desktop-pty-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust-toolchain.outputs.version }}-
+
+    - name: Install pinned Rust toolchain
+      shell: bash
+      run: |
+        set -euo pipefail
+        rustup toolchain install "${{ steps.rust-toolchain.outputs.version }}" --profile minimal --component clippy,rustfmt
+        rustc "+${{ steps.rust-toolchain.outputs.version }}" --version
+        echo "RUSTUP_TOOLCHAIN=${{ steps.rust-toolchain.outputs.version }}" >> "$GITHUB_ENV"
 
     - name: Overlay Cloud repository for desktop build
       if: inputs.cloud-token != ''

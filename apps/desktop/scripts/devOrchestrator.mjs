@@ -21,6 +21,7 @@ export function createDevOrchestrator({
   electronBin,
   viteBin,
   vitePort,
+  sidecarPath,
   electronArgs = [],
   nodeBin = process.execPath,
   pollIntervalMs = 200,
@@ -70,6 +71,7 @@ export function createDevOrchestrator({
       env: {
         ...process.env,
         ELECTRON_RENDERER_URL: `http://127.0.0.1:${vitePort}`,
+        LOBE_PTY_SIDECAR_PATH: sidecarPath,
         NODE_ENV: 'development',
       },
       stdio: 'inherit',

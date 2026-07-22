@@ -28,7 +28,7 @@ export interface TerminalKillParams {
 }
 
 export interface TerminalDataPayload {
-  data: string;
+  data: Uint8Array;
   id: string;
 }
 

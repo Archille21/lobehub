@@ -107,6 +107,13 @@ jobs:
           cloud-token: ${{ secrets.LOBEHUB_CLOUD_TOKEN }}
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Build and smoke PTY sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run pty:prepare:release --prefix=./apps/desktop
+          echo "LOBE_PTY_SIDECAR_PREPARED=1" >> "$GITHUB_ENV"
+
       - name: Set package version
         run: npm run workflow:set-desktop-version ${{ needs.version.outputs.version }} ${{ inputs.channel }}
 
@@ -176,6 +183,16 @@ jobs:
           cloud-token: ${{ secrets.LOBEHUB_CLOUD_TOKEN }}
           node-version: ${{ env.NODE_VERSION }}
 
+      - name: Test PTY sidecar on Windows
+        run: npm run pty:test --prefix=./apps/desktop
+
+      - name: Build and smoke PTY sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run pty:prepare:release --prefix=./apps/desktop
+          echo "LOBE_PTY_SIDECAR_PREPARED=1" >> "$GITHUB_ENV"
+
       - name: Set package version
         run: npm run workflow:set-desktop-version ${{ needs.version.outputs.version }} ${{ inputs.channel }}
 
@@ -220,6 +237,13 @@ jobs:
         with:
           cloud-token: ${{ secrets.LOBEHUB_CLOUD_TOKEN }}
           node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build and smoke PTY sidecar
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run pty:prepare:release --prefix=./apps/desktop
+          echo "LOBE_PTY_SIDECAR_PREPARED=1" >> "$GITHUB_ENV"
 
       - name: Set package version
         run: npm run workflow:set-desktop-version ${{ needs.version.outputs.version }} ${{ inputs.channel }}
