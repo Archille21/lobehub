@@ -5,7 +5,7 @@ import { render } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import TopicCreatorAvatar, { TopicCreatorCorner } from './index';
+import TopicCreatorAvatar from './index';
 
 const useAuthorInfoMock = vi.hoisted(() => vi.fn());
 
@@ -38,12 +38,37 @@ describe('TopicCreatorAvatar', () => {
     expect(avatar.getAttribute('data-title')).toBe('Alice');
   });
 
+  it('keeps the avatar primary and shrinks the row icon into the corner badge', () => {
+    useAuthorInfoMock.mockReturnValue({ avatar: 'https://x/y.png', fullName: 'Alice' });
+
+    const { getByTestId } = render(
+      <TopicCreatorAvatar corner={<span data-testid="status-icon" />} userId="any-member" />,
+    );
+
+    // Both the full avatar and the corner-badged row icon render.
+    expect(getByTestId('avatar')).toBeTruthy();
+    expect(getByTestId('status-icon')).toBeTruthy();
+  });
+
+  it('renders the bare avatar when no corner node is provided', () => {
+    useAuthorInfoMock.mockReturnValue({ avatar: 'https://x/y.png', fullName: 'Alice' });
+
+    const { getByTestId, queryByTestId } = render(<TopicCreatorAvatar userId="any-member" />);
+
+    expect(getByTestId('avatar')).toBeTruthy();
+    expect(queryByTestId('status-icon')).toBeNull();
+  });
+
   it('renders nothing in personal mode / when the creator is not a resolvable member', () => {
     useAuthorInfoMock.mockReturnValue(undefined);
 
-    const { queryByTestId } = render(<TopicCreatorAvatar userId="someone" />);
+    const { queryByTestId } = render(
+      <TopicCreatorAvatar corner={<span data-testid="status-icon" />} userId="someone" />,
+    );
 
+    // No avatar AND no corner badge — the caller falls back to its own layout.
     expect(queryByTestId('avatar')).toBeNull();
+    expect(queryByTestId('status-icon')).toBeNull();
   });
 
   it('renders nothing when no userId is provided (default / temp topic)', () => {
@@ -52,35 +77,6 @@ describe('TopicCreatorAvatar', () => {
     const { queryByTestId } = render(<TopicCreatorAvatar />);
 
     expect(useAuthorInfoMock).toHaveBeenCalledWith(undefined);
-    expect(queryByTestId('avatar')).toBeNull();
-  });
-});
-
-describe('TopicCreatorCorner', () => {
-  it('overlays a mini round avatar on the wrapped identity icon', () => {
-    useAuthorInfoMock.mockReturnValue({ avatar: 'https://x/y.png', fullName: 'Alice' });
-
-    const { getByTestId } = render(
-      <TopicCreatorCorner userId="any-member">
-        <span data-testid="platform-icon" />
-      </TopicCreatorCorner>,
-    );
-
-    expect(getByTestId('platform-icon')).toBeTruthy();
-    const avatar = getByTestId('avatar');
-    expect(avatar.getAttribute('data-shape')).toBe('circle');
-  });
-
-  it('renders only the wrapped icon when the creator does not resolve', () => {
-    useAuthorInfoMock.mockReturnValue(undefined);
-
-    const { getByTestId, queryByTestId } = render(
-      <TopicCreatorCorner userId="ghost">
-        <span data-testid="platform-icon" />
-      </TopicCreatorCorner>,
-    );
-
-    expect(getByTestId('platform-icon')).toBeTruthy();
     expect(queryByTestId('avatar')).toBeNull();
   });
 });

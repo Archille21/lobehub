@@ -23,10 +23,7 @@ import DirIcon from '@/features/ChatInput/ControlBar/DirIcon';
 import { useHasDraft } from '@/features/ChatInput/draftStorage';
 import { startTopicDrag } from '@/features/ChatInput/InputEditor/ReferTopic/topicDragData';
 import NavItem from '@/features/NavPanel/components/NavItem';
-import TopicCreatorAvatar, {
-  TopicCreatorCorner,
-  useTopicCreator,
-} from '@/features/TopicCreatorAvatar';
+import TopicCreatorAvatar, { useTopicCreator } from '@/features/TopicCreatorAvatar';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
 import { getWorkingDirectoryName } from '@/helpers/workingDirectoryPath';
 import { getPlatformIcon } from '@/routes/(main)/agent/channel/const';
@@ -450,18 +447,14 @@ const TopicItem = memo<TopicItemProps>(
       />
     );
 
-    // Workspace mode (creator resolvable): the row's own icon — execution
-    // status first, then identity icons (Discord / WeChat / PR marker) — keeps
-    // the leading slot with the creator shrunk to a bottom-right corner badge;
-    // only a plain `#` row is fully replaced by the creator's round avatar.
-    // Personal mode keeps the original layout untouched.
+    // Workspace mode (creator resolvable): the creator's round avatar is the
+    // primary visual and always leads the row; the row's own icon — execution
+    // status first, then identity icons (Discord / WeChat / PR marker) —
+    // shrinks into a bottom-right corner badge. Personal mode keeps the
+    // original layout untouched.
     const ownIconNode = statusIconNode ?? identityIconNode;
     const leadingIconNode = author ? (
-      ownIconNode ? (
-        <TopicCreatorCorner userId={userId}>{ownIconNode}</TopicCreatorCorner>
-      ) : (
-        <TopicCreatorAvatar userId={userId} />
-      )
+      <TopicCreatorAvatar corner={ownIconNode} userId={userId} />
     ) : (
       (ownIconNode ?? hashIconNode)
     );
