@@ -153,7 +153,7 @@ equally breaks the user's own local dev until the graph is deduped.
 don't hand the problem to the user. **`pnpm install` is not done until deduped**:
 follow every install with `pnpm dedupe` (treat "install" as
 `pnpm install && pnpm dedupe`), then verify singletons —
-`ls node_modules/.pnpm | grep '@lobehub+ui@'` must show exactly one entry. Still
+`ls -d node_modules/.pnpm/@lobehub+ui@*` must show exactly one entry. Still
 2+ → clean reinstall (`rm -rf node_modules && pnpm install && pnpm dedupe`). Only
 when peer sets genuinely cannot converge, fall back to a temporary Vite
 `resolve.dedupe` for the capture (full recipe in

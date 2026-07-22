@@ -299,7 +299,8 @@ in `.agents/acceptance/references/agent-gateway.md`.
   `@lobehub/ui` peer-hash instances that white-screen the conversation route
   (MotionProvider context split — see the common-mistakes entry). Treat
   "install" as `pnpm install && pnpm dedupe`, then verify a singleton:
-  `ls node_modules/.pnpm | grep '@lobehub+ui@'` must print exactly one entry.
+  `ls -d node_modules/.pnpm/@lobehub+ui@*` must print exactly one entry
+  (a plain grep overcounts — other packages embed the string in their names).
   The agent owns this cleanliness — never leave a duplicated graph behind.
 
 - **Server restart picks up server-side code changes.** Next.js hot-reload may
