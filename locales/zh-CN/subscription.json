@@ -37,6 +37,8 @@
   "billingIssue.paymentTitle": "需要支付欠款以恢复会员",
   "billingIssue.retryAction": "重新检查",
   "billingIssue.retryError": "暂时无法刷新订阅状态，请重试。",
+  "billingIssue.retryPending": "此会员状态仍需处理。请按更新后的操作继续，或稍后重试。",
+  "billingIssue.retrySuccess": "会员状态已更新。",
   "billingIssue.syncDescription": "我们暂时无法确认原会员已经结束。请先检查订阅状态，再购买其他套餐。",
   "billingIssue.syncTitle": "会员状态需要处理",
   "cancelPlan.alert": "您仍可享受当前订阅权益，直到 {{date}} 到期。到期前可随时重新订阅。",

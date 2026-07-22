@@ -76,6 +76,9 @@ export default {
   'billingIssue.paymentTitle': 'Payment required to restore your membership',
   'billingIssue.retryAction': 'Check again',
   'billingIssue.retryError': 'Unable to refresh the subscription status. Please try again.',
+  'billingIssue.retryPending':
+    'This membership still needs attention. Follow the updated action or try again later.',
+  'billingIssue.retrySuccess': 'Membership status updated.',
   'billingIssue.syncDescription':
     'We cannot confirm that the previous membership has ended. Check its status before purchasing another plan.',
   'billingIssue.syncTitle': 'Membership status needs attention',
