@@ -1491,6 +1491,25 @@ describe('ConversationLifecycle actions', () => {
     describe('gateway thread creation', () => {
       it('forwards the staged thread request and returns the created thread id', async () => {
         const { result } = renderHook(() => useChatStore());
+        const stagedThreadKey = messageMapKey({
+          agentId: TEST_IDS.SESSION_ID,
+          isNew: true,
+          scope: 'thread',
+          topicId: TEST_IDS.TOPIC_ID,
+        });
+        const createdThreadKey = messageMapKey({
+          agentId: TEST_IDS.SESSION_ID,
+          isNew: true,
+          scope: 'thread',
+          threadId: 'thread-created',
+          topicId: TEST_IDS.TOPIC_ID,
+        });
+        const queuedMessage = {
+          content: 'queued while the gateway request was starting',
+          createdAt: Date.now(),
+          id: 'queued-before-thread-created',
+          interruptMode: 'soft' as const,
+        };
         const executeGatewayAgent = vi.fn().mockResolvedValue({
           assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
           createdThreadId: 'thread-created',
@@ -1503,6 +1522,8 @@ describe('ConversationLifecycle actions', () => {
           useChatStore.setState({
             executeGatewayAgent,
             isGatewayModeEnabled: () => true,
+            portalStack: [{ startMessageId: 'source-message-1', type: PortalViewType.Thread }],
+            queuedMessages: { [stagedThreadKey]: [queuedMessage] },
           });
         });
 
@@ -1535,6 +1556,15 @@ describe('ConversationLifecycle actions', () => {
           assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
           createdThreadId: 'thread-created',
           userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        });
+        expect(result.current.portalThreadId).toBe('thread-created');
+        expect(result.current.startToForkThread).toBe(false);
+        expect(result.current.queuedMessages[stagedThreadKey] ?? []).toEqual([]);
+        expect(result.current.queuedMessages[createdThreadKey]).toEqual([queuedMessage]);
+        expect(result.current.portalStack.at(-1)).toMatchObject({
+          startMessageId: 'source-message-1',
+          threadId: 'thread-created',
+          type: PortalViewType.Thread,
         });
       });
 

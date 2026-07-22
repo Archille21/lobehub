@@ -1091,6 +1091,24 @@ export class ConversationLifecycleActionImpl {
           tempMessageIds: [tempAssistantId],
         });
 
+        if (result.createdThreadId) {
+          this.#get().updateOperationMetadata(operationId, {
+            createdThreadId: result.createdThreadId,
+          });
+          this.#get().moveQueuedMessages(
+            currentContextKey,
+            messageMapKey({ ...operationContext, threadId: result.createdThreadId }),
+          );
+
+          const currentPortalViewType = chatPortalSelectors.currentViewType(this.#get());
+          if (currentPortalViewType === PortalViewType.Thread) {
+            this.#get().openThreadInPortal(result.createdThreadId, context.sourceMessageId);
+          } else {
+            this.#get().syncThreadInPortal(result.createdThreadId, context.sourceMessageId);
+          }
+          this.#get().refreshThreads();
+        }
+
         // Topic title: gateway-created topics had no LLM-summarized
         // title. executeGatewayAgent has already replaced messages + switched to
         // the new topic, so the shared hook reads the persisted conversation from
