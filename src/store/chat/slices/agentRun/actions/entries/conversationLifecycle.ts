@@ -286,14 +286,15 @@ export class ConversationLifecycleActionImpl {
 
     const agentState = getAgentStoreState();
     const agentConfig = agentSelectors.getAgentConfigById(agentId)(agentState);
-    const isWorkspaceAgent = agentByIdSelectors.isWorkspaceAgentById(agentId)(agentState);
-    const deviceOverride = isWorkspaceAgent
+    const usesWorkspaceMemberSelection =
+      agentByIdSelectors.usesWorkspaceMemberSelectionById(agentId)(agentState);
+    const deviceOverride = usesWorkspaceMemberSelection
       ? getUserStoreState().workspaceUserPreference.agentDeviceOverrides?.[agentId]
       : undefined;
-    const workspaceScoped = resolveWorkspaceScoped(isWorkspaceAgent, deviceOverride);
+    const workspaceScoped = resolveWorkspaceScoped(usesWorkspaceMemberSelection, deviceOverride);
     // Runtime selection must use the same per-user device override as the
-    // switcher. A workspace-local pick is intentionally private to this member
-    // and is therefore safe to execute in-process on their desktop.
+    // switcher. A public-workspace local pick is private to this member and is
+    // therefore safe to execute in-process on their desktop.
     const agencyConfig = resolveAgencyConfig(agentConfig?.agencyConfig, deviceOverride);
     const heterogeneousProvider = agencyConfig?.heterogeneousProvider;
     const runtimeType = selectRuntimeType({
@@ -1699,7 +1700,9 @@ export class ConversationLifecycleActionImpl {
           inPortalThread,
           isGatewayMode: this.#get().isGatewayModeEnabled(context.agentId),
           isWorkspaceAgent: context.agentId
-            ? agentByIdSelectors.isWorkspaceAgentById(context.agentId)(getAgentStoreState())
+            ? agentByIdSelectors.usesWorkspaceMemberSelectionById(context.agentId)(
+                getAgentStoreState(),
+              )
             : false,
           messages: messagesWithInstruction,
           parentOperationId: operationId,

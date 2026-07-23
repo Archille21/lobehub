@@ -1774,7 +1774,9 @@ describe('ConversationLifecycle actions', () => {
         });
 
         const { agentByIdSelectors } = await import('@/store/agent/selectors');
-        vi.spyOn(agentByIdSelectors, 'isWorkspaceAgentById').mockReturnValue(() => true);
+        vi.spyOn(agentByIdSelectors, 'usesWorkspaceMemberSelectionById').mockReturnValue(
+          () => true,
+        );
         useUserStore.setState({
           workspaceUserPreference: {
             agentDeviceOverrides: {
@@ -1815,6 +1817,61 @@ describe('ConversationLifecycle actions', () => {
         expect(executeGatewayAgent).not.toHaveBeenCalled();
       });
 
+      it('ignores a stale member device override when sending with a private workspace agent', async () => {
+        mockConstEnv.isDesktop = true;
+        setupMockSelectors({
+          agentConfig: {
+            agencyConfig: {
+              boundDeviceId: 'private-agent-device',
+              executionTarget: 'device',
+              heterogeneousProvider: { command: 'codex', type: 'codex' },
+            },
+          },
+        });
+
+        const { agentByIdSelectors } = await import('@/store/agent/selectors');
+        vi.spyOn(agentByIdSelectors, 'usesWorkspaceMemberSelectionById').mockReturnValue(
+          () => false,
+        );
+        useUserStore.setState({
+          workspaceUserPreference: {
+            agentDeviceOverrides: {
+              [TEST_IDS.SESSION_ID]: {
+                boundDeviceId: 'stale-personal-device',
+                executionTarget: 'local',
+              },
+            },
+          },
+        });
+
+        const executeGatewayAgent = vi.fn().mockResolvedValue(undefined);
+        act(() => {
+          useChatStore.setState({ executeGatewayAgent });
+        });
+
+        vi.spyOn(aiChatService, 'sendMessageInServer').mockResolvedValue({
+          assistantMessageId: TEST_IDS.ASSISTANT_MESSAGE_ID,
+          messages: [
+            createMockMessage({ id: TEST_IDS.USER_MESSAGE_ID, role: 'user' }),
+            createMockMessage({ id: TEST_IDS.ASSISTANT_MESSAGE_ID, role: 'assistant' }),
+          ],
+          topicId: TEST_IDS.TOPIC_ID,
+          topics: [],
+          userMessageId: TEST_IDS.USER_MESSAGE_ID,
+        } as any);
+
+        const { result } = renderHook(() => useChatStore());
+        await act(async () => {
+          await result.current.sendMessage({
+            message: TEST_CONTENT.USER_MESSAGE,
+            context: createTestContext(),
+          });
+        });
+
+        expect(executeGatewayAgent).toHaveBeenCalledTimes(1);
+        expect(executeHeterogeneousAgentMock).not.toHaveBeenCalled();
+      });
+
       it('keeps a workspace shared-local fallback on the gateway without a member override', async () => {
         mockConstEnv.isDesktop = true;
         setupMockSelectors({
@@ -1828,7 +1885,9 @@ describe('ConversationLifecycle actions', () => {
         });
 
         const { agentByIdSelectors } = await import('@/store/agent/selectors');
-        vi.spyOn(agentByIdSelectors, 'isWorkspaceAgentById').mockReturnValue(() => true);
+        vi.spyOn(agentByIdSelectors, 'usesWorkspaceMemberSelectionById').mockReturnValue(
+          () => true,
+        );
 
         const executeGatewayAgent = vi.fn().mockResolvedValue(undefined);
         act(() => {

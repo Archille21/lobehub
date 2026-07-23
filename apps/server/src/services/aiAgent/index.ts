@@ -1235,12 +1235,12 @@ export class AiAgentService {
     const resolvedAgentId = agentConfig.id;
     let memberModelOverride: AgentModelOverride | undefined;
 
-    // Layer this caller's workspace-scoped execution and model preferences over
+    // Layer this caller's public-workspace execution and model preferences over
     // the shared Agent row. Device selection keeps its existing fallback rules;
     // model selection is applied only when the author explicitly allows member
     // choice (an omitted policy is fixed). Both overrides live in the dedicated
     // per-(workspace, user) settings row and never mutate shared Agent config.
-    if (this.workspaceId) {
+    if (this.workspaceId && agentConfig.visibility !== 'private') {
       try {
         const workspaceUserSettings = new WorkspaceUserSettingsModel(
           this.db,

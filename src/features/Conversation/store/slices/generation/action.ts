@@ -96,14 +96,15 @@ const settleGenerationEntry = (
 const getEffectiveAgencyConfig = (agentId: string) => {
   const agentState = getAgentStoreState();
   const sharedAgencyConfig = agentSelectors.getAgentConfigById(agentId)(agentState)?.agencyConfig;
-  const isWorkspaceAgent = agentByIdSelectors.isWorkspaceAgentById(agentId)(agentState);
-  const deviceOverride = isWorkspaceAgent
+  const usesWorkspaceMemberSelection =
+    agentByIdSelectors.usesWorkspaceMemberSelectionById(agentId)(agentState);
+  const deviceOverride = usesWorkspaceMemberSelection
     ? getUserStoreState().workspaceUserPreference.agentDeviceOverrides?.[agentId]
     : undefined;
 
   return {
     agencyConfig: resolveAgencyConfig(sharedAgencyConfig, deviceOverride),
-    workspaceScoped: resolveWorkspaceScoped(isWorkspaceAgent, deviceOverride),
+    workspaceScoped: resolveWorkspaceScoped(usesWorkspaceMemberSelection, deviceOverride),
   };
 };
 

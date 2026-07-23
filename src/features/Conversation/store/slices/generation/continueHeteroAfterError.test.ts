@@ -29,7 +29,7 @@ vi.mock('@/store/chat/slices/agentRun/actions/dispatch/agentDispatcher', () => (
 }));
 
 let mockResumeSessionId: string | undefined = 'sess-1';
-let mockIsWorkspaceAgent = false;
+let mockUsesWorkspaceMemberSelection = false;
 let mockSharedExecutionTarget: 'device' | 'local' = 'local';
 let mockWorkspaceOverride: { boundDeviceId: string; executionTarget: 'local' } | undefined;
 vi.mock('@/store/chat/slices/agentRun/actions/transports/hetero/heteroResume', () => ({
@@ -65,7 +65,7 @@ vi.mock('@/store/agent', () => ({
 
 vi.mock('@/store/agent/selectors', () => ({
   agentByIdSelectors: {
-    isWorkspaceAgentById: () => () => mockIsWorkspaceAgent,
+    usesWorkspaceMemberSelectionById: () => () => mockUsesWorkspaceMemberSelection,
   },
   agentSelectors: {
     getAgentConfigById: () => () => ({
@@ -160,7 +160,7 @@ describe('continueHeteroAfterError', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockResumeSessionId = 'sess-1';
-    mockIsWorkspaceAgent = false;
+    mockUsesWorkspaceMemberSelection = false;
     mockSharedExecutionTarget = 'local';
     mockWorkspaceOverride = undefined;
   });
@@ -245,7 +245,7 @@ describe('continueHeteroAfterError', () => {
   });
 
   it('resumes locally when a workspace member overrides the shared device with this desktop', async () => {
-    mockIsWorkspaceAgent = true;
+    mockUsesWorkspaceMemberSelection = true;
     mockSharedExecutionTarget = 'device';
     mockWorkspaceOverride = {
       boundDeviceId: 'personal-device',
@@ -275,8 +275,34 @@ describe('continueHeteroAfterError', () => {
     expect(executorParams().workingDirectory).toBe('/Users/me/project');
   });
 
+  it('ignores a stale member override when continuing a private workspace agent', async () => {
+    mockSharedExecutionTarget = 'device';
+    mockWorkspaceOverride = {
+      boundDeviceId: 'personal-device',
+      executionTarget: 'local',
+    };
+    const store = buildGroupStore([
+      { content: 'looking', id: 'step-1', tools: [{ id: 'call-1' }] },
+      { content: '', error: HETERO_RATE_LIMIT, id: 'step-2' },
+    ]);
+
+    await act(async () => {
+      await store.getState().continueHeteroAfterError('step-1');
+    });
+
+    expect(mockSelectRuntimeType).toHaveBeenCalledWith(
+      expect.objectContaining({
+        boundDeviceId: 'workspace-device',
+        executionTarget: 'device',
+        isWorkspaceAgent: false,
+      }),
+    );
+    expect(mockExecuteGatewayAgent).toHaveBeenCalledTimes(1);
+    expect(mockExecuteHeterogeneousAgent).not.toHaveBeenCalled();
+  });
+
   it('falls back through the gateway for a workspace shared-local target without an override', async () => {
-    mockIsWorkspaceAgent = true;
+    mockUsesWorkspaceMemberSelection = true;
     mockSharedExecutionTarget = 'local';
     const store = buildGroupStore([
       { content: 'looking', id: 'step-1', tools: [{ id: 'call-1' }] },

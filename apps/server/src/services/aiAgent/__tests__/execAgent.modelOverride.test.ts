@@ -233,13 +233,20 @@ describe('AiAgentService.execAgent - model/provider override', () => {
     expect(callArgs.agentConfig.provider).toBe('anthropic');
   });
 
-  it('ignores the caller model preference when the workspace Agent is private', async () => {
+  it('ignores retained member preferences when the workspace Agent is private', async () => {
     mockGetAgentConfig.mockResolvedValue({
       ...defaultAgentConfig,
-      agencyConfig: { modelSelectionPolicy: 'member' },
+      agencyConfig: {
+        boundDeviceId: 'private-agent-device',
+        executionTarget: 'device',
+        modelSelectionPolicy: 'member',
+      },
       visibility: 'private',
     });
     mockGetPreference.mockResolvedValue({
+      agentDeviceOverrides: {
+        'agent-1': { boundDeviceId: 'stale-member-device', executionTarget: 'local' },
+      },
       agentModelOverrides: {
         'agent-1': { model: 'claude-sonnet-4-6', provider: 'anthropic' },
       },
@@ -251,6 +258,11 @@ describe('AiAgentService.execAgent - model/provider override', () => {
     const callArgs = mockCreateOperation.mock.calls[0][0];
     expect(callArgs.agentConfig.model).toBe('gpt-4');
     expect(callArgs.agentConfig.provider).toBe('openai');
+    expect(callArgs.agentConfig.agencyConfig).toMatchObject({
+      boundDeviceId: 'private-agent-device',
+      executionTarget: 'device',
+    });
+    expect(mockGetPreference).not.toHaveBeenCalled();
   });
 
   it('ignores a retained caller preference when the workspace model policy is missing/fixed', async () => {
