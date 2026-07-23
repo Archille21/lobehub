@@ -36,7 +36,9 @@ export const useAgentModelSelection = (agentId: string): UseAgentModelSelectionR
   const sharedModel = useAgentStore(agentByIdSelectors.getAgentModelById(agentId));
   const sharedProvider = useAgentStore(agentByIdSelectors.getAgentModelProviderById(agentId));
   const updateAgentConfigById = useAgentStore((s) => s.updateAgentConfigById);
-  const usesWorkspaceMemberSelection = !!agent?.workspaceId && agent.visibility !== 'private';
+  const usesWorkspaceMemberSelection = useAgentStore(
+    agentByIdSelectors.usesWorkspaceMemberSelectionById(agentId),
+  );
 
   const updateWorkspaceUserPreference = useUserStore((s) => s.updateWorkspaceUserPreference);
   const storePreference = useUserStore((s) => s.workspaceUserPreference);

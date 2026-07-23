@@ -199,15 +199,23 @@ const isAgentHeterogeneousById =
  */
 const getAgentById = (agentId: string) => (s: AgentStoreState) => s.agentMap[agentId];
 
-/**
- * Workspace-scoped agent: shared across workspace members, so it executes on
- * the workspace device pool / sandbox — never on the current member's own
- * client. Feed this into `resolveExecutionTarget`'s `workspaceScoped` option.
- */
+/** Whether the agent belongs to a workspace, regardless of its visibility. */
 const isWorkspaceAgentById =
   (agentId: string) =>
   (s: AgentStoreState): boolean =>
     !!s.agentMap[agentId]?.workspaceId;
+
+/**
+ * Whether this agent uses per-member workspace preferences. Private workspace
+ * agents still have a single owner, so they read and write their agent config
+ * directly until published.
+ */
+const usesWorkspaceMemberSelectionById =
+  (agentId: string) =>
+  (s: AgentStoreState): boolean => {
+    const agent = s.agentMap[agentId];
+    return Boolean(agent?.workspaceId && agent.visibility !== 'private');
+  };
 
 export const agentByIdSelectors = {
   getAgencyConfigById,
@@ -231,4 +239,5 @@ export const agentByIdSelectors = {
   isAgentHeterogeneousById,
   isAgentNotFoundById,
   isWorkspaceAgentById,
+  usesWorkspaceMemberSelectionById,
 };

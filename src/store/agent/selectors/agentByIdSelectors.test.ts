@@ -20,6 +20,22 @@ const createState = (overrides: Partial<AgentStoreState> = {}): AgentStoreState 
 });
 
 describe('agentByIdSelectors', () => {
+  describe('usesWorkspaceMemberSelectionById', () => {
+    it('uses member preferences only after a workspace agent is public', () => {
+      const state = createState({
+        agentMap: {
+          personal: {},
+          private: { visibility: 'private', workspaceId: 'workspace-1' },
+          public: { visibility: 'public', workspaceId: 'workspace-1' },
+        },
+      });
+
+      expect(agentByIdSelectors.usesWorkspaceMemberSelectionById('personal')(state)).toBe(false);
+      expect(agentByIdSelectors.usesWorkspaceMemberSelectionById('private')(state)).toBe(false);
+      expect(agentByIdSelectors.usesWorkspaceMemberSelectionById('public')(state)).toBe(true);
+    });
+  });
+
   describe('getAgentBuilderContextById', () => {
     it('should return builder context from existing agent config', () => {
       const state = createState({

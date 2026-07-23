@@ -12,9 +12,14 @@ vi.mock('@/store/agent/selectors', () => ({
     getAgencyConfigById:
       (id: string) => (s: { agentMap: Record<string, { agencyConfig?: unknown }> }) =>
         s.agentMap[id]?.agencyConfig,
-    isWorkspaceAgentById:
-      (id: string) => (s: { agentMap: Record<string, { workspaceId?: string }> }) =>
-        Boolean(s.agentMap[id]?.workspaceId),
+    usesWorkspaceMemberSelectionById:
+      (id: string) =>
+      (s: {
+        agentMap: Record<string, { visibility?: 'private' | 'public'; workspaceId?: string }>;
+      }) => {
+        const agent = s.agentMap[id];
+        return Boolean(agent?.workspaceId && agent.visibility !== 'private');
+      },
   },
 }));
 vi.mock('@/store/user', () => ({ useUserStore: vi.fn() }));
@@ -37,6 +42,7 @@ const setupStores = ({
   fetchedPreference,
   isLoading = false,
   override,
+  visibility,
   workspaceId,
 }: {
   agencyConfig?: unknown;
@@ -44,9 +50,10 @@ const setupStores = ({
   fetchedPreference?: unknown;
   isLoading?: boolean;
   override?: unknown;
+  visibility?: 'private' | 'public';
   workspaceId?: string;
 } = {}) => {
-  const agentState = { agentMap: { 'agent-1': { agencyConfig, workspaceId } } };
+  const agentState = { agentMap: { 'agent-1': { agencyConfig, visibility, workspaceId } } };
   const userState = {
     useFetchWorkspaceUserPreference: () => ({ data: fetchedPreference, isLoading }),
     workspaceUserPreference: { agentDeviceOverrides: override ? { 'agent-1': override } : {} },
@@ -66,6 +73,21 @@ describe('useEffectiveAgencyConfig', () => {
     const { result } = renderHook(() => useEffectiveAgencyConfig('agent-1'));
 
     expect(result.current.agencyConfig).toEqual(sharedConfig);
+    expect(result.current.workspaceScoped).toBe(false);
+  });
+
+  it('ignores member overrides and loading state for a private workspace agent', () => {
+    setupStores({
+      isLoading: true,
+      override: { boundDeviceId: 'stale-member-device', executionTarget: 'local' },
+      visibility: 'private',
+      workspaceId: 'ws-1',
+    });
+
+    const { result } = renderHook(() => useEffectiveAgencyConfig('agent-1'));
+
+    expect(result.current.agencyConfig).toEqual(sharedConfig);
+    expect(result.current.isPreferenceLoading).toBe(false);
     expect(result.current.workspaceScoped).toBe(false);
   });
 

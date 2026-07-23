@@ -22,7 +22,7 @@ import { useUserStore } from '@/store/user';
  * - **Personal agent** — writes go straight into the shared
  *   `agents.agencyConfig` (there's only ever one owner, so there's nothing to
  *   isolate).
- * - **Workspace agent** — writes go into
+ * - **Public workspace agent** — writes go into
  *   `workspace_user_settings.preference.agentDeviceOverrides[agentId]`
  *   (per-user per-workspace) so each member's Cloud Sandbox / workspace-device
  *   / this-machine choice stays independent. The shared `agents.agencyConfig`
@@ -30,6 +30,9 @@ import { useUserStore } from '@/store/user';
  *   chosen anything yet. Reads / writes are cached through the
  *   `workspaceUserSettings` slice of the user store, keyed on the active
  *   workspaceId.
+ * - **Private workspace agent** — like a personal agent, writes go straight
+ *   into `agents.agencyConfig`; only its owner can use it, so there is no
+ *   member-specific choice to isolate yet.
  *
  * `local` is stored verbatim (`{ executionTarget: 'local', boundDeviceId: <me> }`)
  * so both desktop dispatch (in-process IPC — the fast path) and web dispatch
@@ -41,7 +44,9 @@ import { useUserStore } from '@/store/user';
 export const useSelectExecutionTarget = (agentId: string) => {
   const agencyConfig = useAgentStore(agentByIdSelectors.getAgencyConfigById(agentId));
   const isHetero = useAgentStore(agentByIdSelectors.isAgentHeterogeneousById(agentId));
-  const isWorkspaceAgent = useAgentStore((s) => Boolean(s.agentMap[agentId]?.workspaceId));
+  const usesWorkspaceMemberSelection = useAgentStore(
+    agentByIdSelectors.usesWorkspaceMemberSelectionById(agentId),
+  );
   const updateAgentConfigById = useAgentStore((s) => s.updateAgentConfigById);
 
   const updateWorkspaceUserPreference = useUserStore((s) => s.updateWorkspaceUserPreference);
@@ -60,7 +65,8 @@ export const useSelectExecutionTarget = (agentId: string) => {
       // Fixed workspace agents are author-controlled. Keep any existing member
       // override dormant (so switching back to member choice restores it), but
       // never let this picker create or update an override while fixed.
-      if (isWorkspaceAgent && agencyConfig?.executionTargetSelectionPolicy === 'fixed') return;
+      if (usesWorkspaceMemberSelection && agencyConfig?.executionTargetSelectionPolicy === 'fixed')
+        return;
 
       const boundDeviceId = agencyConfig?.boundDeviceId;
       let nextBoundDeviceId = target === 'device' ? deviceId : boundDeviceId;
@@ -92,7 +98,7 @@ export const useSelectExecutionTarget = (agentId: string) => {
       //    `resolveExecutionTarget` already coerces a stored `local` +
       //    `boundDeviceId` to `device` when a gateway is available, so the
       //    server-side dispatch path Just Works — no need to pre-coerce here.
-      if (isWorkspaceAgent) {
+      if (usesWorkspaceMemberSelection) {
         const nextOverrides = {
           ...workspaceUserPreference.agentDeviceOverrides,
           [agentId]: {
@@ -117,9 +123,9 @@ export const useSelectExecutionTarget = (agentId: string) => {
       agencyConfig,
       currentDeviceId,
       isHetero,
-      isWorkspaceAgent,
       updateAgentConfigById,
       updateWorkspaceUserPreference,
+      usesWorkspaceMemberSelection,
       workspaceUserPreference,
     ],
   );

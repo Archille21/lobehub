@@ -11,9 +11,9 @@ export interface UseEffectiveAgencyConfigResult {
   agencyConfig: LobeAgentAgencyConfig | undefined;
   /**
    * The workspace preference fetch is still in flight. Until it settles, a
-   * workspace agent's `agencyConfig` may reflect only the shared row — callers
-   * that act on `boundDeviceId` / `executionTarget` (device guards, defaults)
-   * should wait instead of acting on a value that may flip.
+   * public workspace agent's `agencyConfig` may reflect only the shared row —
+   * callers that act on `boundDeviceId` / `executionTarget` (device guards,
+   * defaults) should wait instead of acting on a value that may flip.
    */
   isPreferenceLoading: boolean;
   /**
@@ -35,9 +35,9 @@ export interface UseEffectiveAgencyConfigResult {
  * Reading the shared row alone shows whichever device landed there (usually
  * the creator's machine) instead of this member's choice.
  *
- * Personal agents have a single owner whose choice IS the shared config, so
- * the override is only applied for workspace agents — mirroring the write
- * side (`useSelectExecutionTarget`).
+ * Personal and private workspace agents have a single user whose choice IS the
+ * agent config, so the override is only applied for public workspace agents —
+ * mirroring the write side (`useSelectExecutionTarget`).
  *
  * Self-populates the workspace preference cache (SWR dedupes across callers;
  * personal mode short-circuits without a network call).
@@ -46,8 +46,8 @@ export const useEffectiveAgencyConfig = (agentId?: string): UseEffectiveAgencyCo
   const sharedAgencyConfig = useAgentStore((s) =>
     agentId ? agentByIdSelectors.getAgencyConfigById(agentId)(s) : undefined,
   );
-  const isWorkspaceAgent = useAgentStore((s) =>
-    agentId ? agentByIdSelectors.isWorkspaceAgentById(agentId)(s) : false,
+  const usesWorkspaceMemberSelection = useAgentStore((s) =>
+    agentId ? agentByIdSelectors.usesWorkspaceMemberSelectionById(agentId)(s) : false,
   );
 
   // Prefer the SWR response over the store bucket: the SWR cache is keyed by
@@ -66,8 +66,11 @@ export const useEffectiveAgencyConfig = (agentId?: string): UseEffectiveAgencyCo
   const override = agentId ? preference.agentDeviceOverrides?.[agentId] : undefined;
 
   return {
-    agencyConfig: resolveAgencyConfig(sharedAgencyConfig, isWorkspaceAgent ? override : undefined),
-    isPreferenceLoading: isWorkspaceAgent && isLoading,
-    workspaceScoped: resolveWorkspaceScoped(isWorkspaceAgent, override),
+    agencyConfig: resolveAgencyConfig(
+      sharedAgencyConfig,
+      usesWorkspaceMemberSelection ? override : undefined,
+    ),
+    isPreferenceLoading: usesWorkspaceMemberSelection && isLoading,
+    workspaceScoped: resolveWorkspaceScoped(usesWorkspaceMemberSelection, override),
   };
 };

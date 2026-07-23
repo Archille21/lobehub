@@ -13,7 +13,10 @@ const testState = vi.hoisted(() => ({
           heterogeneousProvider?: { type: string };
         }
       | undefined,
-    agentMap: {} as Record<string, { workspaceId?: string | null }>,
+    agentMap: {} as Record<
+      string,
+      { visibility?: 'private' | 'public'; workspaceId?: string | null }
+    >,
     isHetero: false,
     updateAgentConfigById: vi.fn(),
   },
@@ -50,6 +53,10 @@ vi.mock('@/store/agent/selectors', () => ({
   agentByIdSelectors: {
     getAgencyConfigById: () => (s: typeof testState.agent) => s.agencyConfig,
     isAgentHeterogeneousById: () => (s: typeof testState.agent) => s.isHetero,
+    usesWorkspaceMemberSelectionById: (id: string) => (s: typeof testState.agent) => {
+      const agent = s.agentMap[id];
+      return Boolean(agent?.workspaceId && agent.visibility !== 'private');
+    },
   },
 }));
 
@@ -148,9 +155,39 @@ describe('useSelectExecutionTarget', () => {
     });
   });
 
+  describe('private workspace agent — writes to the agent config', () => {
+    beforeEach(() => {
+      testState.agent.agentMap = {
+        'agent-id': { visibility: 'private', workspaceId: 'ws-1' },
+      };
+    });
+
+    it('allows its owner to switch a fixed execution target without creating a member override', async () => {
+      testState.agent.agencyConfig = {
+        boundDeviceId: 'fixed-device',
+        executionTargetSelectionPolicy: 'fixed',
+        executionTarget: 'device',
+      };
+      const { result } = renderHook(() => useSelectExecutionTarget('agent-id'));
+
+      await result.current('device', 'another-device');
+
+      expect(testState.agent.updateAgentConfigById).toHaveBeenCalledWith('agent-id', {
+        agencyConfig: {
+          boundDeviceId: 'another-device',
+          executionTargetSelectionPolicy: 'fixed',
+          executionTarget: 'device',
+        },
+      });
+      expect(testState.user.updateWorkspaceUserPreference).not.toHaveBeenCalled();
+    });
+  });
+
   describe('workspace agent — writes to workspace_user_settings.preference.agentDeviceOverrides (LOBE-11689)', () => {
     beforeEach(() => {
-      testState.agent.agentMap = { 'agent-id': { workspaceId: 'ws-1' } };
+      testState.agent.agentMap = {
+        'agent-id': { visibility: 'public', workspaceId: 'ws-1' },
+      };
     });
 
     it('routes a workspace device pick into the workspace-scoped caller preference, never the shared config', async () => {

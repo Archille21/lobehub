@@ -46,6 +46,10 @@ vi.mock('@/store/agent/selectors', () => ({
     getAgentById: () => (s: typeof testState.agent) => s.agentMap['agent-1'],
     getAgentModelById: () => (s: typeof testState.agent) => s.model,
     getAgentModelProviderById: () => (s: typeof testState.agent) => s.provider,
+    usesWorkspaceMemberSelectionById: (id: string) => (s: typeof testState.agent) => {
+      const agent = s.agentMap[id as 'agent-1'];
+      return Boolean(agent?.workspaceId && agent.visibility !== 'private');
+    },
   },
 }));
 

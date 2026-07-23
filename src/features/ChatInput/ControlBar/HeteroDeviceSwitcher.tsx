@@ -36,6 +36,7 @@ import {
 import { useIsGatewayModeEnabled } from '@/helpers/gatewayMode';
 import { useEffectiveAgencyConfig } from '@/hooks/useEffectiveAgencyConfig';
 import { useAgentStore } from '@/store/agent';
+import { agentByIdSelectors } from '@/store/agent/selectors';
 import { useElectronStore } from '@/store/electron';
 
 import { formatFixedExecutionTargetTooltip } from './executionTargetTooltip';
@@ -327,6 +328,9 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
 
   const agentWorkspaceId = useAgentStore((s) => s.agentMap[agentId]?.workspaceId);
   const isWorkspaceAgent = Boolean(agentWorkspaceId);
+  const usesWorkspaceMemberSelection = useAgentStore(
+    agentByIdSelectors.usesWorkspaceMemberSelectionById(agentId),
+  );
 
   // Shared config merged with the caller's per-agent override (LOBE-11689) —
   // the hook eagerly fetches the `workspaceUserSettings` bucket on mount so
@@ -338,7 +342,7 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
   } = useEffectiveAgencyConfig(agentId);
 
   const isFixedExecutionTarget =
-    isWorkspaceAgent && agencyConfig?.executionTargetSelectionPolicy === 'fixed';
+    usesWorkspaceMemberSelection && agencyConfig?.executionTargetSelectionPolicy === 'fixed';
 
   const heteroType = agencyConfig?.heterogeneousProvider?.type;
   const boundDeviceId = agencyConfig?.boundDeviceId;
@@ -392,13 +396,9 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
     [selectExecutionTarget],
   );
 
-  // Auto-default to THIS desktop's local execution on first open, for both
-  // personal and workspace agents (workspace behaviour used to be a hostname
-  // lookup against the workspace device pool — see LOBE-11647 — but with
-  // per-user overrides that lookup is unnecessary: `useSelectExecutionTarget`
-  // resolves `'local'` to this desktop's personal gateway `deviceId` and, for
-  // a workspace agent, persists it into `users.preference.agentDeviceOverrides`,
-  // so it never touches other members' choices).
+  // Auto-default to THIS desktop's local execution on first open. Public
+  // workspace agents persist the selection as a per-user override; personal
+  // and private workspace agents persist it directly on the agent.
   //
   // Fires only when the effective (merged) target and bound device are both
   // unset — an explicit prior selection, mine or (for personal) shared,
