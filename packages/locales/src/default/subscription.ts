@@ -21,7 +21,7 @@ export default {
   'billing.empty': 'No billing history',
   'billing.endDate': 'End Date',
   'billing.existingSubscription.description':
-    'No new subscription was created. You can manage or cancel your current subscription below.',
+    'No new subscription was created. View your current subscription or outstanding invoices below.',
   'billing.existingSubscription.title': 'You already have a subscription',
   'billing.history': 'Billing History',
   'billing.manage.openFailed': 'Failed to open the payment management page',
