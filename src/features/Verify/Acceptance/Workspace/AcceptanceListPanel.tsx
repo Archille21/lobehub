@@ -625,7 +625,11 @@ const AcceptanceListPanel = memo<ReportPanelExpand>(({ expand, isNarrow, setExpa
                 <span className={styles.searchEmptyMsg}>
                   {trimmedQuery
                     ? t('acceptance.workspace.filters.noSearchResults', { query: trimmedQuery })
-                    : t(`acceptance.workspace.filters.empty.${filter}`)}
+                    : t(
+                        filter === 'active'
+                          ? 'acceptance.workspace.filters.empty.active'
+                          : 'acceptance.workspace.filters.empty.completed',
+                      )}
                 </span>
                 <button
                   className={styles.retryBtn}
