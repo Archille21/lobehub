@@ -33,7 +33,7 @@
   "billing.validUntil": "Ważne do",
   "billing.view": "Zobacz",
   "billingIssue.payAction": "Opłać zaległą fakturę",
-  "billingIssue.paymentDescription": "Twoja poprzednia płatność za odnowienie nie została zrealizowana. Opłać zaległą fakturę, aby przywrócić członkostwo przed zakupem innego planu.",
+  "billingIssue.paymentDescription": "Poprzednia płatność za odnowienie nie została zrealizowana, dlatego korzyści członkowskie są wstrzymane. Przywróć subskrypcję, aby kontynuować.",
   "billingIssue.paymentTitle": "Wymagana płatność w celu przywrócenia członkostwa",
   "billingIssue.retryError": "Nie udało się odświeżyć statusu subskrypcji. Spróbuj ponownie.",
   "billingIssue.retryPending": "To członkostwo nadal wymaga uwagi. Wykonaj zaktualizowaną akcję lub spróbuj ponownie później.",

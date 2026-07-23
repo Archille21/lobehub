@@ -33,7 +33,7 @@
   "billing.validUntil": "Válido hasta",
   "billing.view": "Ver",
   "billingIssue.payAction": "Pagar factura pendiente",
-  "billingIssue.paymentDescription": "Tu pago de renovación anterior no se completó. Paga la factura pendiente para restaurar esta membresía antes de adquirir otro plan.",
+  "billingIssue.paymentDescription": "Tu pago de renovación anterior no se completó, por lo que tus beneficios de membresía están pausados. Restaura tu suscripción para continuar.",
   "billingIssue.paymentTitle": "Pago requerido para restaurar tu membresía",
   "billingIssue.retryError": "No se pudo actualizar el estado de la suscripción. Por favor, inténtalo de nuevo.",
   "billingIssue.retryPending": "Esta membresía aún requiere atención. Sigue la acción actualizada o inténtalo de nuevo más tarde.",

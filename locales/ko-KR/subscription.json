@@ -33,7 +33,7 @@
   "billing.validUntil": "유효 기간",
   "billing.view": "보기",
   "billingIssue.payAction": "미결제 청구서 결제",
-  "billingIssue.paymentDescription": "이전 갱신 결제가 완료되지 않았습니다. 다른 플랜을 구매하기 전에 미결제 청구서를 결제하여 멤버십을 복원하세요.",
+  "billingIssue.paymentDescription": "이전 갱신 결제가 완료되지 않아 회원 혜택이 일시 중지되었습니다. 계속하려면 구독을 복원하세요.",
   "billingIssue.paymentTitle": "멤버십 복원을 위한 결제가 필요합니다",
   "billingIssue.retryError": "구독 상태를 새로 고칠 수 없습니다. 다시 시도해 주세요.",
   "billingIssue.retryPending": "이 멤버십은 여전히 주의가 필요합니다. 업데이트된 조치를 따르거나 나중에 다시 시도하세요.",

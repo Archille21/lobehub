@@ -33,7 +33,7 @@
   "billing.validUntil": "صالح حتى",
   "billing.view": "عرض",
   "billingIssue.payAction": "دفع الفاتورة المستحقة",
-  "billingIssue.paymentDescription": "لم تكتمل عملية الدفع للتجديد السابق. قم بدفع الفاتورة المستحقة لاستعادة هذه العضوية قبل شراء خطة أخرى.",
+  "billingIssue.paymentDescription": "لم تكتمل دفعة التجديد السابقة، لذلك تم تعليق مزايا عضويتك. استعد اشتراكك للمتابعة.",
   "billingIssue.paymentTitle": "مطلوب الدفع لاستعادة عضويتك",
   "billingIssue.retryError": "تعذر تحديث حالة الاشتراك. يرجى المحاولة مرة أخرى.",
   "billingIssue.retryPending": "هذه العضوية لا تزال بحاجة إلى اهتمام. اتبع الإجراء المحدث أو حاول مرة أخرى لاحقًا.",

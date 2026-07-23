@@ -33,7 +33,7 @@
   "billing.validUntil": "Válido até",
   "billing.view": "Visualizar",
   "billingIssue.payAction": "Pagar fatura pendente",
-  "billingIssue.paymentDescription": "Seu pagamento de renovação anterior não foi concluído. Pague a fatura pendente para restaurar esta assinatura antes de adquirir outro plano.",
+  "billingIssue.paymentDescription": "Seu pagamento de renovação anterior não foi concluído, então os benefícios da sua assinatura estão pausados. Restaure sua assinatura para continuar.",
   "billingIssue.paymentTitle": "Pagamento necessário para restaurar sua assinatura",
   "billingIssue.retryError": "Não foi possível atualizar o status da assinatura. Por favor, tente novamente.",
   "billingIssue.retryPending": "Esta assinatura ainda precisa de atenção. Siga a ação atualizada ou tente novamente mais tarde.",

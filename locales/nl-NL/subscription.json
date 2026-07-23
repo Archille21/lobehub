@@ -33,7 +33,7 @@
   "billing.validUntil": "Geldig tot",
   "billing.view": "Bekijk",
   "billingIssue.payAction": "Betaal openstaande factuur",
-  "billingIssue.paymentDescription": "Uw vorige verlengingsbetaling is niet voltooid. Betaal de openstaande factuur om dit lidmaatschap te herstellen voordat u een ander plan aanschaft.",
+  "billingIssue.paymentDescription": "Uw vorige verlengingsbetaling is niet voltooid, waardoor uw lidmaatschapsvoordelen zijn gepauzeerd. Herstel uw abonnement om door te gaan.",
   "billingIssue.paymentTitle": "Betaling vereist om uw lidmaatschap te herstellen",
   "billingIssue.retryError": "Kan de abonnementsstatus niet vernieuwen. Probeer het opnieuw.",
   "billingIssue.retryPending": "Dit lidmaatschap heeft nog steeds aandacht nodig. Volg de bijgewerkte actie of probeer het later opnieuw.",

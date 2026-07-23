@@ -76,7 +76,7 @@ export default {
   'createSubscriptionError': 'Failed to create subscription',
   'billingIssue.payAction': 'Restore subscription',
   'billingIssue.paymentDescription':
-    'Your previous renewal payment did not complete. Restore the subscription before purchasing another plan.',
+    'Your previous renewal payment did not complete, so your membership benefits are paused. Restore your subscription to continue.',
   'billingIssue.paymentTitle': 'Renewal payment incomplete',
   'billingIssue.retryError': 'Unable to restore the subscription. Please try again.',
   'billingIssue.retryPending': 'Subscription recovery is still syncing. Please try again shortly.',

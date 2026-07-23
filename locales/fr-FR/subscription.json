@@ -33,7 +33,7 @@
   "billing.validUntil": "Valide jusqu'au",
   "billing.view": "Voir",
   "billingIssue.payAction": "Payer la facture en attente",
-  "billingIssue.paymentDescription": "Votre paiement de renouvellement précédent n'a pas été effectué. Payez la facture en attente pour rétablir cette adhésion avant d'acheter un autre plan.",
+  "billingIssue.paymentDescription": "Votre précédent paiement de renouvellement n’a pas abouti, vos avantages d’adhésion sont donc suspendus. Rétablissez votre abonnement pour continuer.",
   "billingIssue.paymentTitle": "Paiement requis pour rétablir votre adhésion",
   "billingIssue.retryError": "Impossible de rafraîchir le statut de l'abonnement. Veuillez réessayer.",
   "billingIssue.retryPending": "Cette adhésion nécessite toujours une attention particulière. Suivez l'action mise à jour ou réessayez plus tard.",

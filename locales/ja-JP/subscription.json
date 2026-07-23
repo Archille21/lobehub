@@ -33,7 +33,7 @@
   "billing.validUntil": "有効期限",
   "billing.view": "表示",
   "billingIssue.payAction": "未払いの請求書を支払う",
-  "billingIssue.paymentDescription": "前回の更新支払いが完了しませんでした。別のプランを購入する前に、このメンバーシップを復元するために未払いの請求書を支払ってください。",
+  "billingIssue.paymentDescription": "前回の更新支払いが完了しなかったため、会員特典は一時停止されています。続行するにはサブスクリプションを復元してください。",
   "billingIssue.paymentTitle": "メンバーシップを復元するために支払いが必要です",
   "billingIssue.retryError": "サブスクリプションのステータスを更新できませんでした。もう一度お試しください。",
   "billingIssue.retryPending": "このメンバーシップにはまだ対応が必要です。更新されたアクションに従うか、後でもう一度お試しください。",

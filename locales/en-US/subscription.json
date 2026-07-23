@@ -33,7 +33,7 @@
   "billing.validUntil": "Valid Until",
   "billing.view": "View",
   "billingIssue.payAction": "Restore subscription",
-  "billingIssue.paymentDescription": "Your previous renewal payment did not complete. Restore the subscription before purchasing another plan.",
+  "billingIssue.paymentDescription": "Your previous renewal payment did not complete, so your membership benefits are paused. Restore your subscription to continue.",
   "billingIssue.paymentTitle": "Renewal payment incomplete",
   "billingIssue.retryError": "Unable to restore the subscription. Please try again.",
   "billingIssue.retryPending": "Subscription recovery is still syncing. Please try again shortly.",

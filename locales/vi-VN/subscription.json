@@ -33,7 +33,7 @@
   "billing.validUntil": "Có hiệu lực đến",
   "billing.view": "Xem",
   "billingIssue.payAction": "Thanh toán hóa đơn chưa thanh toán",
-  "billingIssue.paymentDescription": "Thanh toán gia hạn trước đó của bạn không thành công. Vui lòng thanh toán hóa đơn chưa thanh toán để khôi phục tư cách thành viên này trước khi mua gói khác.",
+  "billingIssue.paymentDescription": "Thanh toán gia hạn trước đó chưa hoàn tất, vì vậy quyền lợi thành viên của bạn đã bị tạm dừng. Hãy khôi phục đăng ký để tiếp tục.",
   "billingIssue.paymentTitle": "Cần thanh toán để khôi phục tư cách thành viên của bạn",
   "billingIssue.retryError": "Không thể làm mới trạng thái đăng ký. Vui lòng thử lại.",
   "billingIssue.retryPending": "Tư cách thành viên này vẫn cần được chú ý. Thực hiện hành động được cập nhật hoặc thử lại sau.",

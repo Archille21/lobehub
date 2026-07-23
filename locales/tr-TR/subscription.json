@@ -33,7 +33,7 @@
   "billing.validUntil": "Geçerlilik Tarihi",
   "billing.view": "Görüntüle",
   "billingIssue.payAction": "Ödenmemiş faturayı öde",
-  "billingIssue.paymentDescription": "Önceki yenileme ödemeniz tamamlanmadı. Başka bir plan satın almadan önce bu üyeliği geri yüklemek için ödenmemiş faturayı ödeyin.",
+  "billingIssue.paymentDescription": "Önceki yenileme ödemeniz tamamlanmadığı için üyelik avantajlarınız duraklatıldı. Devam etmek için aboneliğinizi geri yükleyin.",
   "billingIssue.paymentTitle": "Üyeliğinizi geri yüklemek için ödeme gerekli",
   "billingIssue.retryError": "Abonelik durumu yenilenemedi. Lütfen tekrar deneyin.",
   "billingIssue.retryPending": "Bu üyelik hâlâ dikkat gerektiriyor. Güncellenen işlemi takip edin veya daha sonra tekrar deneyin.",

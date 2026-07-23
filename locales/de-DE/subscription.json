@@ -33,7 +33,7 @@
   "billing.validUntil": "Gültig bis",
   "billing.view": "Anzeigen",
   "billingIssue.payAction": "Ausstehende Rechnung bezahlen",
-  "billingIssue.paymentDescription": "Ihre vorherige Verlängerungszahlung wurde nicht abgeschlossen. Bezahlen Sie die ausstehende Rechnung, um diese Mitgliedschaft wiederherzustellen, bevor Sie einen anderen Plan kaufen.",
+  "billingIssue.paymentDescription": "Ihre vorherige Verlängerungszahlung wurde nicht abgeschlossen, daher sind Ihre Mitgliedschaftsvorteile pausiert. Stellen Sie Ihr Abonnement wieder her, um fortzufahren.",
   "billingIssue.paymentTitle": "Zahlung erforderlich, um Ihre Mitgliedschaft wiederherzustellen",
   "billingIssue.retryError": "Der Abonnementstatus konnte nicht aktualisiert werden. Bitte versuchen Sie es erneut.",
   "billingIssue.retryPending": "Diese Mitgliedschaft erfordert weiterhin Aufmerksamkeit. Befolgen Sie die aktualisierte Aktion oder versuchen Sie es später erneut.",

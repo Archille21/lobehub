@@ -33,7 +33,7 @@
   "billing.validUntil": "有效期限",
   "billing.view": "查看",
   "billingIssue.payAction": "支付未結清的發票",
-  "billingIssue.paymentDescription": "您的上次續訂付款未成功。請支付未結清的發票以恢復此會員資格，然後再購買其他方案。",
+  "billingIssue.paymentDescription": "您上次的續訂付款未完成，因此會員權益已暫停。請恢復訂閱以繼續使用。",
   "billingIssue.paymentTitle": "需要付款以恢復您的會員資格",
   "billingIssue.retryError": "無法刷新訂閱狀態。請再試一次。",
   "billingIssue.retryPending": "此會員資格仍需注意。請按照更新的操作進行或稍後再試。",
