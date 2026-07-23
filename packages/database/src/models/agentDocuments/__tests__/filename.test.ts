@@ -21,7 +21,7 @@ describe('buildDocumentFilename', () => {
   });
 
   it('trims trailing dots and whitespace', () => {
-    expect(buildDocumentFilename('note...  ')).toBe('note');
+    expect(buildDocumentFilename('note.. ')).toBe('note');
   });
 });
 

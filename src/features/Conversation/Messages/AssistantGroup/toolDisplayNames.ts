@@ -222,7 +222,7 @@ const truncateDisplayAtWord = (s: string, max: number): string => {
   return `${slice}${TOOL_HEADLINE_TRUNCATION_SUFFIX}`;
 };
 
-/** Han / full-width CJK punctuation — if present, prefer 。！？ only (ASCII . is not a sentence end). */
+/** Han / full-width CJK punctuation — if present, prefer 。！？ only (ASCII is not a sentence end). */
 /** CJK Han block — prefer 。！？ sentence ends (see constants module comment). */
 const hasCjkScript = (s: string): boolean => /[\u4E00-\u9FFF]/.test(s);
 

@@ -323,7 +323,7 @@ export default defineFixtures({
         },
       },
       {
-        args: { command: 'find . -name "*.tsx" -not -path "*/node_modules/*" | head -20' },
+        args: { command: 'find -name "*.tsx" -not -path "*/node_modules/*" | head -20' },
         content: Array.from({ length: 20 }, (_, i) => `./src/components/Card${i}.tsx`).join('\n'),
         label: 'Large output',
         pluginState: {

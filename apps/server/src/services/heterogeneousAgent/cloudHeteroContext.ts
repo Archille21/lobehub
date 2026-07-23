@@ -23,7 +23,7 @@ export function buildCloudHeteroContext(params: {
   agentSystemContext?: string;
   /**
    * Recent conversation turns to inject when resuming a session whose context
-   * was cleared (sandbox recycled or context overflow).  Helps CC understand
+   * was cleared (sandbox recycled or context overflow) Helps CC understand
    * what happened in prior turns even without a native session file.
    */
   conversationHistory?: ConversationHistoryEntry[];

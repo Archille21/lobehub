@@ -29,7 +29,7 @@ export const parseFilesConfig = (envString: string = ''): SystemEmbeddingConfig 
           case 'embedding_model': {
             if (!provider || !model) {
               throw new Error(
-                'Invalid environment variable format.  expected of the form embedding_model=provider/model',
+                'Invalid environment variable format expected of the form embedding_model=provider/model',
               );
             }
             config.embeddingModel = { model: model.trim(), provider: provider.trim() };
@@ -38,7 +38,7 @@ export const parseFilesConfig = (envString: string = ''): SystemEmbeddingConfig 
           case 'reranker_model': {
             if (!provider || !model) {
               throw new Error(
-                'Invalid environment variable format.  expected of the form reranker_model=provider/model',
+                'Invalid environment variable format expected of the form reranker_model=provider/model',
               );
             }
             config.rerankerModel = { model: model.trim(), provider: provider.trim() };

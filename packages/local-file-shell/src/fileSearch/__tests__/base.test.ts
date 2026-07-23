@@ -134,7 +134,7 @@ describe('BaseFileSearch', () => {
 
   describe('escapeGlobPattern', () => {
     it('should escape special glob characters', () => {
-      // The function escapes . as well since it's a regex special character
+      // The function escapes as well since it's a regex special character
       expect(fileSearch.testEscapeGlobPattern('file*.ts')).toBe('file\\*\\.ts');
       expect(fileSearch.testEscapeGlobPattern('file?.ts')).toBe('file\\?\\.ts');
       expect(fileSearch.testEscapeGlobPattern('file[0-9].ts')).toBe('file\\[0-9\\]\\.ts');

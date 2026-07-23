@@ -251,7 +251,7 @@ export class HeterogeneousAgentService {
       serializedHooks = topic?.metadata?.runningOperation?.hooks as SerializedHook[] | undefined;
       // Prefer heteroCurrentMsgId — the persistence handler updates this pointer
       // on every step boundary, so it refers to the LAST assistant message with
-      // the complete final content.  Fall back to the initial placeholder id
+      // the complete final content Fall back to the initial placeholder id
       // recorded in runningOperation if the pointer is absent or belongs to a
       // different operation (shouldn't happen, but defensive).
       const currentMsgRef = topic?.metadata?.heteroCurrentMsgId;

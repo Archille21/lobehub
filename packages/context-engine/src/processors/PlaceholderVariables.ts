@@ -312,7 +312,7 @@ export class PlaceholderVariablesProcessor extends BaseProcessor {
     const generators = this.config.variableGenerators;
 
     // Defensive: guard against a malformed config that reached runtime despite
-    // the TypeScript contract.  A missing generator map is a harness bug, not a
+    // the TypeScript contract A missing generator map is a harness bug, not a
     // user error — throw early with an actionable message.
     if (!generators || typeof generators !== 'object') {
       throw new Error(
@@ -418,7 +418,7 @@ export class PlaceholderVariablesProcessor extends BaseProcessor {
    * processed message and the list of placeholder names that could not be resolved.
    *
    * Unresolved placeholders are placeholders whose key exists in the message
-   * but has no matching generator.  They are likely user typos (e.g.
+   * but has no matching generator They are likely user typos (e.g.
    * `{{nickname}}` misspelled as `{{nickName}}`) or a missing generator config.
    */
   private processMessagePlaceholdersWithDiagnostics(

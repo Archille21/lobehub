@@ -1875,7 +1875,7 @@ describe('GoogleGenerativeAIStream', () => {
               content: {
                 parts: [
                   {
-                    text: "**Constructing the Architecture**\n\nI'm presently building out the architecture of the infographic. I've broken down \"Agent Runtime\" into its core components and I'm designing the visual relationships between them.  The central engine will be the focal point, with modules for perception, memory, planning, action, and tools radiating outwards. My aim is to illustrate the workflow from input to output clearly. I'll utilize arrows to represent the flow of data and instructions between each module.\n\n\n",
+                    text: "**Constructing the Architecture**\n\nI'm presently building out the architecture of the infographic. I've broken down \"Agent Runtime\" into its core components and I'm designing the visual relationships between them The central engine will be the focal point, with modules for perception, memory, planning, action, and tools radiating outwards. My aim is to illustrate the workflow from input to output clearly. I'll utilize arrows to represent the flow of data and instructions between each module.\n\n\n",
                     thought: true,
                   },
                 ],
@@ -2024,7 +2024,7 @@ describe('GoogleGenerativeAIStream', () => {
           // Third reasoning text
           'id: chat_1',
           'event: reasoning_part',
-          'data: {"content":"**Constructing the Architecture**\\n\\nI\'m presently building out the architecture of the infographic. I\'ve broken down \\"Agent Runtime\\" into its core components and I\'m designing the visual relationships between them.  The central engine will be the focal point, with modules for perception, memory, planning, action, and tools radiating outwards. My aim is to illustrate the workflow from input to output clearly. I\'ll utilize arrows to represent the flow of data and instructions between each module.\\n\\n\\n","inReasoning":true,"partType":"text"}\n',
+          'data: {"content":"**Constructing the Architecture**\\n\\nI\'m presently building out the architecture of the infographic. I\'ve broken down \\"Agent Runtime\\" into its core components and I\'m designing the visual relationships between them The central engine will be the focal point, with modules for perception, memory, planning, action, and tools radiating outwards. My aim is to illustrate the workflow from input to output clearly. I\'ll utilize arrows to represent the flow of data and instructions between each module.\\n\\n\\n","inReasoning":true,"partType":"text"}\n',
 
           // First reasoning image
           'id: chat_1',

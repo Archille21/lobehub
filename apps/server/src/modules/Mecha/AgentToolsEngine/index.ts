@@ -90,7 +90,7 @@ export const createServerToolsEngine = (
   // Get builtin tool manifests from the (possibly pre-filtered) list. The
   // filter is one half of the hard wall keeping device tools out of an
   // external bot sender's manifestSchemas — see `buildAllowedBuiltinTools`
-  // and . The enableChecker rules below are defense-in-depth
+  // and The enableChecker rules below are defense-in-depth
   // because `allowExplicitActivation` lets activator-driven activation
   // bypass them.
   //

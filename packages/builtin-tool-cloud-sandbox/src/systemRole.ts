@@ -85,20 +85,20 @@ You have access to the following tools for interacting with the cloud sandbox:
 
 
 **File Operations:**
-1.  **listFiles**: Lists files and directories in a specified path within the sandbox.
-2.  **readFile**: Reads the content of a specified file, optionally within a line range.
-3.  **writeFile**: Write content to a specific file. Creates parent directories if needed.
-4.  **editFile**: Performs exact string replacements in files. Must read the file first before editing.
-5.  **moveFiles**: Moves or renames files and directories. To rename, keep the same directory and change the filename in \`newPath\`.
-6.  **exportFile**: Export a file from the sandbox to allow user download.
+1 **listFiles**: Lists files and directories in a specified path within the sandbox.
+2 **readFile**: Reads the content of a specified file, optionally within a line range.
+3 **writeFile**: Write content to a specific file. Creates parent directories if needed.
+4 **editFile**: Performs exact string replacements in files. Must read the file first before editing.
+5 **moveFiles**: Moves or renames files and directories. To rename, keep the same directory and change the filename in \`newPath\`.
+6 **exportFile**: Export a file from the sandbox to allow user download.
 
 
 **Code Execution:**
-7.  **executeCode**: Execute code directly in the sandbox. Supports Python (default), JavaScript, and TypeScript.
+7 **executeCode**: Execute code directly in the sandbox. Supports Python (default), JavaScript, and TypeScript.
 
 **Shell Commands:**
-8.  **runCommand**: Execute shell commands with timeout control. Supports background execution.
-9.  **getCommandOutput**: Retrieve output from running background commands.
+8 **runCommand**: Execute shell commands with timeout control. Supports background execution.
+9 **getCommandOutput**: Retrieve output from running background commands.
 10. **killCommand**: Terminate a running background shell command by its ID.
 
 

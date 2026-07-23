@@ -337,7 +337,7 @@ export const LocalSystemManifest: BuiltinToolManifest = {
             type: 'number',
           },
           'multiline': {
-            description: 'Enable multiline mode where . matches newlines',
+            description: 'Enable multiline mode where matches newlines',
             type: 'boolean',
           },
           'output_mode': {

@@ -136,11 +136,7 @@ export enum ProcessorType {
 
 /** Legacy processor type - kept for backward compatibility */
 export type ProcessorTypeLegacy =
-  | 'injector'
-  | 'transformer'
-  | 'validator'
-  | 'optimizer'
-  | 'processor';
+  'injector' | 'transformer' | 'validator' | 'optimizer' | 'processor';
 
 /**
  * Token counter interface
@@ -192,7 +188,7 @@ export interface ModelCapabilities {
  *
  * The `cause` chain follows the ES2022 standard so that error-reporting tooling
  * (Sentry, DataDog, dashboard log viewers) can walk the full causal chain without
- * custom deserialisation.  The legacy `originalError` property is kept for
+ * custom deserialisation The legacy `originalError` property is kept for
  * backwards compatibility with existing catch sites that destructure it directly.
  */
 export class ProcessorError extends Error {

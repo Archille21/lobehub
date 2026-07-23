@@ -35,7 +35,7 @@ describe('googleErrorParser', () => {
 
     it('should handle combined formatting issues', () => {
       const input =
-        '* API key not valid.\\nPlease check your credentials.\\n\\nContact support if needed.  ';
+        '* API key not valid.\\nPlease check your credentials.\\n\\nContact support if needed ';
       const expected =
         'API key not valid. Please check your credentials. Contact support if needed.';
       expect(cleanErrorMessage(input)).toBe(expected);

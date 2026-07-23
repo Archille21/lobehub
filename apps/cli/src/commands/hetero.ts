@@ -34,7 +34,7 @@ const CODEX_SERVICE_TIER_CONFIG_KEY = 'service_tier';
 
 /**
  * Patterns that indicate a `--resume <sessionId>` run should be retried
- * without `--resume`.  Two classes of failure:
+ * without `--resume` Two classes of failure:
  *
  *   1. Session file missing (sandbox recycled): the container is ephemeral
  *      (~1 h idle TTL), so a new sandbox has an empty `~/.claude/projects/`
@@ -43,7 +43,7 @@ const CODEX_SERVICE_TIER_CONFIG_KEY = 'service_tier';
  *   2. Context overflow (long conversation): the resumed session carries all
  *      accumulated history; when the combined token count exceeds the model's
  *      context window the API rejects the request immediately after CC
- *      initialises.  Starting fresh (no `--resume`) drops the old history and
+ *      initialises Starting fresh (no `--resume`) drops the old history and
  *      lets CC respond to the new prompt alone.
  *
  * Checked against:
@@ -97,9 +97,9 @@ interface ExecOptions {
    */
   speed?: string;
   /**
-   * Server topic id.  When set, enables server-ingest mode: events are
+   * Server topic id. When set, enables server-ingest mode: events are
    * batch-POSTed to `aiAgent.heteroIngest` in addition to (or instead of)
-   * being written to stdout.  Requires `--operation-id` to be a valid
+   * being written to stdout Requires `--operation-id` to be a valid
    * server-allocated operation id.
    */
   topic?: string;
@@ -377,7 +377,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
   const emitJsonl = options.render === 'jsonl' || (options.render === undefined && !serverIngest);
 
   // Build the ingest sink — no-op for standalone mode, real tRPC sink for
-  // server-ingest mode.  The tRPC client reads LOBEHUB_JWT (operation-scoped
+  // server-ingest mode The tRPC client reads LOBEHUB_JWT (operation-scoped
   // JWT injected by the server) for authentication.
   const agentType = options.type as 'amp' | 'claude-code' | 'codex' | 'opencode';
   let sink: TrpcIngestSink | undefined;
@@ -529,7 +529,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
    *
    * When `interceptResumeErrors` is true, any `error`-type event whose
    * message matches `RESUME_RETRY_PATTERNS` is withheld from the
-   * ingester and signals a retry instead.  This keeps the server's
+   * ingester and signals a retry instead This keeps the server's
    * operation state clean: no terminal error event is pushed, so the
    * retry's events land on the same operationId without confusing the
    * renderer.
@@ -598,7 +598,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
 
     // Always collect stderr — used for resume-error detection AND for
     // surfacing a meaningful error message to the server when CC fails
-    // without emitting a structured error event.  Cap at 8 KB so the
+    // without emitting a structured error event Cap at 8 KB so the
     // collector doesn't grow unboundedly on a chatty run.
     // Always pipe to process.stderr too so users see auth prompts / warnings.
     const STDERR_CAP = 8 * 1024;
@@ -638,7 +638,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
     process.on('SIGTERM', onSigterm);
 
     // Stream events. Each event is optionally written as JSONL and pushed
-    // into the ingester.  When intercepting resume errors, a matching
+    // into the ingester When intercepting resume errors, a matching
     // `error` event is withheld from the ingester and flags a retry instead.
     let resumeNotFound = false;
     let sawTerminalError = false;
@@ -779,7 +779,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
   //      the call with a "prompt is too long" error.
   //
   // In both cases we transparently restart CC without `--resume` so it starts a
-  // fresh session.  The server's `heteroSessionId` is updated with the new id,
+  // fresh session The server's `heteroSessionId` is updated with the new id,
   // breaking the stale-session loop.
   let result = first;
   if (!first.cancelled && first.resumeNotFound) {

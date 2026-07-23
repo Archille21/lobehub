@@ -74,7 +74,7 @@ describe('parseFilesConfig', () => {
       parseFilesConfig(envStr);
     }).toThrow(
       new Error(
-        'Invalid environment variable format.  expected of the form embedding_model=provider/model',
+        'Invalid environment variable format expected of the form embedding_model=provider/model',
       ),
     );
   });
@@ -85,7 +85,7 @@ describe('parseFilesConfig', () => {
       parseFilesConfig(envStr);
     }).toThrow(
       new Error(
-        'Invalid environment variable format.  expected of the form embedding_model=provider/model',
+        'Invalid environment variable format expected of the form embedding_model=provider/model',
       ),
     );
   });
@@ -104,7 +104,7 @@ describe('parseFilesConfig', () => {
       parseFilesConfig(envStr);
     }).toThrow(
       new Error(
-        'Invalid environment variable format.  expected of the form reranker_model=provider/model',
+        'Invalid environment variable format expected of the form reranker_model=provider/model',
       ),
     );
   });
@@ -115,7 +115,7 @@ describe('parseFilesConfig', () => {
       parseFilesConfig(envStr);
     }).toThrow(
       new Error(
-        'Invalid environment variable format.  expected of the form reranker_model=provider/model',
+        'Invalid environment variable format expected of the form reranker_model=provider/model',
       ),
     );
   });

@@ -587,7 +587,7 @@ describe('CompletionLifecycle.dispatchHooks — async-tool park', () => {
   });
 });
 
-describe('CompletionLifecycle.dispatchHooks — lastAssistantContent DB recovery (LOBE-11632)', () => {
+describe('CompletionLifecycle.dispatchHooks — lastAssistantContent DB recovery ', () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });

@@ -38,7 +38,7 @@ const createUserMessageSource = (
     documentPayload: { section: 'style' },
     intents: ['document', 'memory'],
     memoryPayload: { shouldRemember: true },
-    message: input.message ?? '  Please keep replies tighter.  ',
+    message: input.message ?? '  Please keep replies tighter ',
     messageId: `msg:${input.sourceId ?? 'source_1'}`,
     serializedContext: 'topic=repo-review',
     topicId: 'topic_1',

@@ -30,7 +30,7 @@ describe('hydrationPrompt', () => {
   it('should handle multiple variables, some missing', () => {
     const prompt = '{{greeting}} {{user.name}}. Welcome to {{place}}. Your id is {{id}}';
     const context = { greeting: 'Hi', user: { name: 'Charlie' } };
-    expect(hydrationPrompt(prompt, context)).toBe('Hi Charlie. Welcome to . Your id is ');
+    expect(hydrationPrompt(prompt, context)).toBe('Hi Charlie. Welcome to Your id is ');
   });
 
   it('should handle empty context', () => {

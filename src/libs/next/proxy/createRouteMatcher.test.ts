@@ -75,7 +75,7 @@ describe('createRouteMatcher', () => {
       const matcher = createRouteMatcher(['/api/v1.0/users']);
 
       expect(matcher(createMockRequest('/api/v1.0/users'))).toBe(true);
-      expect(matcher(createMockRequest('/api/v1X0/users'))).toBe(false); // . should not match any char
+      expect(matcher(createMockRequest('/api/v1X0/users'))).toBe(false); // should not match any char
     });
 
     it('should handle patterns with multiple special characters', () => {

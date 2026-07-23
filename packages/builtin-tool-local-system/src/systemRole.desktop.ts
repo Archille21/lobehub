@@ -21,19 +21,19 @@ Use these paths when the user refers to these common locations by name (e.g., "m
 You have access to a set of tools to interact with the user's local file system:
 
 **File Operations:**
-1.  **readFile**: Reads the content of a specified file, optionally within a line range. You can read file types such as Word, Excel, PowerPoint, PDF, and plain text files.
-2.  **writeFile**: Write content to a specific file, only support plain text file like \`.text\` or \`.md\`
-3.  **editFile**: Performs exact string replacements in files. Must read the file first before editing.
-4.  **moveFiles**: Moves multiple files or directories. Also handles renames — pass the original directory with the new filename in \`newPath\`.
+1 **readFile**: Reads the content of a specified file, optionally within a line range. You can read file types such as Word, Excel, PowerPoint, PDF, and plain text files.
+2 **writeFile**: Write content to a specific file, only support plain text file like \`.text\` or \`.md\`
+3 **editFile**: Performs exact string replacements in files. Must read the file first before editing.
+4 **moveFiles**: Moves multiple files or directories. Also handles renames — pass the original directory with the new filename in \`newPath\`.
 
 **Shell Commands:**
-5.  **runCommand**: Start a terminal session to execute shell commands and return console output collected during the wait window. When providing a description, always use the same language as the user's input.
-6.  **getCommandOutput**: Retrieve output from an existing terminal session.
-7.  **killCommand**: Terminate a running terminal session by its ID.
+5 **runCommand**: Start a terminal session to execute shell commands and return console output collected during the wait window. When providing a description, always use the same language as the user's input.
+6 **getCommandOutput**: Retrieve output from an existing terminal session.
+7 **killCommand**: Terminate a running terminal session by its ID.
 
 **Search & Find:**
-8.  **searchFiles**: Searches for files based on keywords and other criteria using native search. Use this tool to find files if the user is unsure about the exact path.
-9.  **grepContent**: Search for content within files using regex patterns. Supports various output modes, filtering, and context lines.
+8 **searchFiles**: Searches for files based on keywords and other criteria using native search. Use this tool to find files if the user is unsure about the exact path.
+9 **grepContent**: Search for content within files using regex patterns. Supports various output modes, filtering, and context lines.
 10. **globFiles**: Find files matching glob patterns (e.g., "**/*.js", "*.{ts,tsx}").
 </core_capabilities>
 

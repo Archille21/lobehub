@@ -328,7 +328,7 @@ describe('replyTemplate', () => {
     });
 
     it('should trim trailing whitespace', () => {
-      expect(renderFinalReply('Answer.  \n\n')).toBe('Answer.');
+      expect(renderFinalReply('Answer \n\n')).toBe('Answer.');
     });
   });
 
