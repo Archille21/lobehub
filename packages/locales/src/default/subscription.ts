@@ -41,6 +41,10 @@ export default {
   'crossPlatform.title': 'Cross-Platform Subscription',
   'cancelPlan.alert':
     'You will still enjoy the benefits until the current plan expires ({{date}}). You can resubscribe at any time before expiration.',
+  'cancelPlan.billingIssue.alert':
+    'The subscription will be canceled immediately. We will stop further payment attempts and close the unpaid renewal invoice.',
+  'cancelPlan.billingIssue.desc':
+    'Your membership benefits are already paused because the renewal payment failed.',
   'cancelPlan.desc':
     'After cancellation, you will be downgraded to the free version when the current plan expires.',
   'cancelPlan.confirmCountdown': 'Cancel Subscription ({{seconds}})',

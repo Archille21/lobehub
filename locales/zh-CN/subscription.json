@@ -42,6 +42,8 @@
   "billingIssue.syncDescription": "我们暂时无法确认原会员已经结束。请先检查订阅状态，再购买其他套餐。",
   "billingIssue.syncTitle": "会员状态需要处理",
   "cancelPlan.alert": "您仍可享受当前订阅权益，直到 {{date}} 到期。到期前可随时重新订阅。",
+  "cancelPlan.billingIssue.alert": "确认后订阅将立即取消，后续不会再尝试扣款，未支付的续费账单也将关闭。",
+  "cancelPlan.billingIssue.desc": "续费付款失败后，会员权益已经暂停。",
   "cancelPlan.confirmCountdown": "取消订阅（{{seconds}}）",
   "cancelPlan.desc": "取消后，当前订阅到期后将降级为免费版。",
   "cancelPlan.keep": "保留订阅",
