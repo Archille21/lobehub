@@ -70,14 +70,13 @@ export default {
   'compareAllPlans': 'View All Plans',
   'comparePlans': 'View Plans',
   'createSubscriptionError': 'Failed to create subscription',
-  'billingIssue.payAction': 'Pay outstanding invoice',
+  'billingIssue.payAction': 'Restore subscription',
   'billingIssue.paymentDescription':
-    'Your previous renewal payment did not complete. Pay the outstanding invoice to restore this membership before purchasing another plan.',
-  'billingIssue.paymentTitle': 'Payment required to restore your membership',
+    'Your previous renewal payment did not complete. Restore the subscription before purchasing another plan.',
+  'billingIssue.paymentTitle': 'Renewal payment incomplete',
   'billingIssue.retryAction': 'Check again',
-  'billingIssue.retryError': 'Unable to refresh the subscription status. Please try again.',
-  'billingIssue.retryPending':
-    'This membership still needs attention. Follow the updated action or try again later.',
+  'billingIssue.retryError': 'Unable to restore the subscription. Please try again.',
+  'billingIssue.retryPending': 'Subscription recovery is still syncing. Please try again shortly.',
   'billingIssue.retrySuccess': 'Membership status updated.',
   'billingIssue.syncDescription':
     'We cannot confirm that the previous membership has ended. Check its status before purchasing another plan.',
