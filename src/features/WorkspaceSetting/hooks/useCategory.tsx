@@ -116,7 +116,9 @@ export const useWorkspaceSettingCategory = (): WorkspaceSettingCategoryGroup[] =
               key: WorkspaceSettingsTabs.Provider,
               label: t('tab.provider'),
             },
-            {
+            // Service-model preferences steer the shared workspace model
+            // policy — Admin-or-higher, hidden from members like Provider.
+            canManageWorkspace && {
               icon: Sparkles,
               key: WorkspaceSettingsTabs.ServiceModel,
               label: t('tab.serviceModel'),
