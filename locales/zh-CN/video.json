@@ -15,6 +15,7 @@
   "config.seed.label": "种子",
   "config.seed.random": "随机",
   "config.size.label": "尺寸",
+  "config.title": "配置",
   "config.watermark.label": "水印",
   "config.webSearch.label": "联网搜索",
   "generation.actions.cancelEdit": "取消编辑",

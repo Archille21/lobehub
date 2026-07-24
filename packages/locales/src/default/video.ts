@@ -15,6 +15,7 @@ export default {
   'config.seed.label': 'Seed',
   'config.seed.random': 'Random',
   'config.size.label': 'Size',
+  'config.title': 'Configuration',
   'config.watermark.label': 'Watermark',
   'config.webSearch.label': 'Web Search',
   'generation.actions.cancelEdit': 'Cancel Edit',
