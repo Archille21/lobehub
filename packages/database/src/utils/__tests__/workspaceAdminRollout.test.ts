@@ -67,6 +67,15 @@ beforeEach(async () => {
   await serverDB
     .insert(userRoles)
     .values({ roleId: memberRole.id, userId: driftedMemberId, workspaceId });
+  // An expired member grant on the stray co-owner must be ignored — the
+  // convergence mirrors the RBAC checks' active/non-expired predicates, so
+  // this row falls through to the admin fallback instead of becoming member.
+  await serverDB.insert(userRoles).values({
+    expiresAt: new Date(Date.now() - 86_400_000),
+    roleId: memberRole.id,
+    userId: legacyOwnerId,
+    workspaceId,
+  });
   await serverDB.insert(workspaceInvitations).values({
     email: 'pending-owner@example.com',
     expiresAt: new Date(Date.now() + 86_400_000),

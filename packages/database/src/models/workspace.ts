@@ -214,10 +214,17 @@ export class WorkspaceModel {
       if (targetMembership.role !== 'admin')
         throw new Error('Target user must already be an admin');
 
-      await tx
+      // Compare-and-swap on the still-current owner: two concurrent transfers
+      // both read the same primaryOwnerId above, but only the first one can
+      // match this predicate — the loser aborts before touching any role row.
+      // (The DB-level unique active-owner index ships separately.)
+      const swapped = await tx
         .update(workspaces)
         .set({ primaryOwnerId: newPrimaryOwnerUserId, updatedAt: new Date() })
-        .where(eq(workspaces.id, id));
+        .where(and(eq(workspaces.id, id), eq(workspaces.primaryOwnerId, this.userId)))
+        .returning({ id: workspaces.id });
+      if (swapped.length === 0)
+        throw new Error('Only the workspace owner can transfer ownership');
 
       await tx
         .update(workspaceMembers)

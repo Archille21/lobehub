@@ -82,6 +82,10 @@ FROM (
   WHERE "rbac_roles"."name" IN (
     'workspace_owner', 'workspace_admin', 'workspace_member', 'workspace_viewer'
   )
+    -- Mirror the predicates of the RBAC checks this data replaces: inactive
+    -- roles and expired grants were never authoritative.
+    AND "rbac_roles"."is_active" = true
+    AND ("rbac_user_roles"."expires_at" IS NULL OR "rbac_user_roles"."expires_at" > now())
   GROUP BY "rbac_user_roles"."user_id", "rbac_user_roles"."workspace_id"
 ) AS "projection", "workspaces"
 WHERE
