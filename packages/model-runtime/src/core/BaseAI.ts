@@ -21,6 +21,7 @@ import type {
   HandleCreateVideoWebhookPayload,
   HandleCreateVideoWebhookResult,
   ModelRequestOptions,
+  PollVideoStatusResult,
   PullModelParams,
   TextToSpeechOptions,
   TextToSpeechPayload,
@@ -50,13 +51,7 @@ export interface LobeRuntimeAI {
     payload: HandleCreateVideoWebhookPayload,
   ) => Promise<HandleCreateVideoWebhookResult>;
 
-  handlePollVideoStatus?: (
-    inferenceId: string,
-  ) => Promise<
-    | { status: 'success'; videoUrl: string }
-    | { status: 'failed'; error: string }
-    | { status: 'pending' }
-  >;
+  handlePollVideoStatus?: (inferenceId: string) => Promise<PollVideoStatusResult>;
 
   models?: () => Promise<any>;
 

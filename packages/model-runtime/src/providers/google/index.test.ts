@@ -50,6 +50,22 @@ describe('LobeGoogleAI', () => {
     });
   });
 
+  describe('createVideo', () => {
+    it('should reject Gemini Omni Flash on Vertex AI', async () => {
+      const vertexInstance = new LobeGoogleAI({ apiKey: 'test', isVertexAi: true });
+
+      await expect(
+        vertexInstance.createVideo({
+          model: 'gemini-omni-flash-preview',
+          params: { prompt: 'A cinematic sunrise' },
+        }),
+      ).rejects.toMatchObject({
+        errorType: AgentRuntimeErrorType.ProviderBizError,
+        provider: 'vertexai',
+      });
+    });
+  });
+
   describe('chat', () => {
     it('should return a StreamingTextResponse on successful API call', async () => {
       const result = await instance.chat({

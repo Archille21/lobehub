@@ -193,6 +193,8 @@ export interface HourlyUserMemoryExtractionMetadata {
 }
 
 export interface VideoGenerationTaskMetadata {
+  completionClaimedAt?: string;
+  completionEventId?: string;
   precharge?: Record<string, unknown>;
   webhookToken?: string;
 }

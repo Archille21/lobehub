@@ -23,6 +23,8 @@ import VideoLoadingItem from './VideoLoadingItem';
 import VideoReferenceFrames from './VideoReferenceFrames';
 import VideoSuccessItem from './VideoSuccessItem';
 
+const GEMINI_OMNI_VIDEO_MODEL = 'gemini-omni-flash-preview';
+
 const styles = createStaticStyles(({ css, cssVar, cx }) => ({
   batchActions: cx(
     'batch-actions',
@@ -52,6 +54,7 @@ export const VideoGenerationBatchItem = memo<VideoGenerationBatchItemProps>(({ b
   const removeGenerationBatch = useVideoStore((s) => s.removeGenerationBatch);
   const setModelAndProviderOnSelect = useVideoStore((s) => s.setModelAndProviderOnSelect);
   const setParamOnInput = useVideoStore((s) => s.setParamOnInput);
+  const startEditingVideo = useVideoStore((s) => s.startEditingVideo);
   const activeTopicId = useVideoStore((s) => s.activeGenerationTopicId);
   const activeWorkspaceId = useActiveWorkspaceId();
   const { shouldRenderBusinessBatchItem, businessBatchItem } =
@@ -109,6 +112,14 @@ export const VideoGenerationBatchItem = memo<VideoGenerationBatchItemProps>(({ b
       setParamOnInput(paramName as RuntimeVideoGenParamsKeys, value as RuntimeVideoGenParamsValue);
     }
   }, [batch.config, batch.model, batch.provider, setModelAndProviderOnSelect, setParamOnInput]);
+
+  const handleEdit = useCallback(() => {
+    if (!generation?.asset || !('interactionId' in generation.asset)) return;
+    if (!generation.asset.interactionId) return;
+
+    handleReuseSettings();
+    startEditingVideo(generation.id);
+  }, [generation, handleReuseSettings, startEditingVideo]);
 
   const handleDeleteBatch = useCallback(async () => {
     if (!activeTopicId) return;
@@ -196,6 +207,7 @@ export const VideoGenerationBatchItem = memo<VideoGenerationBatchItemProps>(({ b
           generation={generation}
           onDelete={handleDelete}
           onDownload={handleDownload}
+          onEdit={batch.model === GEMINI_OMNI_VIDEO_MODEL ? handleEdit : undefined}
         />
       );
     }

@@ -12,6 +12,7 @@ export type CreateVideoPayload = {
   callbackUrl?: string;
   model: string;
   params: RuntimeVideoGenParams;
+  previousInteractionId?: string;
 };
 
 export interface CreateVideoMethodOptions {
@@ -24,6 +25,8 @@ export interface CreateVideoMethodOptions {
 export type CreateVideoResponse =
   | {
       inferenceId: string;
+      /** Keep polling as a fallback when webhook delivery is delayed or lost. */
+      pollingFallback?: boolean;
       /** Provider uses webhook callback instead of polling */
       useWebhook?: boolean;
     }
@@ -36,6 +39,7 @@ export type PollVideoStatusResult =
   | {
       headers?: Record<string, string>;
       status: 'success';
+      usage?: { completionTokens: number; totalTokens: number };
       videoUrl: string;
     }
   | {
@@ -49,12 +53,16 @@ export type PollVideoStatusResult =
 export type HandleCreateVideoWebhookPayload = {
   body: unknown;
   headers?: Record<string, string>;
+  rawBody?: string;
+  url?: string;
 };
 
 export type HandleCreateVideoWebhookResult =
-  | { status: 'pending' }
+  | { inferenceId?: string; status: 'pending' }
+  | { inferenceId: string; status: 'completed' }
   | {
       generateAudio?: boolean;
+      headers?: Record<string, string>;
       inferenceId: string;
       model?: string;
       status: 'success';

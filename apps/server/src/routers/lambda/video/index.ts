@@ -6,7 +6,7 @@ import {
   buildMappedBusinessModelFields,
   resolveBusinessModelMapping,
 } from '@lobechat/business-model-runtime';
-import { ChatErrorType, RequestTrigger } from '@lobechat/types';
+import { ChatErrorType, RequestTrigger, type VideoGenerationAsset } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 import { and, eq } from 'drizzle-orm';
@@ -19,6 +19,7 @@ import { chargeAfterGenerate } from '@/business/server/video-generation/chargeAf
 import { chargeBeforeGenerate } from '@/business/server/video-generation/chargeBeforeGenerate';
 import { getVideoFreeQuota } from '@/business/server/video-generation/getVideoFreeQuota';
 import { AsyncTaskModel } from '@/database/models/asyncTask';
+import { GenerationModel } from '@/database/models/generation';
 import { GenerationTopicModel } from '@/database/models/generationTopic';
 import { UserModel } from '@/database/models/user';
 import {
@@ -41,6 +42,7 @@ import { AsyncTaskStatus, AsyncTaskType } from '@/types/asyncTask';
 import { createVideoTaskSubmitError } from './error';
 
 const log = debug('lobe-video:lambda');
+const GEMINI_OMNI_VIDEO_MODEL = 'gemini-omni-flash-preview';
 
 const videoProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -73,6 +75,7 @@ const createVideoInputSchema = z.object({
       seed: z.number().nullish(),
     })
     .passthrough(),
+  previousGenerationId: z.string().optional(),
   provider: z.string(),
 });
 export type CreateVideoServicePayload = z.infer<typeof createVideoInputSchema>;
@@ -83,7 +86,7 @@ export const videoRouter = router({
     .mutation(async ({ input, ctx }) => {
       const { userId, serverDB, asyncTaskModel, fileService, generationTopicModel } = ctx;
       const wsId = ctx.workspaceId ?? undefined;
-      const { generationTopicId, provider, model, params } = input;
+      const { generationTopicId, previousGenerationId, provider, model, params } = input;
 
       const { resolvedModelId } = await resolveBusinessModelMapping(provider, model);
 
@@ -107,6 +110,25 @@ export const videoRouter = router({
 
       // Normalize image URLs to S3 keys for database storage
       let configForDatabase = { ...params };
+
+      // Process multiple reference images
+      if (Array.isArray(params.imageUrls) && params.imageUrls.length > 0) {
+        try {
+          const imageKeys = (
+            await Promise.all(
+              params.imageUrls.map(async (url) => {
+                const key = await fileService.getKeyFromFullUrl(url);
+                if (key) log('Converted image URL to key: %s -> %s', url, key);
+                return key;
+              }),
+            )
+          ).filter((key): key is string => Boolean(key));
+
+          configForDatabase = { ...configForDatabase, imageUrls: imageKeys };
+        } catch (error) {
+          console.error('Error converting imageUrls to keys: %O', error);
+        }
+      }
 
       // Process first-frame imageUrl
       if (typeof params.imageUrl === 'string' && params.imageUrl) {
@@ -159,6 +181,15 @@ export const videoRouter = router({
           }
         }
 
+        if (Array.isArray(params.imageUrls) && params.imageUrls.length > 0) {
+          const s3Urls = await Promise.all(
+            ((configForDatabase.imageUrls as string[] | undefined) ?? []).map((key) =>
+              fileService.getFullFileUrl(key),
+            ),
+          );
+          updates.imageUrls = s3Urls.filter((url): url is string => Boolean(url));
+        }
+
         if (Object.keys(updates).length > 0) {
           generationParams = { ...params, ...updates };
         }
@@ -168,6 +199,50 @@ export const videoRouter = router({
       const generationTopic = await generationTopicModel.findById(generationTopicId);
       if (!generationTopic) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Invalid generation topic' });
+      }
+
+      let previousInteractionId: string | undefined;
+      if (previousGenerationId) {
+        if (resolvedModelId !== GEMINI_OMNI_VIDEO_MODEL) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'The selected model does not support conversational video editing',
+          });
+        }
+
+        const previousGeneration = await new GenerationModel(serverDB, userId, wsId).findById(
+          previousGenerationId,
+        );
+        if (!previousGeneration) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'Previous video generation not found',
+          });
+        }
+
+        const previousBatch = await serverDB.query.generationBatches.findFirst({
+          where: and(
+            eq(generationBatches.id, previousGeneration.generationBatchId),
+            eq(generationBatches.userId, userId),
+          ),
+        });
+        const previousAsset = previousGeneration.asset as VideoGenerationAsset | null;
+
+        if (
+          !previousBatch ||
+          previousBatch.generationTopicId !== generationTopicId ||
+          previousBatch.provider !== provider ||
+          previousBatch.model !== model ||
+          !previousAsset?.interactionId
+        ) {
+          throw new TRPCError({
+            code: 'BAD_REQUEST',
+            message: 'Previous video generation cannot be edited with the selected model',
+          });
+        }
+
+        previousInteractionId = previousAsset.interactionId;
+        generationParams = { ...generationParams, task: 'edit' };
       }
 
       const { errorBatch, prechargeResult } = await chargeBeforeGenerate({
@@ -194,7 +269,10 @@ export const videoRouter = router({
 
         // 1. Create generationBatch
         const newBatch: NewGenerationBatch = {
-          config: configForDatabase,
+          config: {
+            ...configForDatabase,
+            ...(previousGenerationId ? { previousGenerationId } : {}),
+          },
           generationTopicId,
           model,
           prompt: params.prompt,
@@ -261,6 +339,7 @@ export const videoRouter = router({
             callbackUrl,
             model: resolvedModelId,
             params: generationParams,
+            previousInteractionId,
           },
           { metadata: { trigger: RequestTrigger.Video } },
         );
@@ -271,24 +350,7 @@ export const videoRouter = router({
         // - useWebhook: provider registered a callback URL, wait for webhook
         // - otherwise: use background polling to check status
         const useWebhook = response && 'useWebhook' in response && response.useWebhook;
-
-        if (useWebhook) {
-          // Webhook-based provider (e.g. Volcengine): wait for callback
-          log('Webhook-based provider detected, waiting for callback');
-
-          await asyncTaskModel.update(asyncTaskId, {
-            inferenceId: response?.inferenceId,
-            status: AsyncTaskStatus.Processing,
-          });
-        } else if (response) {
-          // Polling-based provider (e.g. OpenAI Sora): use background polling
-          log('Polling-based provider detected (inferenceId only), scheduling background polling');
-
-          await asyncTaskModel.update(asyncTaskId, {
-            inferenceId: response.inferenceId,
-            status: AsyncTaskStatus.Processing,
-          });
-
+        const schedulePolling = (inferenceId: string) => {
           after(async () => {
             log('Background video polling scheduled for task: %s', asyncTaskId);
 
@@ -301,7 +363,7 @@ export const videoRouter = router({
                 generationBatchId: createdBatch.id,
                 generationId: createdGeneration.id,
                 generationTopicId,
-                inferenceId: response.inferenceId,
+                inferenceId,
                 model,
                 prechargeResult,
                 provider,
@@ -314,6 +376,31 @@ export const videoRouter = router({
               console.error('[video] Background polling failed:', error);
             }
           });
+        };
+
+        if (useWebhook) {
+          // Webhook-based provider (e.g. Volcengine): wait for callback
+          log('Webhook-based provider detected, waiting for callback');
+
+          await asyncTaskModel.update(asyncTaskId, {
+            inferenceId: response?.inferenceId,
+            status: AsyncTaskStatus.Processing,
+          });
+
+          if (response.pollingFallback) {
+            log('Scheduling polling fallback for webhook-based video task: %s', asyncTaskId);
+            schedulePolling(response.inferenceId);
+          }
+        } else if (response) {
+          // Polling-based provider (e.g. OpenAI Sora): use background polling
+          log('Polling-based provider detected (inferenceId only), scheduling background polling');
+
+          await asyncTaskModel.update(asyncTaskId, {
+            inferenceId: response.inferenceId,
+            status: AsyncTaskStatus.Processing,
+          });
+
+          schedulePolling(response.inferenceId);
 
           log('After() hook registered for background video polling: %s', asyncTaskId);
         }

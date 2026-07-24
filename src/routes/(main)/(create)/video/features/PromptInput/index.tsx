@@ -2,7 +2,7 @@
 
 import { ModelIcon } from '@lobehub/icons';
 import { ActionIcon, Flexbox, InputNumber, SliderWithInput, Text } from '@lobehub/ui';
-import { Switch, Tabs } from '@lobehub/ui/base-ui';
+import { Button, Switch, Tabs } from '@lobehub/ui/base-ui';
 import { Divider } from 'antd';
 import { Clock3, Dices } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
@@ -305,6 +305,8 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
     useVideoGenerationConfigParam('endImageUrl');
   const isCreating = useVideoStore(createVideoSelectors.isCreating);
   const createVideo = useVideoStore((s) => s.createVideo);
+  const cancelEditingVideo = useVideoStore((s) => s.cancelEditingVideo);
+  const editingGenerationId = useVideoStore(createVideoSelectors.editingGenerationId);
   const setModelAndProviderOnSelect = useVideoStore((s) => s.setModelAndProviderOnSelect);
   const activeGenerationTopicId = useVideoStore(
     videoGenerationTopicSelectors.activeGenerationTopicId,
@@ -516,11 +518,29 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
         <GenerationPromptInput
           disableGenerate={!isInit || isModelUnavailable}
           disabled={!canCreate}
-          generateLabel={t('generation.actions.generate')}
-          generatingLabel={t('generation.status.generating')}
           isCreating={isCreating}
           isDarkMode={isDarkMode}
           value={value}
+          generateLabel={
+            editingGenerationId
+              ? t('generation.actions.generateEdit')
+              : t('generation.actions.generate')
+          }
+          generatingLabel={
+            editingGenerationId ? t('generation.status.editing') : t('generation.status.generating')
+          }
+          header={
+            editingGenerationId ? (
+              <Flexbox horizontal align={'center'} justify={'space-between'} padding={'8px 12px'}>
+                <Text fontSize={13} type={'secondary'}>
+                  {t('generation.editing.description')}
+                </Text>
+                <Button size={'small'} type={'text'} onClick={cancelEditingVideo}>
+                  {t('generation.actions.cancelEdit')}
+                </Button>
+              </Flexbox>
+            ) : undefined
+          }
           inlineContent={
             showInlineFrames ? (
               <InlineVideoFrames

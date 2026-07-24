@@ -116,6 +116,7 @@ export class GenerationConfigActionImpl {
 
     this.#set(
       {
+        editingGenerationId: undefined,
         model,
         parameters,
         parametersSchema,

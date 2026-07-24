@@ -17,16 +17,21 @@ export default {
   'config.size.label': 'Size',
   'config.watermark.label': 'Watermark',
   'config.webSearch.label': 'Web Search',
+  'generation.actions.cancelEdit': 'Cancel Edit',
   'generation.actions.copyError': 'Copy Error Message',
   'generation.actions.errorCopied': 'Error Message Copied to Clipboard',
   'generation.actions.errorCopyFailed': 'Failed to Copy Error Message',
+  'generation.actions.edit': 'Edit Video',
   'generation.actions.generate': 'Generate',
+  'generation.actions.generateEdit': 'Generate Edit',
+  'generation.editing.description': 'Editing this video as a new version',
   'generation.freeQuota.exhausted': '🎁 Free quota used up, credits will be consumed',
   'generation.freeQuota.remaining': '🎁 {{remaining}} free videos today',
-  'generation.validation.endFrameRequiresStartFrame':
-    'End frame cannot be used without a start frame. Please set a start frame first.',
+  'generation.status.editing': 'Generating Edit...',
   'generation.status.failed': 'Generation Failed',
   'generation.status.generating': 'Generating...',
+  'generation.validation.endFrameRequiresStartFrame':
+    'End frame cannot be used without a start frame. Please set a start frame first.',
   'notice.modelRemoved':
     'The current model is no longer available from {{name}}. Please switch to an available model.',
   'notice.providerDisabled':

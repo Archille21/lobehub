@@ -8,6 +8,7 @@ import { AsyncTaskStatus } from '@/types/asyncTask';
 
 const {
   mockCreateVideo,
+  mockFindPreviousGeneration,
   mockFindUserById,
   mockGenerationTopicFindById,
   mockIsLobeHubModelAvailable,
@@ -18,9 +19,17 @@ const {
   mockTransaction,
 } = vi.hoisted(() => {
   const mockTransaction = vi.fn();
-  const mockServerDB = { transaction: mockTransaction };
+  const mockServerDB = {
+    query: {
+      generationBatches: {
+        findFirst: vi.fn(),
+      },
+    },
+    transaction: mockTransaction,
+  };
   const mockCreateVideo = vi.fn();
   const mockAfter = vi.fn((cb: () => void) => cb());
+  const mockFindPreviousGeneration = vi.fn();
   const mockFindUserById = vi.fn();
   const mockGenerationTopicFindById = vi.fn();
   const mockIsLobeHubModelAvailable = vi.fn();
@@ -28,6 +37,7 @@ const {
   const mockResolveBusinessModelMapping = vi.fn();
   return {
     mockCreateVideo,
+    mockFindPreviousGeneration,
     mockFindUserById,
     mockGenerationTopicFindById,
     mockIsLobeHubModelAvailable,
@@ -42,6 +52,11 @@ const {
 // ---- module-level mocks ----
 
 vi.mock('@/database/models/asyncTask');
+vi.mock('@/database/models/generation', () => ({
+  GenerationModel: vi.fn(() => ({
+    findById: mockFindPreviousGeneration,
+  })),
+}));
 vi.mock('@/database/models/generationTopic', () => ({
   GenerationTopicModel: vi.fn(() => ({
     findById: mockGenerationTopicFindById,
@@ -171,8 +186,10 @@ describe('videoRouter', () => {
       }),
     );
     mockFindUserById.mockResolvedValue({ email: 'user@example.com' });
+    mockFindPreviousGeneration.mockResolvedValue(undefined);
     mockGenerationTopicFindById.mockResolvedValue({ id: 'topic-1' });
     mockIsLobeHubModelAvailable.mockResolvedValue(true);
+    mockServerDB.query.generationBatches.findFirst.mockResolvedValue(undefined);
   });
 
   describe('createVideo - async strategy routing', () => {
@@ -190,6 +207,111 @@ describe('videoRouter', () => {
       });
       // Webhook: should NOT trigger background polling
       expect(mockAfter).not.toHaveBeenCalled();
+    });
+
+    it('should schedule polling fallback for a webhook-based interaction', async () => {
+      setupMocks();
+      mockCreateVideo.mockResolvedValue({
+        inferenceId: 'interactions/omni-1',
+        pollingFallback: true,
+        useWebhook: true,
+      });
+
+      const caller = videoRouter.createCaller(mockCtx);
+      await caller.createVideo(defaultInput);
+
+      expect(mockAfter).toHaveBeenCalled();
+      expect(mockProcessBackgroundVideoPolling).toHaveBeenCalledWith(
+        mockServerDB,
+        expect.objectContaining({
+          inferenceId: 'interactions/omni-1',
+        }),
+      );
+    });
+
+    it('should pass the previous interaction when editing a compatible video', async () => {
+      setupMocks();
+      mockFindPreviousGeneration.mockResolvedValue({
+        asset: { interactionId: 'interactions/source-1', type: 'video' },
+        generationBatchId: 'source-batch',
+        id: 'source-generation',
+      });
+      mockServerDB.query.generationBatches.findFirst.mockResolvedValue({
+        generationTopicId: 'topic-1',
+        id: 'source-batch',
+        model: 'gemini-omni-flash-preview',
+        provider: 'google',
+      });
+      mockCreateVideo.mockResolvedValue({
+        inferenceId: 'interactions/edit-1',
+        pollingFallback: true,
+        useWebhook: true,
+      });
+
+      const caller = videoRouter.createCaller(mockCtx);
+      await caller.createVideo({
+        ...defaultInput,
+        model: 'gemini-omni-flash-preview',
+        previousGenerationId: 'source-generation',
+        provider: 'google',
+      });
+
+      expect(mockCreateVideo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: expect.objectContaining({ task: 'edit' }),
+          previousInteractionId: 'interactions/source-1',
+        }),
+        expect.any(Object),
+      );
+    });
+
+    it('should reject editing with a model that has no conversational video support', async () => {
+      setupMocks();
+
+      const caller = videoRouter.createCaller(mockCtx);
+
+      await expect(
+        caller.createVideo({
+          ...defaultInput,
+          previousGenerationId: 'source-generation',
+        }),
+      ).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+        message: 'The selected model does not support conversational video editing',
+      });
+      expect(mockFindPreviousGeneration).not.toHaveBeenCalled();
+      expect(mockTransaction).not.toHaveBeenCalled();
+    });
+
+    it('should reject editing across models', async () => {
+      setupMocks();
+      mockFindPreviousGeneration.mockResolvedValue({
+        asset: { interactionId: 'interactions/source-1', type: 'video' },
+        generationBatchId: 'source-batch',
+        id: 'source-generation',
+      });
+      mockServerDB.query.generationBatches.findFirst.mockResolvedValue({
+        generationTopicId: 'topic-1',
+        id: 'source-batch',
+        model: 'different-model',
+        provider: 'volcengine',
+      });
+
+      const caller = videoRouter.createCaller(mockCtx);
+
+      await expect(
+        caller.createVideo({
+          ...defaultInput,
+          model: 'gemini-omni-flash-preview',
+          previousGenerationId: 'source-generation',
+          provider: 'google',
+        }),
+      ).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+        message: 'Previous video generation cannot be edited with the selected model',
+      });
+      expect(mockTransaction).not.toHaveBeenCalled();
+      expect(mockCreateVideo).not.toHaveBeenCalled();
     });
 
     it('should validate mapped model id before rejecting deprecated lobehub video models', async () => {

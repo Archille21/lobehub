@@ -97,6 +97,7 @@ export class CreateVideoActionImpl {
         generationTopicId: finalTopicId!,
         model,
         params: parameters as any,
+        previousGenerationId: store.editingGenerationId,
         provider,
       });
 
@@ -108,6 +109,7 @@ export class CreateVideoActionImpl {
       // 6. Clear the prompt input after successful video creation
       this.#set(
         (state) => ({
+          editingGenerationId: undefined,
           parameters: { ...state.parameters, prompt: '' },
         }),
         false,
@@ -129,6 +131,10 @@ export class CreateVideoActionImpl {
         this.#set({ isCreating: false }, false, 'createVideo/endCreateVideo');
       }
     }
+  };
+
+  cancelEditingVideo = (): void => {
+    this.#set({ editingGenerationId: undefined }, false, 'cancelEditingVideo');
   };
 
   recreateVideo = async (generationBatchId: string): Promise<void> => {
@@ -161,6 +167,10 @@ export class CreateVideoActionImpl {
     } finally {
       this.#set({ isCreating: false }, false, 'recreateVideo/end');
     }
+  };
+
+  startEditingVideo = (generationId: string): void => {
+    this.#set({ editingGenerationId: generationId }, false, `startEditingVideo/${generationId}`);
   };
 }
 

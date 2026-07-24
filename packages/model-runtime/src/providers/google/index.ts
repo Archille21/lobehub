@@ -35,6 +35,7 @@ import { StreamingResponse } from '../../utils/response';
 import { createGoogleImage } from './createImage';
 import { createGoogleVideo, pollGoogleVideoOperation } from './createVideo';
 import { createGoogleGenerateObject, createGoogleGenerateObjectWithTools } from './generateObject';
+import { handleGoogleVideoWebhook } from './handleCreateVideoWebhook';
 import {
   isGemini3OrAbove,
   isGoogleImageResponseModel,
@@ -308,6 +309,16 @@ export class LobeGoogleAI implements LobeRuntimeAI {
   }
 
   async createVideo(payload: CreateVideoPayload): Promise<CreateVideoResponse> {
+    if (this.isVertexAi && payload.model === 'gemini-omni-flash-preview') {
+      throw AgentRuntimeError.createVideo({
+        error: {
+          message: 'Gemini Omni Flash is only supported by the Gemini Developer API',
+        },
+        errorType: AgentRuntimeErrorType.ProviderBizError,
+        provider: this.provider,
+      });
+    }
+
     return createGoogleVideo(
       this.client,
       this.provider,
@@ -347,6 +358,10 @@ export class LobeGoogleAI implements LobeRuntimeAI {
 
   async handlePollVideoStatus(inferenceId: string) {
     return pollGoogleVideoOperation(this.client, inferenceId, this.provider, this.apiKey!);
+  }
+
+  async handleCreateVideoWebhook(payload: Parameters<typeof handleGoogleVideoWebhook>[0]) {
+    return handleGoogleVideoWebhook(payload);
   }
 
   /**
