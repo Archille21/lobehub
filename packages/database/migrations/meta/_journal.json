@@ -889,6 +889,13 @@
       "when": 1784648819431,
       "tag": "0126_agent_quota_workspace_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 127,
+      "version": "7",
+      "when": 1784880696404,
+      "tag": "0127_workspace_unique_active_owner_index",
+      "breakpoints": true
     }
   ],
   "version": "6"

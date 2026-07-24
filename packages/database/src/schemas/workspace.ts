@@ -1,4 +1,5 @@
 import type { WorkspaceUserPreference } from '@lobechat/types';
+import { sql } from 'drizzle-orm';
 import {
   boolean,
   index,
@@ -72,6 +73,12 @@ export const workspaceMembers = pgTable(
     // user can be inserted into the same workspace multiple times.
     primaryKey({ columns: [t.workspaceId, t.userId] }),
     index('workspace_members_user_id_idx').on(t.userId),
+    // Enforces the single active Owner per workspace at the DB level. Ships as
+    // a late, index-only migration: it may only be created after the four-role
+    // rollout has converged legacy multi-owner rows (LOBE-12316 step 7).
+    uniqueIndex('workspace_members_unique_active_owner_idx')
+      .on(t.workspaceId)
+      .where(sql`${t.role} = 'owner' AND ${t.deletedAt} IS NULL`),
   ],
 );
 
