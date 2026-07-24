@@ -14,7 +14,6 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { usePermission } from '@/hooks/usePermission';
-import { useResourceManageableChecker } from '@/hooks/useResourceManageable';
 import { lambdaClient } from '@/libs/trpc/client';
 import { type ApiKeyItem, type CreateApiKeyParams, type UpdateApiKeyParams } from '@/types/apiKey';
 import { isForbiddenError } from '@/utils/forbiddenError';
@@ -48,9 +47,12 @@ const ApiKey: FC = () => {
   const activeWorkspaceId = useActiveWorkspaceId();
   const { message } = App.useApp();
   const { allowed: canEdit, reason } = usePermission('create_content');
-  // Workspace row-level ownership: only the creator or a workspace owner may
-  // edit / toggle / delete a key — mirrors the server-side enforcement.
-  const checkManageable = useResourceManageableChecker();
+  // Workspace API keys are shared admin config: the server gates every
+  // mutation at Admin-or-higher (`requireWorkspaceRoleWhenScoped('admin')`),
+  // with no per-row creator check — mirror that here so Admins can manage
+  // keys created by other members.
+  const { allowed: canManageKeys } = usePermission('manage_settings');
+  const checkManageable = (_creatorUserId?: string | null) => canManageKeys;
   const manageTooltip = tc(
     'manageOnlyCreator',
     'Only the creator or a workspace owner can do this',

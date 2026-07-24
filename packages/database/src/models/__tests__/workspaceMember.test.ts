@@ -241,10 +241,10 @@ describe('WorkspaceMemberModel', () => {
       const model = new WorkspaceMemberModel(serverDB, inviterId);
       await model.addMember({ role: 'member', userId: memberId, workspaceId });
 
-      await model.updateMemberRole(workspaceId, memberId, 'owner');
+      await model.updateMemberRole(workspaceId, memberId, 'admin');
 
       const found = await model.getMember(workspaceId, memberId);
-      expect(found?.role).toBe('owner');
+      expect(found?.role).toBe('admin');
     });
 
     it('does not update the role of a soft-deleted member', async () => {
@@ -252,7 +252,7 @@ describe('WorkspaceMemberModel', () => {
       await model.addMember({ role: 'member', userId: memberId, workspaceId });
       await model.removeMember(workspaceId, memberId);
 
-      await model.updateMemberRole(workspaceId, memberId, 'owner');
+      await model.updateMemberRole(workspaceId, memberId, 'admin');
 
       const [row] = await serverDB
         .select()
