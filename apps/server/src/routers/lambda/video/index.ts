@@ -6,7 +6,14 @@ import {
   buildMappedBusinessModelFields,
   resolveBusinessModelMapping,
 } from '@lobechat/business-model-runtime';
-import { ChatErrorType, RequestTrigger, type VideoGenerationAsset } from '@lobechat/types';
+import {
+  ChatErrorType,
+  RequestTrigger,
+  type VideoGenerationAsset,
+  type VideoGenerationRoute,
+  type VideoGenerationTaskMetadata,
+} from '@lobechat/types';
+import { isRecord } from '@lobechat/utils/object';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 import { and, eq } from 'drizzle-orm';
@@ -43,6 +50,16 @@ import { createVideoTaskSubmitError } from './error';
 
 const log = debug('lobe-video:lambda');
 const GEMINI_OMNI_VIDEO_MODEL = 'gemini-omni-flash-preview';
+
+const getVideoGenerationRoute = (value: unknown): VideoGenerationRoute | undefined => {
+  if (!isRecord(value) || typeof value.apiType !== 'string') return;
+
+  return {
+    apiType: value.apiType,
+    ...(typeof value.channelId === 'string' ? { channelId: value.channelId } : {}),
+    ...(typeof value.routerId === 'string' ? { routerId: value.routerId } : {}),
+  };
+};
 
 const videoProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
@@ -110,19 +127,22 @@ export const videoRouter = router({
 
       // Normalize image URLs to S3 keys for database storage
       let configForDatabase = { ...params };
+      const referenceImageUrls = Array.isArray(params.imageUrls)
+        ? params.imageUrls.filter((url): url is string => typeof url === 'string')
+        : [];
 
       // Process multiple reference images
-      if (Array.isArray(params.imageUrls) && params.imageUrls.length > 0) {
+      if (referenceImageUrls.length > 0) {
         try {
           const imageKeys = (
             await Promise.all(
-              params.imageUrls.map(async (url) => {
+              referenceImageUrls.map(async (url) => {
                 const key = await fileService.getKeyFromFullUrl(url);
                 if (key) log('Converted image URL to key: %s -> %s', url, key);
-                return key;
+                return key ?? url;
               }),
             )
-          ).filter((key): key is string => Boolean(key));
+          ).filter(Boolean);
 
           configForDatabase = { ...configForDatabase, imageUrls: imageKeys };
         } catch (error) {
@@ -181,13 +201,16 @@ export const videoRouter = router({
           }
         }
 
-        if (Array.isArray(params.imageUrls) && params.imageUrls.length > 0) {
+        if (referenceImageUrls.length > 0) {
           const s3Urls = await Promise.all(
-            ((configForDatabase.imageUrls as string[] | undefined) ?? []).map((key) =>
-              fileService.getFullFileUrl(key),
+            ((configForDatabase.imageUrls as string[] | undefined) ?? []).map(
+              async (value, index) =>
+                value === referenceImageUrls[index]
+                  ? value
+                  : (await fileService.getFullFileUrl(value)) || referenceImageUrls[index],
             ),
           );
-          updates.imageUrls = s3Urls.filter((url): url is string => Boolean(url));
+          updates.imageUrls = s3Urls;
         }
 
         if (Object.keys(updates).length > 0) {
@@ -336,6 +359,7 @@ export const videoRouter = router({
         callbackUrl.searchParams.set('token', webhookToken);
         log('Using callback URL: %s', callbackUrl);
 
+        const requestMetadata: Record<string, unknown> = { trigger: RequestTrigger.Video };
         const response = await modelRuntime.createVideo(
           {
             callbackUrl: callbackUrl.toString(),
@@ -343,10 +367,17 @@ export const videoRouter = router({
             params: generationParams,
             previousInteractionId,
           },
-          { metadata: { trigger: RequestTrigger.Video } },
+          { metadata: requestMetadata },
         );
 
         log('Video task submitted successfully, inferenceId: %s', response?.inferenceId);
+
+        const route = getVideoGenerationRoute(requestMetadata.routeAttempt);
+        const taskMetadata: VideoGenerationTaskMetadata = {
+          ...(prechargeResult ? { precharge: prechargeResult } : {}),
+          ...(route ? { route } : {}),
+          webhookToken,
+        };
 
         // Determine async strategy based on response:
         // - useWebhook: provider registered a callback URL, wait for webhook
@@ -370,6 +401,7 @@ export const videoRouter = router({
                 prechargeResult,
                 preserveTaskOnTimeout,
                 provider,
+                route,
                 userId,
                 workspaceId: wsId,
               });
@@ -387,6 +419,7 @@ export const videoRouter = router({
 
           await asyncTaskModel.update(asyncTaskId, {
             inferenceId: response?.inferenceId,
+            metadata: taskMetadata,
             status: AsyncTaskStatus.Processing,
           });
 
@@ -400,6 +433,7 @@ export const videoRouter = router({
 
           await asyncTaskModel.update(asyncTaskId, {
             inferenceId: response.inferenceId,
+            metadata: taskMetadata,
             status: AsyncTaskStatus.Processing,
           });
 

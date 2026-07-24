@@ -192,6 +192,7 @@ export const POST = async (req: Request, { params }: { params: Promise<{ provide
       const pollResult = await userRuntime.handlePollVideoStatus(
         webhookResult.inferenceId,
         requestedModel,
+        metadata?.route,
       );
 
       if (!pollResult) {

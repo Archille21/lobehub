@@ -195,6 +195,13 @@ export interface HourlyUserMemoryExtractionMetadata {
 export interface VideoGenerationTaskMetadata {
   completionClaimedAt?: string;
   completionEventId?: string;
-  precharge?: Record<string, unknown>;
+  precharge?: unknown;
+  route?: VideoGenerationRoute;
   webhookToken?: string;
+}
+
+export interface VideoGenerationRoute {
+  apiType: string;
+  channelId?: string;
+  routerId?: string;
 }

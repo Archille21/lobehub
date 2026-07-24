@@ -33,6 +33,7 @@ import type {
   HandleCreateVideoWebhookResult,
   ILobeAgentRuntimeErrorType,
   TextToSpeechPayload,
+  VideoPollingRoute,
 } from '../../types';
 import { AgentRuntimeError } from '../../utils/createError';
 import { isNonRetryableRequestError } from '../../utils/isNonRetryableRequestError';
@@ -875,14 +876,48 @@ export const createRouterRuntime = ({
       );
     }
 
-    async handlePollVideoStatus(inferenceId: string, model?: string) {
+    async handlePollVideoStatus(inferenceId: string, model?: string, route?: VideoPollingRoute) {
       const resolvedRouters = await this.resolveRouters(model);
-      const matchedRouter = this._options.baseURL
-        ? (resolvedRouters.find((router) => router.baseURLPattern?.test(this._options.baseURL!)) ??
-          resolvedRouters.at(-1)!)
-        : resolvedRouters.at(-1)!;
+      const routedRouter = route?.routerId
+        ? resolvedRouters.find((router) => router.id === route.routerId)
+        : route?.channelId
+          ? resolvedRouters.find((router) =>
+              this.normalizeRouterOptions(router).some(
+                (optionItem) => optionItem.id === route.channelId,
+              ),
+            )
+          : undefined;
+
+      if ((route?.routerId || route?.channelId) && !routedRouter) {
+        throw new Error('The video generation route is no longer available');
+      }
+
+      const matchedRouter =
+        routedRouter ??
+        (model
+          ? await this.resolveMatchedRouter(model)
+          : this._options.baseURL
+            ? (resolvedRouters.find((router) =>
+                router.baseURLPattern?.test(this._options.baseURL!),
+              ) ?? resolvedRouters.at(-1)!)
+            : resolvedRouters.at(-1)!);
       const routerOptions = this.normalizeRouterOptions(matchedRouter);
-      const { runtime } = await this.createRuntimeFromOption(matchedRouter, routerOptions[0]);
+      const selectedOption = route?.channelId
+        ? routerOptions.find((optionItem) => optionItem.id === route.channelId)
+        : routerOptions[0];
+
+      if (!selectedOption) {
+        throw new Error('The video generation channel is no longer available');
+      }
+
+      const { id: apiType, runtime } = await this.createRuntimeFromOption(
+        matchedRouter,
+        selectedOption,
+      );
+
+      if (route?.apiType && apiType !== route.apiType) {
+        throw new Error('The video generation provider route has changed');
+      }
 
       if (!runtime.handlePollVideoStatus) {
         throw new Error('Video polling is not supported by the matched runtime');

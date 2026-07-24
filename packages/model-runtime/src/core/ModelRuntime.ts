@@ -31,6 +31,7 @@ import type {
   CreateVideoMethodOptions,
   CreateVideoPayload,
   HandleCreateVideoWebhookPayload,
+  VideoPollingRoute,
 } from '../types/video';
 import { AgentRuntimeError } from '../utils/createError';
 import type { LobeRuntimeAI } from './BaseAI';
@@ -424,8 +425,8 @@ export class ModelRuntime {
     return this._runtime.handleCreateVideoWebhook?.(payload);
   }
 
-  async handlePollVideoStatus(inferenceId: string, model?: string) {
-    return this._runtime.handlePollVideoStatus?.(inferenceId, model);
+  async handlePollVideoStatus(inferenceId: string, model?: string, route?: VideoPollingRoute) {
+    return this._runtime.handlePollVideoStatus?.(inferenceId, model, route);
   }
 
   async models() {

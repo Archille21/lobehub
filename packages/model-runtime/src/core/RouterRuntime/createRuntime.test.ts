@@ -1345,6 +1345,61 @@ describe('createRouterRuntime', () => {
       ).resolves.toMatchObject({ status: 'success' });
     });
 
+    it('should poll with the same channel that created the video', async () => {
+      class MockRuntime implements LobeRuntimeAI {
+        private apiKey: string;
+
+        constructor(options: { apiKey: string }) {
+          this.apiKey = options.apiKey;
+        }
+
+        createVideo = vi.fn().mockImplementation(async () => {
+          if (this.apiKey === 'key-1') throw new Error('channel unavailable');
+          return { inferenceId: 'interaction-1' };
+        });
+
+        handlePollVideoStatus = vi.fn().mockImplementation(async () => ({
+          status: 'success',
+          videoUrl: `https://example.com/${this.apiKey}.mp4`,
+        }));
+      }
+
+      const Runtime = createRouterRuntime({
+        id: 'lobehub',
+        routers: [
+          {
+            apiType: 'google',
+            id: 'google-router',
+            models: ['gemini-omni-flash-preview'],
+            options: [
+              { apiKey: 'key-1', id: 'google-channel-1' },
+              { apiKey: 'key-2', id: 'google-channel-2' },
+            ],
+            runtime: MockRuntime as any,
+          },
+        ],
+      });
+
+      const runtime = new Runtime({ userId: 'user-1' });
+      const metadata: Record<string, unknown> = { trigger: RequestTrigger.Video };
+
+      await runtime.createVideo(
+        { model: 'gemini-omni-flash-preview', params: { prompt: 'a cat' } } as any,
+        { metadata },
+      );
+
+      await expect(
+        runtime.handlePollVideoStatus(
+          'interaction-1',
+          'gemini-omni-flash-preview',
+          metadata.routeAttempt as any,
+        ),
+      ).resolves.toEqual({
+        status: 'success',
+        videoUrl: 'https://example.com/key-2.mp4',
+      });
+    });
+
     it('should resolve the video webhook router from the payload model', async () => {
       class MockRuntime implements LobeRuntimeAI {
         handleCreateVideoWebhook = vi.fn().mockResolvedValue({

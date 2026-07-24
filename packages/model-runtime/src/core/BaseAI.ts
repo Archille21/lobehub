@@ -25,6 +25,7 @@ import type {
   PullModelParams,
   TextToSpeechOptions,
   TextToSpeechPayload,
+  VideoPollingRoute,
 } from '../types';
 
 export interface LobeRuntimeAI {
@@ -51,7 +52,11 @@ export interface LobeRuntimeAI {
     payload: HandleCreateVideoWebhookPayload,
   ) => Promise<HandleCreateVideoWebhookResult>;
 
-  handlePollVideoStatus?: (inferenceId: string, model?: string) => Promise<PollVideoStatusResult>;
+  handlePollVideoStatus?: (
+    inferenceId: string,
+    model?: string,
+    route?: VideoPollingRoute,
+  ) => Promise<PollVideoStatusResult>;
 
   models?: () => Promise<any>;
 

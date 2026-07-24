@@ -1,3 +1,4 @@
+import type { VideoGenerationRoute } from '@lobechat/types';
 import type { RuntimeVideoGenParams } from 'model-bank';
 
 import type { ModelPricingContext } from './pricing';
@@ -49,6 +50,8 @@ export type PollVideoStatusResult =
   | {
       status: 'pending';
     };
+
+export type VideoPollingRoute = VideoGenerationRoute;
 
 export type HandleCreateVideoWebhookPayload = {
   body: unknown;

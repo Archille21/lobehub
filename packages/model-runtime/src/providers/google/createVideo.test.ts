@@ -888,6 +888,25 @@ describe('pollGoogleVideoOperation', () => {
   });
 
   describe('pending state', () => {
+    it('should poll a qualified Veo operation resource', async () => {
+      const qualifiedOperation =
+        'projects/test/locations/us-central1/publishers/google/models/veo/operations/test-123';
+      mockClient.operations.getVideosOperation.mockResolvedValueOnce({ done: false });
+
+      const result = await pollGoogleVideoOperation(
+        mockClient as any,
+        qualifiedOperation,
+        'google',
+        'test-api-key',
+      );
+
+      expect(result).toEqual({ status: 'pending' });
+      expect(mockClient.operations.getVideosOperation).toHaveBeenCalledWith({
+        operation: expect.objectContaining({ name: qualifiedOperation }),
+      });
+      expect(mockClient.interactions.get).not.toHaveBeenCalled();
+    });
+
     it('should return pending while a Gemini Omni interaction is in progress', async () => {
       mockClient.interactions.get.mockResolvedValueOnce({
         id: 'interactions/omni-pending',

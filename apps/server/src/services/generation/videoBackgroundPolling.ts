@@ -3,7 +3,7 @@ import {
   buildMappedBusinessModelFields,
   resolveBusinessModelMapping,
 } from '@lobechat/business-model-runtime';
-import { RequestTrigger } from '@lobechat/types';
+import { RequestTrigger, type VideoGenerationRoute } from '@lobechat/types';
 import debug from 'debug';
 import type { RuntimeVideoGenParams } from 'model-bank';
 
@@ -34,6 +34,7 @@ interface BackgroundPollingParams {
   prechargeResult?: any;
   preserveTaskOnTimeout?: boolean;
   provider: string;
+  route?: VideoGenerationRoute;
   userId: string;
   workspaceId?: string;
 }
@@ -55,6 +56,7 @@ export async function processBackgroundVideoPolling(
     prechargeResult,
     preserveTaskOnTimeout,
     provider,
+    route,
     userId,
     workspaceId,
   } = params;
@@ -74,7 +76,7 @@ export async function processBackgroundVideoPolling(
     const generationModel = new GenerationModel(db, userId, workspaceId);
 
     const modelRuntime = await initModelRuntimeFromDB(db, userId, provider, workspaceId);
-    const pollResult = await pollUntilCompletion(modelRuntime, inferenceId, model);
+    const pollResult = await pollUntilCompletion(modelRuntime, inferenceId, model, route);
 
     if (!pollResult) {
       throw new Error('Polling completed but no video URL returned');
@@ -248,6 +250,7 @@ async function pollUntilCompletion(
   modelRuntime: any,
   inferenceId: string,
   model: string,
+  route?: VideoGenerationRoute,
 ): Promise<{
   headers?: Record<string, string>;
   usage?: { completionTokens: number; totalTokens: number };
@@ -260,7 +263,7 @@ async function pollUntilCompletion(
     try {
       log('Polling attempt %d/%d for task: %s', attempt + 1, maxRetries, inferenceId);
 
-      const result = await modelRuntime.handlePollVideoStatus(inferenceId, model);
+      const result = await modelRuntime.handlePollVideoStatus(inferenceId, model, route);
 
       if (result.status === 'success') {
         log('Video generation succeeded for task: %s', inferenceId);

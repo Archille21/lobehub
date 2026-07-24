@@ -332,7 +332,7 @@ export async function pollGoogleVideoOperation(
       return { error: 'Invalid operation name', status: 'failed' };
     }
 
-    if (!inferenceId.startsWith('operations/')) {
+    if (!inferenceId.startsWith('operations/') && !inferenceId.includes('/operations/')) {
       return await pollGoogleOmniInteraction(client, inferenceId, apiKey);
     }
 

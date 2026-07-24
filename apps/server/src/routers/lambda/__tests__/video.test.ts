@@ -151,13 +151,15 @@ const mockDbUpdate = vi.fn().mockReturnValue({
 
 function setupMocks() {
   const mockUpdate = vi.fn().mockResolvedValue(undefined);
+  const mockGetFullFileUrl = vi.fn().mockResolvedValue(null);
+  const mockGetKeyFromFullUrl = vi.fn().mockResolvedValue(null);
 
   vi.mocked(AsyncTaskModel).mockImplementation(() => ({ update: mockUpdate }) as any);
   vi.mocked(FileService).mockImplementation(
     () =>
       ({
-        getFullFileUrl: vi.fn().mockResolvedValue(null),
-        getKeyFromFullUrl: vi.fn().mockResolvedValue(null),
+        getFullFileUrl: mockGetFullFileUrl,
+        getKeyFromFullUrl: mockGetKeyFromFullUrl,
       }) as any,
   );
 
@@ -166,7 +168,7 @@ function setupMocks() {
     cb({ insert: mockInsert, update: mockDbUpdate }),
   );
 
-  return { mockUpdate };
+  return { mockGetFullFileUrl, mockGetKeyFromFullUrl, mockInsert, mockUpdate };
 }
 
 // ---- import router AFTER mocks are set up ----
@@ -203,6 +205,7 @@ describe('videoRouter', () => {
       expect(result.success).toBe(true);
       expect(mockUpdate).toHaveBeenCalledWith('async-1', {
         inferenceId: 'inf-1',
+        metadata: { webhookToken: expect.any(String) },
         status: AsyncTaskStatus.Processing,
       });
       // Webhook: should NOT trigger background polling
@@ -210,11 +213,19 @@ describe('videoRouter', () => {
     });
 
     it('should schedule polling fallback for a webhook-based interaction', async () => {
-      setupMocks();
-      mockCreateVideo.mockResolvedValue({
-        inferenceId: 'interactions/omni-1',
-        pollingFallback: true,
-        useWebhook: true,
+      const { mockUpdate } = setupMocks();
+      mockCreateVideo.mockImplementation(async (_payload, options) => {
+        options.metadata.routeAttempt = {
+          apiType: 'google',
+          channelId: 'google-channel-2',
+          routerId: 'google-router',
+        };
+
+        return {
+          inferenceId: 'interactions/omni-1',
+          pollingFallback: true,
+          useWebhook: true,
+        };
       });
 
       const caller = videoRouter.createCaller(mockCtx);
@@ -226,6 +237,47 @@ describe('videoRouter', () => {
         expect.objectContaining({
           inferenceId: 'interactions/omni-1',
           preserveTaskOnTimeout: true,
+          route: {
+            apiType: 'google',
+            channelId: 'google-channel-2',
+            routerId: 'google-router',
+          },
+        }),
+      );
+      expect(mockUpdate).toHaveBeenCalledWith(
+        'async-1',
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            route: {
+              apiType: 'google',
+              channelId: 'google-channel-2',
+              routerId: 'google-router',
+            },
+          }),
+        }),
+      );
+    });
+
+    it('should preserve reference image URLs that are not storage files', async () => {
+      const { mockGetKeyFromFullUrl, mockInsert } = setupMocks();
+      const imageUrls = [
+        'https://images.example.com/reference.png',
+        'data:image/png;base64,reference',
+      ];
+      mockGetKeyFromFullUrl.mockResolvedValue(null);
+      mockCreateVideo.mockResolvedValue({ inferenceId: 'inf-reference', useWebhook: true });
+
+      const caller = videoRouter.createCaller(mockCtx);
+      await caller.createVideo({
+        ...defaultInput,
+        params: { ...defaultInput.params, imageUrls },
+      });
+
+      const values = mockInsert.mock.results[0].value.values;
+      expect(values).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          config: expect.objectContaining({ imageUrls }),
         }),
       );
     });
@@ -396,6 +448,7 @@ describe('videoRouter', () => {
       expect(result.success).toBe(true);
       expect(mockUpdate).toHaveBeenCalledWith('async-1', {
         inferenceId: 'inf-2',
+        metadata: { webhookToken: expect.any(String) },
         status: AsyncTaskStatus.Processing,
       });
       // Polling: should trigger background polling after the response.
@@ -422,6 +475,7 @@ describe('videoRouter', () => {
       expect(result.success).toBe(true);
       expect(mockUpdate).toHaveBeenCalledWith('async-1', {
         inferenceId: 'inf-3',
+        metadata: { webhookToken: expect.any(String) },
         status: AsyncTaskStatus.Processing,
       });
       // No special videoUrl branch — falls through to polling

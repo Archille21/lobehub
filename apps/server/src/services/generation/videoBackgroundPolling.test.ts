@@ -121,6 +121,7 @@ describe('videoBackgroundPolling', () => {
       expect(mockModelRuntime.handlePollVideoStatus).toHaveBeenCalledWith(
         'inference-abc',
         'test-model',
+        undefined,
       );
 
       expect(mockVideoService.processVideoForGeneration).toHaveBeenCalledWith(
