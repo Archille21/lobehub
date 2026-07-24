@@ -32,10 +32,13 @@ interface BackgroundPollingParams {
   inferenceId: string;
   model: string;
   prechargeResult?: any;
+  preserveTaskOnTimeout?: boolean;
   provider: string;
   userId: string;
   workspaceId?: string;
 }
+
+class VideoPollingTimeoutError extends Error {}
 
 export async function processBackgroundVideoPolling(
   db: LobeChatDatabase,
@@ -50,6 +53,7 @@ export async function processBackgroundVideoPolling(
     inferenceId,
     model,
     prechargeResult,
+    preserveTaskOnTimeout,
     provider,
     userId,
     workspaceId,
@@ -169,6 +173,11 @@ export async function processBackgroundVideoPolling(
   } catch (error) {
     log('Background video polling error for task: %s', asyncTaskId, error);
 
+    if (preserveTaskOnTimeout && error instanceof VideoPollingTimeoutError) {
+      log('Webhook fallback polling timed out; preserving task for callback: %s', asyncTaskId);
+      return;
+    }
+
     const asyncTaskModel = new AsyncTaskModel(db, userId, workspaceId);
     if (!claimedByThisWorker) {
       claimedByThisWorker = await AsyncTaskModel.claimVideoCompletion(db, asyncTaskId);
@@ -273,7 +282,7 @@ async function pollUntilCompletion(
     }
   }
 
-  throw new Error(
+  throw new VideoPollingTimeoutError(
     `Video generation timeout after ${maxRetries} attempts (${(maxRetries * pollingInterval) / 1000}s)`,
   );
 }

@@ -225,6 +225,7 @@ describe('videoRouter', () => {
         mockServerDB,
         expect.objectContaining({
           inferenceId: 'interactions/omni-1',
+          preserveTaskOnTimeout: true,
         }),
       );
     });
@@ -400,6 +401,12 @@ describe('videoRouter', () => {
       // Polling: should trigger background polling after the response.
       expect(mockAfter).toHaveBeenCalled();
       expect(mockProcessBackgroundVideoPolling).toHaveBeenCalled();
+      expect(mockProcessBackgroundVideoPolling).toHaveBeenCalledWith(
+        mockServerDB,
+        expect.objectContaining({
+          preserveTaskOnTimeout: false,
+        }),
+      );
     });
 
     it('should use polling path when response contains videoUrl (no special handling)', async () => {

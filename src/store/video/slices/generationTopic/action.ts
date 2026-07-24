@@ -164,7 +164,11 @@ export class GenerationTopicActionImpl {
   };
 
   openNewGenerationTopic = (): void => {
-    this.#set({ activeGenerationTopicId: null }, false, n('openNewGenerationTopic'));
+    this.#set(
+      { activeGenerationTopicId: null, editingGenerationId: undefined },
+      false,
+      n('openNewGenerationTopic'),
+    );
   };
 
   refreshGenerationTopics = async (): Promise<void> => {
@@ -270,7 +274,11 @@ export class GenerationTopicActionImpl {
   switchGenerationTopic = (topicId: string): void => {
     if (this.#get().activeGenerationTopicId === topicId) return;
 
-    this.#set({ activeGenerationTopicId: topicId }, false, n('switchGenerationTopic'));
+    this.#set(
+      { activeGenerationTopicId: topicId, editingGenerationId: undefined },
+      false,
+      n('switchGenerationTopic'),
+    );
   };
 
   updateGenerationTopicCover = async (topicId: string, coverUrl: string): Promise<void> => {

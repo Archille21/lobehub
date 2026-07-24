@@ -352,7 +352,7 @@ export const videoRouter = router({
         // - useWebhook: provider registered a callback URL, wait for webhook
         // - otherwise: use background polling to check status
         const useWebhook = response && 'useWebhook' in response && response.useWebhook;
-        const schedulePolling = (inferenceId: string) => {
+        const schedulePolling = (inferenceId: string, preserveTaskOnTimeout = false) => {
           after(async () => {
             log('Background video polling scheduled for task: %s', asyncTaskId);
 
@@ -368,6 +368,7 @@ export const videoRouter = router({
                 inferenceId,
                 model,
                 prechargeResult,
+                preserveTaskOnTimeout,
                 provider,
                 userId,
                 workspaceId: wsId,
@@ -391,7 +392,7 @@ export const videoRouter = router({
 
           if (response.pollingFallback) {
             log('Scheduling polling fallback for webhook-based video task: %s', asyncTaskId);
-            schedulePolling(response.inferenceId);
+            schedulePolling(response.inferenceId, true);
           }
         } else if (response) {
           // Polling-based provider (e.g. OpenAI Sora): use background polling
