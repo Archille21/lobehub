@@ -3,13 +3,21 @@ import { eq, sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../core/getTestDB';
-import { users, workspaceInvitations, workspaceMembers, workspaces } from '../../schemas';
+import {
+  roles,
+  userRoles,
+  users,
+  workspaceInvitations,
+  workspaceMembers,
+  workspaces,
+} from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
 import { WORKSPACE_ROLE_CONVERGE_STATEMENTS } from '../workspaceAdminRollout';
 
 const serverDB: LobeChatDatabase = await getTestDB();
 const ownerId = 'role-converge-owner';
 const legacyOwnerId = 'role-converge-legacy-owner';
+const driftedMemberId = 'role-converge-drifted-member';
 const workspaceId = 'role-converge-workspace';
 const invitationId = 'role-converge-invitation';
 
@@ -20,13 +28,17 @@ const runConverge = async () => {
 };
 
 const cleanup = async () => {
+  await serverDB.delete(userRoles);
+  await serverDB.delete(roles);
   await serverDB.delete(workspaces).where(eq(workspaces.id, workspaceId));
   await serverDB.delete(users);
 };
 
 beforeEach(async () => {
   await cleanup();
-  await serverDB.insert(users).values([{ id: ownerId }, { id: legacyOwnerId }]);
+  await serverDB
+    .insert(users)
+    .values([{ id: ownerId }, { id: legacyOwnerId }, { id: driftedMemberId }]);
   await serverDB.insert(workspaces).values({
     id: workspaceId,
     name: 'Role converge',
@@ -36,9 +48,25 @@ beforeEach(async () => {
   await serverDB.insert(workspaceMembers).values([
     // Primary owner's row is soft-deleted and mislabelled — must be repaired.
     { deletedAt: new Date(), role: 'member', userId: ownerId, workspaceId },
-    // Legacy co-owner must be demoted to admin.
+    // Legacy co-owner without any RBAC grant falls back to admin.
     { role: 'owner', userId: legacyOwnerId, workspaceId },
+    // Drifted row: column says owner, but the legacy RBAC grant (the
+    // pre-reversal truth) says member — must reconcile to member.
+    { role: 'owner', userId: driftedMemberId, workspaceId },
   ]);
+  const [memberRole] = await serverDB
+    .insert(roles)
+    .values({
+      displayName: 'Member',
+      isActive: true,
+      isSystem: true,
+      name: 'workspace_member',
+      workspaceId,
+    })
+    .returning({ id: roles.id });
+  await serverDB
+    .insert(userRoles)
+    .values({ roleId: memberRole.id, userId: driftedMemberId, workspaceId });
   await serverDB.insert(workspaceInvitations).values({
     email: 'pending-owner@example.com',
     expiresAt: new Date(Date.now() + 86_400_000),
@@ -66,6 +94,7 @@ describe('workspace role convergence statements', () => {
     expect(primary?.deletedAt).toBeNull();
 
     expect(memberships.find(({ userId }) => userId === legacyOwnerId)?.role).toBe('admin');
+    expect(memberships.find(({ userId }) => userId === driftedMemberId)?.role).toBe('member');
 
     const invitation = await serverDB.query.workspaceInvitations.findFirst({
       where: eq(workspaceInvitations.id, invitationId),
