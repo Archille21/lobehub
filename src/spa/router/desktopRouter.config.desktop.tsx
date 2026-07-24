@@ -68,7 +68,14 @@ import AgentChannelPlatformPage from '@/routes/(main)/agent/channel/[platform]';
 import AgentDocumentsIndexRoute from '@/routes/(main)/agent/docs';
 import AgentDocumentLayout from '@/routes/(main)/agent/docs/_layout';
 import AgentDocumentRoute from '@/routes/(main)/agent/docs/[docId]';
-import { agentRouteMeta, topicsRouteMeta } from '@/routes/(main)/agent/features/routeMeta';
+import {
+  agentChannelRouteMeta,
+  agentDocumentsRouteMeta,
+  agentProfileRouteMeta,
+  agentRouteMeta,
+  agentStatsRouteMeta,
+  topicsRouteMeta,
+} from '@/routes/(main)/agent/features/routeMeta';
 import AgentProfilePage from '@/routes/(main)/agent/profile';
 import AgentStatsPage from '@/routes/(main)/agent/stats';
 import AgentTaskDetailRoute from '@/routes/(main)/agent/task/[taskId]';
@@ -190,18 +197,22 @@ export const sharedMainAreaChildren: RouteObject[] = [
               },
             ],
             element: <AgentDocumentLayout />,
+            handle: { meta: agentDocumentsRouteMeta },
             path: 'docs',
           },
           {
             element: <AgentProfilePage />,
+            handle: { meta: agentProfileRouteMeta },
             path: 'profile',
           },
           {
             element: <AgentChannelPage />,
+            handle: { meta: agentChannelRouteMeta },
             path: 'channel',
           },
           {
             element: <AgentChannelPlatformPage />,
+            handle: { meta: agentChannelRouteMeta },
             path: 'channel/:platform',
           },
           {
@@ -211,6 +222,7 @@ export const sharedMainAreaChildren: RouteObject[] = [
           },
           {
             element: <AgentStatsPage />,
+            handle: { meta: agentStatsRouteMeta },
             path: 'stats',
           },
           {
@@ -248,6 +260,7 @@ export const sharedMainAreaChildren: RouteObject[] = [
           },
           {
             element: <GroupProfilePage />,
+            handle: { meta: groupRouteMeta },
             path: 'profile',
           },
           {

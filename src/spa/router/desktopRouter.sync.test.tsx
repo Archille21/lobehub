@@ -127,6 +127,18 @@ describe('desktopRouter config sync', () => {
     );
   });
 
+  it('registers dynamic metadata for agent-scoped pages and group profile tabs', async () => {
+    const [asyncSource, syncSource] = await readDesktopRouterSources();
+
+    for (const source of [asyncSource, syncSource]) {
+      expect(source).toContain('handle: { meta: agentProfileRouteMeta }');
+      expect(source).toContain('handle: { meta: agentChannelRouteMeta }');
+      expect(source).toContain('handle: { meta: agentDocumentsRouteMeta }');
+      expect(source).toContain('handle: { meta: agentStatsRouteMeta }');
+      expect(source).toContain('handle: { meta: groupRouteMeta }');
+    }
+  });
+
   it('workspace settings tree is registered with all tabs in both configs', async () => {
     const [asyncSource, syncSource] = await readDesktopRouterSources();
 

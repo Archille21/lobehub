@@ -1,5 +1,9 @@
 export default {
   'navigation.agents': 'Agents',
+  'navigation.agentChannels': 'Channels',
+  'navigation.agentDocuments': 'Documents',
+  'navigation.agentProfile': 'Agent Profile',
+  'navigation.agentStats': 'Statistics',
   'navigation.chat': 'Chat',
   'navigation.discover': 'Discover',
   'navigation.discoverAssistants': 'Discover Agents',
