@@ -5,7 +5,7 @@ import type { LobeChatDatabase } from '@/database/type';
 
 import type { RoleItem } from '../schemas/rbac';
 import { permissions, rolePermissions, roles, userRoles } from '../schemas/rbac';
-import { workspaceMembers } from '../schemas/workspace';
+import { workspaceMembers, workspaces } from '../schemas/workspace';
 
 export interface UserPermissionInfo {
   category: string;
@@ -55,21 +55,29 @@ export class RbacModel {
   /**
    * Active membership role of a user in a workspace, or null for non-members.
    * `workspace_members.role` is the single source of truth for built-in
-   * workspace roles.
+   * workspace roles. Owner is bound to `workspaces.primaryOwnerId`: a legacy
+   * non-primary `owner` label (data not yet converged) expands as Admin so it
+   * can never pass Owner-only gates.
    */
   private getWorkspaceMembershipRole = async (
     userId: string,
     workspaceId: string,
   ): Promise<string | null> => {
-    const membership = await this.db.query.workspaceMembers.findFirst({
-      columns: { role: true },
-      where: and(
-        eq(workspaceMembers.workspaceId, workspaceId),
-        eq(workspaceMembers.userId, userId),
-        isNull(workspaceMembers.deletedAt),
-      ),
-    });
-    return membership?.role ?? null;
+    const [row] = await this.db
+      .select({ primaryOwnerId: workspaces.primaryOwnerId, role: workspaceMembers.role })
+      .from(workspaceMembers)
+      .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, workspaceId),
+          eq(workspaceMembers.userId, userId),
+          isNull(workspaceMembers.deletedAt),
+        ),
+      )
+      .limit(1);
+    if (!row) return null;
+    if (row.role === 'owner' && row.primaryOwnerId !== userId) return 'admin';
+    return row.role;
   };
 
   /**

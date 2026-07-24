@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../core/getTestDB';
@@ -108,6 +108,28 @@ describe('WorkspaceModel', () => {
     await expect(
       hasWorkspaceAdminAccess(serverDB, { userId: memberId, workspaceId }),
     ).resolves.toBe(false);
+  });
+
+  it('denies owner access for a legacy non-primary owner label', async () => {
+    const workspaceId = await createWorkspace();
+    await serverDB
+      .update(workspaceMembers)
+      .set({ role: 'owner' })
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, workspaceId),
+          eq(workspaceMembers.userId, secondOwnerId),
+        ),
+      );
+
+    const { hasWorkspaceOwnerAccess } = await import('../workspace');
+    await expect(
+      hasWorkspaceOwnerAccess(serverDB, { userId: secondOwnerId, workspaceId }),
+    ).resolves.toBe(false);
+    // …but the stray label still counts as Admin.
+    await expect(
+      hasWorkspaceAdminAccess(serverDB, { userId: secondOwnerId, workspaceId }),
+    ).resolves.toBe(true);
   });
 
   it('lists active memberships with their workspace roles and skips deleted memberships', async () => {

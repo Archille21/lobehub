@@ -100,6 +100,11 @@ describe('RbacModel — workspace mode (membership.role is the source of truth)'
 
   describe('hasPermission', () => {
     it('owner passes owner-only and shared codes', async () => {
+      // Owner semantics require the primary-owner binding.
+      await serverDB
+        .update(workspaces)
+        .set({ primaryOwnerId: userId })
+        .where(eq(workspaces.id, workspaceAId));
       await addMembership(userId, workspaceAId, 'owner');
       const rbac = new RbacModel(serverDB, userId);
 
@@ -188,6 +193,19 @@ describe('RbacModel — workspace mode (membership.role is the source of truth)'
       expect(await rbac.hasPermission(deleteCode, { workspaceId: workspaceAId })).toBe(false);
     });
 
+    it('expands a legacy non-primary owner label as admin until data converges', async () => {
+      // workspaceA's primary owner is otherUserId — userId's stray owner
+      // label must not unlock Owner-only permissions.
+      await addMembership(userId, workspaceAId, 'owner');
+      const rbac = new RbacModel(serverDB, userId);
+
+      expect(await rbac.hasPermission(updateCode, { workspaceId: workspaceAId })).toBe(true);
+      expect(await rbac.hasPermission(deleteCode, { workspaceId: workspaceAId })).toBe(false);
+      expect(await rbac.hasPermission(billingManageCode, { workspaceId: workspaceAId })).toBe(
+        false,
+      );
+    });
+
     it('globally-granted roles (super_admin) still pass inside any workspace', async () => {
       await grantGlobalRole(userId, 'super_admin', [deleteCode]);
       const rbac = new RbacModel(serverDB, userId);
@@ -253,6 +271,10 @@ describe('RbacModel — workspace mode (membership.role is the source of truth)'
     });
 
     it('AND semantics across matrix codes', async () => {
+      await serverDB
+        .update(workspaces)
+        .set({ primaryOwnerId: userId })
+        .where(eq(workspaces.id, workspaceAId));
       await addMembership(userId, workspaceAId, 'owner');
       const rbac = new RbacModel(serverDB, userId);
 

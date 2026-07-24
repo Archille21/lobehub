@@ -12,15 +12,23 @@ const getActiveMembershipRole = async (
   db: LobeChatDatabase,
   params: { userId: string; workspaceId: string },
 ): Promise<string | null> => {
-  const membership = await db.query.workspaceMembers.findFirst({
-    columns: { role: true },
-    where: and(
-      eq(workspaceMembers.workspaceId, params.workspaceId),
-      eq(workspaceMembers.userId, params.userId),
-      isNull(workspaceMembers.deletedAt),
-    ),
-  });
-  return membership?.role ?? null;
+  const [row] = await db
+    .select({ primaryOwnerId: workspaces.primaryOwnerId, role: workspaceMembers.role })
+    .from(workspaceMembers)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, params.workspaceId),
+        eq(workspaceMembers.userId, params.userId),
+        isNull(workspaceMembers.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (!row) return null;
+  // Owner is bound to `workspaces.primaryOwnerId`; un-converged legacy
+  // co-owner labels count as Admin.
+  if (row.role === 'owner' && row.primaryOwnerId !== params.userId) return 'admin';
+  return row.role;
 };
 
 /**
