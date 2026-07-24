@@ -101,8 +101,10 @@ async function createGoogleOmniVideo(
   payload: CreateVideoPayload,
 ): Promise<CreateVideoResponse> {
   const { callbackUrl, model, params, previousInteractionId } = payload;
-  const { aspectRatio, imageUrl, imageUrls, prompt, task } = params;
-  const images = imageUrls?.length ? imageUrls : imageUrl ? [imageUrl] : [];
+  const { aspectRatio, endImageUrl, imageUrl, imageUrls, prompt, task } = params;
+  const images = [imageUrl, ...(imageUrls ?? []), endImageUrl].filter((url): url is string =>
+    Boolean(url),
+  );
   const resolvedTask =
     task ??
     (previousInteractionId

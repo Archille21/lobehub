@@ -109,12 +109,14 @@ describe('createGoogleVideo', () => {
       expect(request).not.toHaveProperty('generation_config');
     });
 
-    it('should select reference-to-video for multiple reference images', async () => {
+    it('should preserve all frame inputs and select reference-to-video', async () => {
       mockClient.interactions.create.mockResolvedValueOnce({ id: 'interactions/reference-789' });
 
       await createGoogleVideo(mockClient as any, 'google', {
         model: 'gemini-omni-flash-preview',
         params: {
+          endImageUrl: 'https://example.com/end.jpg',
+          imageUrl: 'https://example.com/start.jpg',
           imageUrls: ['https://example.com/one.jpg', 'https://example.com/two.jpg'],
           prompt: 'Put both characters in the same scene',
         },
@@ -124,6 +126,8 @@ describe('createGoogleVideo', () => {
         expect.objectContaining({
           generation_config: { video_config: { task: 'reference_to_video' } },
           input: [
+            { data: 'mock-base64-data', mime_type: 'image/jpeg', type: 'image' },
+            { data: 'mock-base64-data', mime_type: 'image/jpeg', type: 'image' },
             { data: 'mock-base64-data', mime_type: 'image/jpeg', type: 'image' },
             { data: 'mock-base64-data', mime_type: 'image/jpeg', type: 'image' },
             { text: 'Put both characters in the same scene', type: 'text' },
