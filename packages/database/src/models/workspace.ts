@@ -211,7 +211,10 @@ export class WorkspaceModel {
       });
       if (!targetMembership)
         throw new Error('Target user must already be a member of the workspace');
-      if (targetMembership.role !== 'admin')
+      // A legacy non-primary `owner` label counts as Admin everywhere else
+      // (see getActiveMembershipRole) — accept it here too so unconverged
+      // co-owner workspaces can still transfer ownership.
+      if (targetMembership.role !== 'admin' && targetMembership.role !== 'owner')
         throw new Error('Target user must already be an admin');
 
       // Compare-and-swap on the still-current owner: two concurrent transfers
@@ -223,8 +226,7 @@ export class WorkspaceModel {
         .set({ primaryOwnerId: newPrimaryOwnerUserId, updatedAt: new Date() })
         .where(and(eq(workspaces.id, id), eq(workspaces.primaryOwnerId, this.userId)))
         .returning({ id: workspaces.id });
-      if (swapped.length === 0)
-        throw new Error('Only the workspace owner can transfer ownership');
+      if (swapped.length === 0) throw new Error('Only the workspace owner can transfer ownership');
 
       await tx
         .update(workspaceMembers)
