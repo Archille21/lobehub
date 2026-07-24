@@ -105,7 +105,7 @@ export async function processBackgroundVideoPolling(
       duration: processResult.duration,
       height: processResult.height,
       interactionId: inferenceId,
-      originalUrl: pollResult.videoUrl,
+      originalUrl: pollResult.videoUrl.startsWith('data:') ? undefined : pollResult.videoUrl,
       previousGenerationId,
       thumbnailUrl: processResult.thumbnailKey,
       type: 'video',

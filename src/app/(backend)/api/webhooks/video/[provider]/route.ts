@@ -204,7 +204,10 @@ export const POST = async (req: Request, { params }: { params: Promise<{ provide
           'Interaction completed but generated video file is still processing: %s',
           webhookResult.inferenceId,
         );
-        return NextResponse.json({ success: true });
+        return NextResponse.json(
+          { error: 'Generated video file is still processing' },
+          { status: 503 },
+        );
       }
 
       const pollHeaders =
@@ -289,7 +292,7 @@ export const POST = async (req: Request, { params }: { params: Promise<{ provide
       duration: processResult.duration,
       height: processResult.height,
       interactionId: result.inferenceId,
-      originalUrl: result.videoUrl,
+      originalUrl: result.videoUrl.startsWith('data:') ? undefined : result.videoUrl,
       previousGenerationId: metadata?.previousGenerationId,
       thumbnailUrl: processResult.thumbnailKey,
       type: 'video',

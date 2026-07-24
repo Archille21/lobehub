@@ -61,7 +61,10 @@ export class VideoGenerationService {
       headers?: Record<string, string>;
     },
   ): Promise<VideoProcessResult> {
-    log('Processing video from URL: %s', videoUrl);
+    log(
+      'Processing video from source: %s',
+      videoUrl.startsWith('data:') ? 'inline data' : videoUrl,
+    );
 
     let tempVideoPath: string | null = null;
     let tempCoverPath: string | null = null;

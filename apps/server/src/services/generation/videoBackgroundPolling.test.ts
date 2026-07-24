@@ -195,6 +195,33 @@ describe('videoBackgroundPolling', () => {
       expect(mockGenerationModel.createAssetAndFile).not.toHaveBeenCalled();
       expect(mockAsyncTaskModel.update).not.toHaveBeenCalled();
     });
+
+    it('should not persist inline video data as the original URL', async () => {
+      mockModelRuntime.handlePollVideoStatus.mockResolvedValue({
+        status: 'success',
+        videoUrl: 'data:video/mp4;base64,inline-video',
+      });
+      mockVideoService.processVideoForGeneration.mockResolvedValue({
+        coverKey: 'cover-key',
+        duration: 10,
+        fileHash: 'hash',
+        fileSize: 1024,
+        height: 1080,
+        mimeType: 'video/mp4',
+        thumbnailKey: 'thumb-key',
+        videoKey: 'video-key',
+        width: 1920,
+      });
+
+      await processBackgroundVideoPolling(mockDb, mockParams);
+
+      expect(mockGenerationModel.createAssetAndFile).toHaveBeenCalledWith(
+        'gen-456',
+        expect.objectContaining({ originalUrl: undefined }),
+        expect.any(Object),
+        FileSource.VideoGeneration,
+      );
+    });
   });
 
   describe('processBackgroundVideoPolling - polling behavior', () => {
