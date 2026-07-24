@@ -27,7 +27,6 @@ const payload = {
     { revision: 1, sourceProviderId: 'gmail' },
     { revision: 1, sourceProviderId: 'github' },
   ],
-  responseLanguage: 'zh-CN',
   sessionId: 'session-1',
   topicId: 'topic-1',
   userId: 'user-1',
