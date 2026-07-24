@@ -23,6 +23,8 @@ export interface ConnectorReference {
   id: string;
   isEnabled: boolean;
   status: string;
+  /** Locally persisted OAuth expiry used for connection availability checks. */
+  tokenExpiresAt: Date | null;
 }
 
 export interface ComposioConnectorReference extends ConnectorReference {
@@ -343,6 +345,7 @@ export class ConnectorModel {
         id: userConnectors.id,
         isEnabled: userConnectors.isEnabled,
         status: userConnectors.status,
+        tokenExpiresAt: userConnectors.tokenExpiresAt,
       })
       .from(userConnectors)
       .where(and(this.baseScope(), inArray(userConnectors.identifier, identifiers)));
@@ -359,6 +362,7 @@ export class ConnectorModel {
         isEnabled: userConnectors.isEnabled,
         metadata: userConnectors.metadata,
         status: userConnectors.status,
+        tokenExpiresAt: userConnectors.tokenExpiresAt,
         userId: userConnectors.userId,
       })
       .from(userConnectors)
@@ -418,8 +422,12 @@ const toComposioConnectorReference = ({
   isEnabled,
   metadata,
   status,
+  tokenExpiresAt,
   userId,
-}: Pick<UserConnectorItem, 'id' | 'isEnabled' | 'metadata' | 'status' | 'userId'>) => {
+}: Pick<
+  UserConnectorItem,
+  'id' | 'isEnabled' | 'metadata' | 'status' | 'tokenExpiresAt' | 'userId'
+>) => {
   const composio = metadata?.composio;
   return {
     ...(composio
@@ -435,6 +443,7 @@ const toComposioConnectorReference = ({
     id,
     isEnabled,
     status,
+    tokenExpiresAt,
   } satisfies ComposioConnectorReference;
 };
 

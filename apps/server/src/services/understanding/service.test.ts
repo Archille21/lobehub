@@ -9,8 +9,8 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UnderstandingService, type UnderstandingServiceDependencies } from './service';
-import type { StoredUnderstandingProviderContext } from './sourceStore';
-import type { UnderstandingProvider } from './types';
+import type { StoredUnderstandingSourceProviderContext } from './sourceStore';
+import type { UnderstandingSourceProvider } from './types';
 
 const { mockAssertWorkflowAvailable, mockTriggerProviders, mockTriggerWriting } = vi.hoisted(
   () => ({
@@ -23,7 +23,7 @@ const { mockAssertWorkflowAvailable, mockTriggerProviders, mockTriggerWriting } 
 vi.mock('@/server/workflows/onboardingUnderstanding', () => ({
   OnboardingUnderstandingWorkflow: {
     assertAvailable: mockAssertWorkflowAvailable,
-    triggerProviders: mockTriggerProviders,
+    triggerSourceProviders: mockTriggerProviders,
     triggerWriting: mockTriggerWriting,
   },
 }));
@@ -84,13 +84,13 @@ const createSession = (
 ): OnboardingUnderstandingSession => ({ id: 'session-1', sources });
 
 const storedContext = (
-  providerId: string,
+  sourceProviderId: string,
   context: string,
   revision = 1,
-): StoredUnderstandingProviderContext => ({
+): StoredUnderstandingSourceProviderContext => ({
   context,
   diagnostics,
-  providerId,
+  sourceProviderId,
   revision,
   sourceCount: 3,
 });
@@ -100,16 +100,25 @@ const createHarness = (initialSession?: OnboardingUnderstandingSession) => {
   let latestAssistant:
     | { content?: unknown; error?: unknown; id: string; role: string; threadId?: string | null }
     | undefined;
-  const stored = new Map<string, StoredUnderstandingProviderContext>();
+  const stored = new Map<string, StoredUnderstandingSourceProviderContext>();
   const assistantMetadata = new Map<string, OnboardingUnderstandingMessageMetadata>();
-  const providers = new Map<string, UnderstandingProvider>();
+  const sourceProviders = new Map<string, UnderstandingSourceProvider>();
   const githubCollect = vi.fn(async () => ({
     context: 'Provider: github\n\n# Source Brief\n\nPRIVATE_GITHUB_CONTEXT',
     diagnostics,
     sourceCount: 3,
   }));
-  providers.set('github', { collect: githubCollect, id: 'github' });
-  providers.set('gmail', {
+  const githubIsConnected = vi.fn(async () => true);
+  const githubValidate = vi.fn(async () => true);
+  const gmailIsConnected = vi.fn(async () => false);
+  const gmailValidate = vi.fn(async () => false);
+  sourceProviders.set('github', {
+    collect: githubCollect,
+    id: 'github',
+    isConnected: githubIsConnected,
+    validate: githubValidate,
+  });
+  sourceProviders.set('gmail', {
     collect: vi.fn(async () => ({
       context:
         'Provider: gmail\n\n# Source Brief\n\n```xml\n<gmail>PRIVATE_GMAIL_CONTEXT</gmail>\n```',
@@ -117,17 +126,19 @@ const createHarness = (initialSession?: OnboardingUnderstandingSession) => {
       sourceCount: 3,
     })),
     id: 'gmail',
+    isConnected: gmailIsConnected,
+    validate: gmailValidate,
   });
 
   const repository = {
     commitWriting: vi.fn(async (_input: unknown) => ({ published: true })),
-    completeProvider: vi.fn(
-      async ({ providerId, revision }: { providerId: string; revision: number }) => {
+    completeSourceProvider: vi.fn(
+      async ({ sourceProviderId, revision }: { sourceProviderId: string; revision: number }) => {
         const transition = {
           ...session!,
           sources: {
             ...session!.sources,
-            [providerId]: providerState('completed', revision),
+            [sourceProviderId]: providerState('completed', revision),
           },
         };
         session = transition;
@@ -135,9 +146,15 @@ const createHarness = (initialSession?: OnboardingUnderstandingSession) => {
       },
     ),
     confirm: vi.fn(async () => ({ personaVersion: 1 })),
-    expireProviderContexts: vi.fn(async () => session!),
+    expireSourceProviderContexts: vi.fn(async () => session!),
     extend: vi.fn(
-      async ({ feedback, providerIds }: { feedback?: string; providerIds: string[] }) => {
+      async ({
+        feedback,
+        sourceProviderIds,
+      }: {
+        feedback?: string;
+        sourceProviderIds: string[];
+      }) => {
         const currentFeedback = session?.feedback ?? { revision: 0, turns: [] };
         const nextRevision = feedback ? currentFeedback.revision + 1 : currentFeedback.revision;
         session = {
@@ -158,16 +175,16 @@ const createHarness = (initialSession?: OnboardingUnderstandingSession) => {
           sources: {
             ...session!.sources,
             ...Object.fromEntries(
-              providerIds
-                .filter((providerId) => !session!.sources[providerId])
-                .map((providerId) => [providerId, providerState('pending')]),
+              sourceProviderIds
+                .filter((sourceProviderId) => !session!.sources[sourceProviderId])
+                .map((sourceProviderId) => [sourceProviderId, providerState('pending')]),
             ),
           },
         };
         return session;
       },
     ),
-    failProvider: vi.fn(async () => session!),
+    failSourceProvider: vi.fn(async () => session!),
     failWriting: vi.fn(async ({ error, sourceFingerprint }) => {
       session = {
         ...session!,
@@ -182,21 +199,23 @@ const createHarness = (initialSession?: OnboardingUnderstandingSession) => {
       return session;
     }),
     get: vi.fn(async () => session),
-    initialize: vi.fn(async (_topicId: string, sessionId: string, providerIds: string[]) => {
+    initialize: vi.fn(async (_topicId: string, sessionId: string, sourceProviderIds: string[]) => {
       session = {
         id: sessionId,
-        sources: Object.fromEntries(providerIds.map((id) => [id, providerState('pending')])),
+        sources: Object.fromEntries(sourceProviderIds.map((id) => [id, providerState('pending')])),
       } as OnboardingUnderstandingSession;
       return session;
     }),
-    markProviderRunning: vi.fn(async (_topicId: string, _sessionId: string, providerId: string) => {
-      const revision = (session?.sources[providerId]?.revision ?? 0) + 1;
-      session = {
-        ...session!,
-        sources: { ...session!.sources, [providerId]: providerState('running', revision) },
-      };
-      return { revision };
-    }),
+    markSourceProviderRunning: vi.fn(
+      async (_topicId: string, _sessionId: string, sourceProviderId: string) => {
+        const revision = (session?.sources[sourceProviderId]?.revision ?? 0) + 1;
+        session = {
+          ...session!,
+          sources: { ...session!.sources, [sourceProviderId]: providerState('running', revision) },
+        };
+        return { revision };
+      },
+    ),
     prepareWriting: vi.fn(async ({ sourceFingerprint, threadId }) => {
       const feedbackRevision = session?.feedback?.revision ?? 0;
       const generationRevision = (session?.generationRevision ?? 0) + 1;
@@ -218,11 +237,11 @@ const createHarness = (initialSession?: OnboardingUnderstandingSession) => {
   const sourceStore = {
     deleteSession: vi.fn(),
     get: vi.fn(
-      async ({ providerId, revision }: { providerId: string; revision: number }) =>
-        stored.get(`${providerId}:${revision}`) ?? null,
+      async ({ sourceProviderId, revision }: { sourceProviderId: string; revision: number }) =>
+        stored.get(`${sourceProviderId}:${revision}`) ?? null,
     ),
-    put: vi.fn(async (value: StoredUnderstandingProviderContext) => {
-      stored.set(`${value.providerId}:${value.revision}`, value);
+    put: vi.fn(async (value: StoredUnderstandingSourceProviderContext) => {
+      stored.set(`${value.sourceProviderId}:${value.revision}`, value);
     }),
   };
   const sourceStoreFactory = vi.fn(() => sourceStore);
@@ -257,7 +276,7 @@ const createHarness = (initialSession?: OnboardingUnderstandingSession) => {
     ids: () => 'session-new',
     messages,
     persona: { getLatestPersonaDocument: vi.fn(async () => null) },
-    providers,
+    sourceProviders,
     repository,
     sourceStore: sourceStoreFactory,
     topic: {
@@ -269,6 +288,10 @@ const createHarness = (initialSession?: OnboardingUnderstandingSession) => {
 
   return {
     dependencies,
+    githubIsConnected,
+    githubValidate,
+    gmailIsConnected,
+    gmailValidate,
     githubCollect,
     generateObject,
     messages,
@@ -290,6 +313,28 @@ describe('UnderstandingService', () => {
     mockTriggerWriting.mockResolvedValue({ workflowRunId: 'workflow-writing-1' });
   });
 
+  it('lists source providers with their local connection status in deterministic order', async () => {
+    const harness = createHarness();
+
+    await expect(harness.service.listSourceProviders()).resolves.toEqual([
+      { connected: true, sourceProviderId: 'github' },
+      { connected: false, sourceProviderId: 'gmail' },
+    ]);
+  });
+
+  it('actively validates one source provider without gating workflow startup', async () => {
+    const harness = createHarness();
+
+    await expect(harness.service.validateSourceProvider('github')).resolves.toEqual({
+      sourceProviderId: 'github',
+      valid: true,
+    });
+    expect(harness.githubValidate).toHaveBeenCalledWith({
+      connectorData: harness.dependencies.connectorData,
+      userId: 'user-1',
+    });
+  });
+
   /**
    * @example
    * expect(result.feedback?.revision).toBe(1);
@@ -302,8 +347,8 @@ describe('UnderstandingService', () => {
       harness.service.revise({
         expectedFeedbackRevision: 0,
         feedback: 'Focus on infrastructure.',
-        providerIds: ['github', 'gmail'],
         responseLanguage: 'zh-CN',
+        sourceProviderIds: ['github', 'gmail'],
         sessionId: 'session-1',
         topicId: 'topic-1',
       }),
@@ -318,14 +363,14 @@ describe('UnderstandingService', () => {
     expect(harness.repository.extend).toHaveBeenCalledWith({
       expectedFeedbackRevision: 0,
       feedback: 'Focus on infrastructure.',
-      providerIds: ['github', 'gmail'],
+      sourceProviderIds: ['github', 'gmail'],
       sessionId: 'session-1',
       topicId: 'topic-1',
     });
     expect(mockTriggerProviders).toHaveBeenCalledWith(
       {
-        providers: [{ id: 'gmail', revision: 1 }],
         responseLanguage: 'zh-CN',
+        sourceProviders: [{ revision: 1, sourceProviderId: 'gmail' }],
         sessionId: 'session-1',
         topicId: 'topic-1',
         userId: 'user-1',
@@ -352,7 +397,7 @@ describe('UnderstandingService', () => {
    */
   it('automatically recollects included sources whose Redis context expired', async () => {
     const harness = createHarness(createSession({ github: providerState('completed', 1) }));
-    harness.repository.expireProviderContexts.mockImplementationOnce(async () => {
+    harness.repository.expireSourceProviderContexts.mockImplementationOnce(async () => {
       const expired = createSession({ github: providerState('failed', 1) });
       harness.setSession(expired);
       return expired;
@@ -361,33 +406,33 @@ describe('UnderstandingService', () => {
     await harness.service.revise({
       expectedFeedbackRevision: 0,
       feedback: 'Focus on infrastructure.',
-      providerIds: [],
       responseLanguage: 'zh-CN',
+      sourceProviderIds: [],
       sessionId: 'session-1',
       topicId: 'topic-1',
     });
 
-    expect(harness.repository.expireProviderContexts).toHaveBeenCalledWith({
-      providers: [{ providerId: 'github', revision: 1 }],
+    expect(harness.repository.expireSourceProviderContexts).toHaveBeenCalledWith({
+      sourceProviders: [{ sourceProviderId: 'github', revision: 1 }],
       sessionId: 'session-1',
       sourceFingerprint: 'github@1',
       topicId: 'topic-1',
     });
-    expect(harness.repository.markProviderRunning).toHaveBeenCalledWith(
+    expect(harness.repository.markSourceProviderRunning).toHaveBeenCalledWith(
       'topic-1',
       'session-1',
       'github',
     );
     expect(mockTriggerProviders).toHaveBeenCalledWith(
       expect.objectContaining({
-        providers: [{ id: 'github', revision: 2 }],
+        sourceProviders: [{ revision: 2, sourceProviderId: 'github' }],
       }),
       expect.any(Object),
     );
     expect(mockTriggerWriting).not.toHaveBeenCalled();
   });
 
-  it('starts static providers with deterministic pending revisions', async () => {
+  it('starts static sourceProviders with deterministic pending revisions', async () => {
     const harness = createHarness();
 
     await expect(harness.service.start('topic-1', 'zh-CN')).resolves.toMatchObject({
@@ -396,11 +441,11 @@ describe('UnderstandingService', () => {
     });
     expect(mockTriggerProviders).toHaveBeenCalledWith(
       {
-        providers: [
-          { id: 'github', revision: 1 },
-          { id: 'gmail', revision: 1 },
-        ],
         responseLanguage: 'zh-CN',
+        sourceProviders: [
+          { revision: 1, sourceProviderId: 'github' },
+          { revision: 1, sourceProviderId: 'gmail' },
+        ],
         sessionId: 'session-new',
         topicId: 'topic-1',
         userId: 'user-1',
@@ -413,7 +458,7 @@ describe('UnderstandingService', () => {
    * @example
    * expect(result.sources.gmail).toBeUndefined();
    */
-  it('starts only the connected providers selected by the onboarding UI', async () => {
+  it('starts only the connected sourceProviders selected by the onboarding UI', async () => {
     const harness = createHarness();
 
     await expect(harness.service.start('topic-1', 'zh-CN', ['github'])).resolves.toMatchObject({
@@ -424,7 +469,7 @@ describe('UnderstandingService', () => {
     ]);
     expect(mockTriggerProviders).toHaveBeenCalledWith(
       expect.objectContaining({
-        providers: [{ id: 'github', revision: 1 }],
+        sourceProviders: [{ revision: 1, sourceProviderId: 'github' }],
       }),
       expect.any(Object),
     );
@@ -435,7 +480,7 @@ describe('UnderstandingService', () => {
       createSession({ github: providerState('pending', 0), gmail: providerState('running', 1) }),
     );
     harness.stored.set('github:0', storedContext('github', 'older', 0));
-    harness.repository.completeProvider.mockImplementationOnce(async () => {
+    harness.repository.completeSourceProvider.mockImplementationOnce(async () => {
       const ownTransition = createSession({
         github: providerState('completed', 1),
         gmail: providerState('running', 1),
@@ -450,8 +495,8 @@ describe('UnderstandingService', () => {
     });
 
     await expect(
-      harness.service.processProvider({
-        providerId: 'github',
+      harness.service.processSourceProvider({
+        sourceProviderId: 'github',
         revision: 1,
         sessionId: 'session-1',
         topicId: 'topic-1',
@@ -471,14 +516,14 @@ describe('UnderstandingService', () => {
   it('replays a completed provider revision after commit-before-ack without recollecting', async () => {
     const harness = createHarness(createSession({ github: providerState('running', 1) }));
 
-    const first = await harness.service.processProvider({
-      providerId: 'github',
+    const first = await harness.service.processSourceProvider({
+      sourceProviderId: 'github',
       revision: 1,
       sessionId: 'session-1',
       topicId: 'topic-1',
     });
-    const replay = await harness.service.processProvider({
-      providerId: 'github',
+    const replay = await harness.service.processSourceProvider({
+      sourceProviderId: 'github',
       revision: 1,
       sessionId: 'session-1',
       topicId: 'topic-1',
@@ -488,7 +533,7 @@ describe('UnderstandingService', () => {
     expect(replay).toEqual(first);
     expect(harness.githubCollect).toHaveBeenCalledOnce();
     expect(harness.sourceStore.put).toHaveBeenCalledOnce();
-    expect(harness.repository.completeProvider).toHaveBeenCalledOnce();
+    expect(harness.repository.completeSourceProvider).toHaveBeenCalledOnce();
   });
 
   it('generates the proposal with the native JSON schema', async () => {
@@ -624,8 +669,8 @@ describe('UnderstandingService', () => {
     {
       expected: 'calendar@1,github@1,gmail@1',
       missing: [
-        { providerId: 'calendar', revision: 1 },
-        { providerId: 'gmail', revision: 1 },
+        { sourceProviderId: 'calendar', revision: 1 },
+        { sourceProviderId: 'gmail', revision: 1 },
       ],
       name: 'missing exact contexts',
     },
@@ -651,14 +696,14 @@ describe('UnderstandingService', () => {
         }),
       ).resolves.toEqual({ published: false, sourceFingerprint: expected });
       if (missing) {
-        expect(harness.repository.expireProviderContexts).toHaveBeenCalledWith({
-          providers: missing,
+        expect(harness.repository.expireSourceProviderContexts).toHaveBeenCalledWith({
+          sourceProviders: missing,
           sessionId: 'session-1',
           sourceFingerprint: expected,
           topicId: 'topic-1',
         });
       } else {
-        expect(harness.repository.expireProviderContexts).not.toHaveBeenCalled();
+        expect(harness.repository.expireSourceProviderContexts).not.toHaveBeenCalled();
       }
       expect(harness.generateObject).not.toHaveBeenCalled();
     },

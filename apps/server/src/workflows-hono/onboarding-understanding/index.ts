@@ -5,16 +5,16 @@ import { Hono } from 'hono';
 
 import {
   type ProcessCollectedUnderstandingPayload,
-  type ProcessUnderstandingProvidersPayload,
+  type ProcessUnderstandingSourceProvidersPayload,
 } from '@/server/workflows/onboardingUnderstanding';
 import {
   processCollectedUnderstanding,
   processCollectedWorkflowOptions,
 } from '@/server/workflows/onboardingUnderstanding/processCollected';
 import {
-  processProvidersWorkflowOptions,
-  processUnderstandingProviders,
-} from '@/server/workflows/onboardingUnderstanding/processProviders';
+  processSourceProvidersWorkflowOptions,
+  processUnderstandingSourceProviders,
+} from '@/server/workflows/onboardingUnderstanding/processSourceProviders';
 
 import { createWorkflowQstashClient } from '../qstashClient';
 
@@ -30,25 +30,25 @@ export const processCollectedWorkflow = createWorkflow<
   processCollectedWorkflowOptions,
 );
 
-export const processProvidersWorkflow = createWorkflow<
-  ProcessUnderstandingProvidersPayload,
-  Awaited<ReturnType<typeof processUnderstandingProviders>>
+export const processSourceProvidersWorkflow = createWorkflow<
+  ProcessUnderstandingSourceProvidersPayload,
+  Awaited<ReturnType<typeof processUnderstandingSourceProviders>>
 >(
   withOtelMetricsForUpstashWorkflows(
-    (context: WorkflowContext<ProcessUnderstandingProvidersPayload>) =>
-      processUnderstandingProviders(context, {
+    (context: WorkflowContext<ProcessUnderstandingSourceProvidersPayload>) =>
+      processUnderstandingSourceProviders(context, {
         processCollectedWorkflow,
       }),
-    { url: '/api/workflows/onboarding/understanding/process-providers' },
+    { url: '/api/workflows/onboarding/understanding/process-source-providers' },
   ),
-  processProvidersWorkflowOptions,
+  processSourceProvidersWorkflowOptions,
 );
 
 app.post(
   '/:workflowId',
   serveMany(
     {
-      'process-providers': processProvidersWorkflow,
+      'process-source-providers': processSourceProvidersWorkflow,
       'process-collected': processCollectedWorkflow,
     },
     { qstashClient: createWorkflowQstashClient() },

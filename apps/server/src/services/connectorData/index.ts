@@ -29,12 +29,88 @@ const isTokenUsable = (expiresAt: Date | number | null | undefined) =>
   expiresAt == null ||
   (expiresAt instanceof Date ? expiresAt.getTime() : expiresAt) > Date.now() + TOKEN_EXPIRY_SKEW_MS;
 
+const isLocallyUnexpiredReference = (reference: {
+  isEnabled: boolean;
+  status: string;
+  tokenExpiresAt: Date | null;
+}) => isActiveReference(reference) && isTokenUsable(reference.tokenExpiresAt);
+
 export class ConnectorDataService {
   constructor(
     private readonly db: LobeChatDatabase,
     private readonly userId: string,
     private readonly workspaceId?: string,
   ) {}
+
+  private queryGitHubAuthAccounts = () =>
+    this.db
+      .select({
+        accessToken: account.accessToken,
+        accessTokenExpiresAt: account.accessTokenExpiresAt,
+        id: account.id,
+      })
+      .from(account)
+      .where(and(eq(account.userId, this.userId), eq(account.providerId, 'github')))
+      .orderBy(account.id)
+      .limit(16);
+
+  /**
+   * Checks whether GitHub can be resolved from local connector or sign-in account state.
+   *
+   * Use when:
+   * - Listing Understanding source providers without making a GitHub request
+   *
+   * Expects:
+   * - Connector and auth-account expiry metadata are locally available
+   *
+   * Returns:
+   * - Whether a non-expired local GitHub credential reference exists
+   */
+  hasGitHubConnection = async (): Promise<boolean> => {
+    const connectorModel = new ConnectorModel(this.db, this.userId, this.workspaceId);
+    const [references, accounts] = await Promise.all([
+      connectorModel.queryReferencesByIdentifiers(['github']),
+      this.queryGitHubAuthAccounts(),
+    ]);
+
+    return (
+      references.some(isLocallyUnexpiredReference) ||
+      accounts.some(
+        ({ accessToken, accessTokenExpiresAt }) =>
+          typeof accessToken === 'string' &&
+          accessToken.length > 0 &&
+          isTokenUsable(accessTokenExpiresAt),
+      )
+    );
+  };
+
+  /**
+   * Checks whether Gmail has an active local Composio connector projection.
+   *
+   * Use when:
+   * - Listing Understanding source providers without calling Composio
+   *
+   * Expects:
+   * - Composio connection metadata was synchronized into `user_connectors`
+   *
+   * Returns:
+   * - Whether the local Gmail projection is enabled and active
+   */
+  hasGmailConnection = async (): Promise<boolean> => {
+    const connectorModel = new ConnectorModel(this.db, this.userId, this.workspaceId);
+    const references = await connectorModel.queryComposioReferencesByIdentifiers(['gmail']);
+
+    return references.some(
+      (reference) =>
+        isLocallyUnexpiredReference(reference) &&
+        reference.composio?.appSlug.slice(0, 32).toLowerCase() === 'gmail' &&
+        reference.composio.status.slice(0, 32).toUpperCase() === 'ACTIVE' &&
+        reference.composio.connectedAccountId.length > 0 &&
+        reference.composio.connectedAccountId.length <= 512 &&
+        reference.composio.ownerUserId.length > 0 &&
+        reference.composio.ownerUserId.length <= 512,
+    );
+  };
 
   getGitHubClient = async (): Promise<GitHubConnectorClient> => {
     const referenceModel = new ConnectorModel(this.db, this.userId, this.workspaceId);
@@ -72,16 +148,7 @@ export class ConnectorDataService {
       }
     }
 
-    const accounts = await this.db
-      .select({
-        accessToken: account.accessToken,
-        accessTokenExpiresAt: account.accessTokenExpiresAt,
-        id: account.id,
-      })
-      .from(account)
-      .where(and(eq(account.userId, this.userId), eq(account.providerId, 'github')))
-      .orderBy(account.id)
-      .limit(16);
+    const accounts = await this.queryGitHubAuthAccounts();
     const authAccount = accounts.find(
       ({ accessToken, accessTokenExpiresAt }) =>
         typeof accessToken === 'string' &&

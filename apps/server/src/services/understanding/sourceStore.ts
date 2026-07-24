@@ -4,7 +4,7 @@ import {
   type CollectionDiagnostics,
   CollectionDiagnosticsSchema,
   MAX_COLLECTION_COUNT,
-  MAX_PROVIDER_ID_LENGTH,
+  MAX_SOURCE_PROVIDER_ID_LENGTH,
 } from '@lobechat/types';
 import type Redis from 'ioredis';
 import { z } from 'zod';
@@ -21,28 +21,28 @@ interface SessionReference {
   userId: string;
 }
 
-interface ProviderReference extends SessionReference {
-  providerId: string;
+interface SourceProviderReference extends SessionReference {
   revision: number;
+  sourceProviderId: string;
 }
 
-export interface StoredUnderstandingProviderContext {
+export interface StoredUnderstandingSourceProviderContext {
   context: string;
   diagnostics: CollectionDiagnostics;
-  providerId: string;
   revision: number;
   sourceCount: number;
+  sourceProviderId: string;
 }
 
-const StoredUnderstandingProviderContextSchema = z
+const StoredUnderstandingSourceProviderContextSchema = z
   .object({
     context: z.string().max(MAX_SOURCE_BRIEF_LENGTH),
     diagnostics: CollectionDiagnosticsSchema,
-    providerId: z.string().trim().min(1).max(MAX_PROVIDER_ID_LENGTH),
+    sourceProviderId: z.string().trim().min(1).max(MAX_SOURCE_PROVIDER_ID_LENGTH),
     revision: z.number().int().nonnegative().max(MAX_COLLECTION_COUNT),
     sourceCount: z.number().int().nonnegative().max(MAX_COLLECTION_COUNT),
   })
-  .strict() satisfies z.ZodType<StoredUnderstandingProviderContext>;
+  .strict() satisfies z.ZodType<StoredUnderstandingSourceProviderContext>;
 
 const digestIdentifier = (value: string): string => {
   if (!value || value.length > 512) throw new TypeError('Invalid Understanding source identifier');
@@ -52,8 +52,8 @@ const digestIdentifier = (value: string): string => {
 const sessionKey = ({ sessionId, userId }: SessionReference): string =>
   `${SOURCE_STORE_PREFIX}:{${digestIdentifier(userId)}}:session:${digestIdentifier(sessionId)}`;
 
-const providerField = (providerId: string, revision: number): string =>
-  `${z.string().trim().min(1).max(MAX_PROVIDER_ID_LENGTH).parse(providerId)}:${z.number().int().nonnegative().max(MAX_COLLECTION_COUNT).parse(revision)}`;
+const sourceProviderField = (sourceProviderId: string, revision: number): string =>
+  `${z.string().trim().min(1).max(MAX_SOURCE_PROVIDER_ID_LENGTH).parse(sourceProviderId)}:${z.number().int().nonnegative().max(MAX_COLLECTION_COUNT).parse(revision)}`;
 
 export class UnderstandingSourceStore {
   private readonly redis: Redis;
@@ -67,46 +67,52 @@ export class UnderstandingSourceStore {
     try {
       await this.redis.del(sessionKey(reference));
     } catch {
-      throw new Error('Failed to reset onboarding Understanding provider contexts');
+      throw new Error('Failed to reset onboarding Understanding source provider contexts');
     }
   }
 
-  async get(reference: ProviderReference): Promise<StoredUnderstandingProviderContext | null> {
+  async get(
+    reference: SourceProviderReference,
+  ): Promise<StoredUnderstandingSourceProviderContext | null> {
     try {
-      const field = providerField(reference.providerId, reference.revision);
+      const field = sourceProviderField(reference.sourceProviderId, reference.revision);
       const serialized = await this.redis.hget(sessionKey(reference), field);
       if (!serialized) return null;
-      const stored = StoredUnderstandingProviderContextSchema.parse(JSON.parse(serialized));
+      const stored = StoredUnderstandingSourceProviderContextSchema.parse(JSON.parse(serialized));
       if (
-        stored.providerId !== reference.providerId ||
+        stored.sourceProviderId !== reference.sourceProviderId ||
         stored.revision !== reference.revision ||
-        providerField(stored.providerId, stored.revision) !== field
+        sourceProviderField(stored.sourceProviderId, stored.revision) !== field
       ) {
-        throw new Error('Stored provider context does not match its reference');
+        throw new Error('Stored source provider context does not match its reference');
       }
       return stored;
     } catch {
-      throw new Error('Failed to read onboarding Understanding provider context');
+      throw new Error('Failed to read onboarding Understanding source provider context');
     }
   }
 
-  async put(input: SessionReference & StoredUnderstandingProviderContext): Promise<void> {
+  async put(input: SessionReference & StoredUnderstandingSourceProviderContext): Promise<void> {
     try {
-      const stored = StoredUnderstandingProviderContextSchema.parse({
+      const stored = StoredUnderstandingSourceProviderContextSchema.parse({
         context: input.context,
         diagnostics: input.diagnostics,
-        providerId: input.providerId,
+        sourceProviderId: input.sourceProviderId,
         revision: input.revision,
         sourceCount: input.sourceCount,
       });
       const key = sessionKey(input);
       await this.redis
         .multi()
-        .hset(key, providerField(stored.providerId, stored.revision), JSON.stringify(stored))
+        .hset(
+          key,
+          sourceProviderField(stored.sourceProviderId, stored.revision),
+          JSON.stringify(stored),
+        )
         .expire(key, SOURCE_STORE_TTL_SECONDS)
         .exec();
     } catch {
-      throw new Error('Failed to persist onboarding Understanding provider context');
+      throw new Error('Failed to persist onboarding Understanding source provider context');
     }
   }
 }

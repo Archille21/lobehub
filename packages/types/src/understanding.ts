@@ -7,7 +7,7 @@ export const MAX_COLLECTION_ERRORS = 16;
 export const MAX_DIAGNOSTIC_CODE_LENGTH = 64;
 export const MAX_DIAGNOSTIC_MESSAGE_LENGTH = 160;
 export const MAX_DIAGNOSTIC_OPERATION_LENGTH = 64;
-export const MAX_PROVIDER_ID_LENGTH = 64;
+export const MAX_SOURCE_PROVIDER_ID_LENGTH = 64;
 export const MAX_ANALYSIS_DESCRIPTION_LENGTH = 2000;
 export const MAX_ANALYSIS_SHORT_TEXT_LENGTH = 256;
 /** Maximum characters accepted in one direct Understanding feedback turn. */
@@ -16,7 +16,7 @@ export const MAX_UNDERSTANDING_FEEDBACK_LENGTH = 2000;
 export const MAX_UNDERSTANDING_FEEDBACK_TURNS = 16;
 export const MAX_PERSONA_CONTENT_LENGTH = 4000;
 
-export type UnderstandingProviderStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type UnderstandingSourceProviderStatus = 'pending' | 'running' | 'completed' | 'failed';
 
 export type UnderstandingWritingStatus = 'running' | 'completed' | 'failed';
 
@@ -37,8 +37,8 @@ export interface CollectionError {
   code: string;
   message: string;
   operation: string;
-  provider: string;
   retryable: boolean;
+  sourceProviderId: string;
 }
 
 export interface CollectionDiagnostics {
@@ -86,12 +86,12 @@ export interface UnderstandingAnalysis {
   profile: UnderstandingProfile;
 }
 
-export interface UnderstandingProviderState {
+export interface UnderstandingSourceProviderState {
   completedAt?: string;
   errors: CollectionError[];
   failedCount: number;
   revision: number;
-  status: UnderstandingProviderStatus;
+  status: UnderstandingSourceProviderStatus;
   succeededCount: number;
 }
 
@@ -144,7 +144,7 @@ export interface OnboardingUnderstandingSession {
    */
   generationRevision?: number;
   id: string;
-  sources: Record<string, UnderstandingProviderState>;
+  sources: Record<string, UnderstandingSourceProviderState>;
   writing?: UnderstandingWritingState;
 }
 
@@ -164,9 +164,9 @@ export interface OnboardingUnderstandingMessageMetadata {
    */
   generationRevision?: number;
   kind: 'proposal';
-  providers: string[];
   resultId: string;
   sourceFingerprint: string;
+  sourceProviderIds: string[];
 }
 
 /**
@@ -201,7 +201,7 @@ export interface OnboardingUnderstandingPollingResult {
   generationRevision?: number;
   id: string;
   proposal?: OnboardingUnderstandingMessageMetadata;
-  sources: Record<string, UnderstandingProviderState>;
+  sources: Record<string, UnderstandingSourceProviderState>;
   status: OnboardingUnderstandingSessionStatus;
   writing?: UnderstandingWritingState;
 }
@@ -210,37 +210,59 @@ export interface OnboardingUnderstandingTopicInput {
   topicId: string;
 }
 
+/** Describes whether one registered Understanding source provider has a local connection. */
+export interface OnboardingUnderstandingSourceProvider {
+  /** Whether the current user has a locally resolvable, non-expired connection. */
+  connected: boolean;
+  /** Stable identifier registered by the Understanding service. */
+  sourceProviderId: string;
+}
+
+/** Identifies the registered Understanding source provider to validate. */
+export interface ValidateOnboardingUnderstandingSourceProviderInput {
+  /** Stable identifier registered by the Understanding service. */
+  sourceProviderId: string;
+}
+
+/** Reports whether one Understanding source provider can currently collect data. */
+export interface ValidateOnboardingUnderstandingSourceProviderResult {
+  /** Stable identifier registered by the Understanding service. */
+  sourceProviderId: string;
+  /** Whether the provider's current connection and authorization are usable. */
+  valid: boolean;
+}
+
 /**
  * Starts Understanding with only the sources selected and already connected by the user.
  */
 export interface StartOnboardingUnderstandingInput extends OnboardingUnderstandingTopicInput {
-  /** Initial additive providers; omitted callers retain the legacy all-provider behavior. */
-  providerIds?: string[];
   /** Language selected for user-visible Understanding output. */
   responseLanguage: string;
+  /** Initial additive source providers; omitted callers retain the legacy all-provider behavior. */
+  sourceProviderIds?: string[];
 }
 
 /**
- * Adds direct feedback and newly selected providers to an active Understanding session.
+ * Adds direct feedback and newly selected source providers to an active Understanding session.
  */
 export interface ReviseOnboardingUnderstandingInput extends OnboardingUnderstandingTopicInput {
   /** Feedback revision observed by the caller; prevents duplicate or stale appends. */
   expectedFeedbackRevision: number;
   /** Optional direct guidance appended to the cumulative writer prompt. */
   feedback?: string;
-  /** Additive provider identifiers; existing sources are never removed. */
-  providerIds: string[];
   /** Language selected for user-visible Understanding output. */
   responseLanguage: string;
   /** Active Understanding session identifier used for stale-client protection. */
   sessionId: string;
+  /** Additive source provider identifiers; existing sources are never removed. */
+  sourceProviderIds: string[];
 }
 
-export interface RetryOnboardingUnderstandingProviderInput extends OnboardingUnderstandingTopicInput {
-  providerId: string;
+export interface RetryOnboardingUnderstandingSourceProviderInput extends OnboardingUnderstandingTopicInput {
   /** Language selected for user-visible Understanding output. */
   responseLanguage: string;
   sessionId: string;
+  sourceProviderId: string;
 }
 
 export interface ConfirmOnboardingUnderstandingInput extends OnboardingUnderstandingTopicInput {
@@ -260,7 +282,7 @@ export const CollectionErrorSchema = z
     code: z.string().max(MAX_DIAGNOSTIC_CODE_LENGTH),
     message: z.string().max(MAX_DIAGNOSTIC_MESSAGE_LENGTH),
     operation: z.string().max(MAX_DIAGNOSTIC_OPERATION_LENGTH),
-    provider: z.string().max(MAX_PROVIDER_ID_LENGTH),
+    sourceProviderId: z.string().max(MAX_SOURCE_PROVIDER_ID_LENGTH),
     retryable: z.boolean(),
   })
   .strict() satisfies z.ZodType<CollectionError>;
@@ -335,7 +357,7 @@ export const OnboardingUnderstandingMessageMetadataSchema = z
     feedbackRevision: z.number().int().nonnegative().max(MAX_COLLECTION_COUNT).default(0),
     generationRevision: z.number().int().nonnegative().max(MAX_COLLECTION_COUNT).default(0),
     kind: z.literal('proposal'),
-    providers: z.array(z.string().max(MAX_PROVIDER_ID_LENGTH)),
+    sourceProviderIds: z.array(z.string().max(MAX_SOURCE_PROVIDER_ID_LENGTH)),
     resultId: z.string(),
     sourceFingerprint: z.string(),
   })
@@ -358,7 +380,7 @@ export const UnderstandingFeedbackStateSchema = z
   })
   .strict() satisfies z.ZodType<UnderstandingFeedbackState>;
 
-export const UnderstandingProviderStateSchema = z
+export const UnderstandingSourceProviderStateSchema = z
   .object({
     completedAt: z.string().optional(),
     errors: z.array(CollectionErrorSchema).max(MAX_COLLECTION_ERRORS),
@@ -367,7 +389,7 @@ export const UnderstandingProviderStateSchema = z
     status: z.enum(['pending', 'running', 'completed', 'failed']),
     succeededCount: z.number().int().nonnegative().max(MAX_COLLECTION_COUNT),
   })
-  .strict() satisfies z.ZodType<UnderstandingProviderState>;
+  .strict() satisfies z.ZodType<UnderstandingSourceProviderState>;
 
 const understandingWritingStateBaseShape = {
   feedbackRevision: z.number().int().nonnegative().max(MAX_COLLECTION_COUNT).default(0),
@@ -407,7 +429,10 @@ export const OnboardingUnderstandingSessionSchema = z
     feedback: UnderstandingFeedbackStateSchema.default({ revision: 0, turns: [] }),
     generationRevision: z.number().int().nonnegative().max(MAX_COLLECTION_COUNT).default(0),
     id: z.string(),
-    sources: z.record(z.string().max(MAX_PROVIDER_ID_LENGTH), UnderstandingProviderStateSchema),
+    sources: z.record(
+      z.string().max(MAX_SOURCE_PROVIDER_ID_LENGTH),
+      UnderstandingSourceProviderStateSchema,
+    ),
     writing: UnderstandingWritingStateSchema.optional(),
   })
   .strict() satisfies z.ZodType<OnboardingUnderstandingSession>;

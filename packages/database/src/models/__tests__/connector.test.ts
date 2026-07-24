@@ -263,6 +263,7 @@ describe('ConnectorModel', () => {
         id: created.id,
         isEnabled: true,
         status: 'connected',
+        tokenExpiresAt: null,
       });
       expect(rows[0]).not.toHaveProperty('credentials');
       expect(gateKeeper.decrypt).not.toHaveBeenCalled();
@@ -354,6 +355,7 @@ describe('ConnectorModel', () => {
             id: created.id,
             isEnabled: true,
             status: 'connected',
+            tokenExpiresAt: null,
           },
           {
             composio: {
@@ -365,6 +367,7 @@ describe('ConnectorModel', () => {
             id: legacy.id,
             isEnabled: true,
             status: 'connected',
+            tokenExpiresAt: null,
           },
         ]),
       );

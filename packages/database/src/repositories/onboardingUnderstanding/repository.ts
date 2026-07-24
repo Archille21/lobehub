@@ -3,7 +3,7 @@ import type {
   ConfirmOnboardingUnderstandingInput,
   OnboardingUnderstandingMessageMetadata,
   OnboardingUnderstandingSession,
-  UnderstandingProviderState,
+  UnderstandingSourceProviderState,
 } from '@lobechat/types';
 import {
   CollectionDiagnosticsSchema,
@@ -58,7 +58,7 @@ export class InvalidUnderstandingSessionError extends Error {
 }
 
 export class UnderstandingResourceNotFoundError extends Error {
-  constructor(resource: 'result' | 'session' | 'topic') {
+  constructor(resource: 'result' | 'session' | 'source_provider' | 'topic') {
     super(`Onboarding Understanding ${resource} was not found`);
     this.name = 'UnderstandingResourceNotFoundError';
   }
@@ -78,20 +78,20 @@ export class UnderstandingPreconditionError extends Error {
   }
 }
 
-interface ProviderMutationInput {
+interface SourceProviderMutationInput {
   errors: CollectionError[];
   failedCount: number;
-  providerId: string;
   revision: number;
   sessionId: string;
+  sourceProviderId: string;
   succeededCount: number;
   topicId: string;
 }
 
-interface ExpireProviderContextsInput {
-  providers: Array<{ providerId: string; revision: number }>;
+interface ExpireSourceProviderContextsInput {
   sessionId: string;
   sourceFingerprint: string;
+  sourceProviders: Array<{ sourceProviderId: string; revision: number }>;
   topicId: string;
 }
 
@@ -107,8 +107,8 @@ interface PrepareWritingInput {
 interface ExtendSessionInput {
   expectedFeedbackRevision: number;
   feedback?: string;
-  providerIds: string[];
   sessionId: string;
+  sourceProviderIds: string[];
   topicId: string;
 }
 
@@ -140,9 +140,9 @@ interface SessionMutation<Result> {
 
 const PROVIDER_ID_PATTERN = /^[\w-]+$/;
 
-const assertProviderId = (providerId: string) => {
-  if (!PROVIDER_ID_PATTERN.test(providerId)) {
-    throw new InvalidUnderstandingSessionError(`Invalid provider id: ${providerId}`);
+const assertProviderId = (sourceProviderId: string) => {
+  if (!PROVIDER_ID_PATTERN.test(sourceProviderId)) {
+    throw new InvalidUnderstandingSessionError(`Invalid provider id: ${sourceProviderId}`);
   }
 };
 
@@ -166,7 +166,7 @@ const parseSession = (value: unknown): OnboardingUnderstandingSession => {
   return session;
 };
 
-const initialProviderState = (): UnderstandingProviderState => ({
+const initialProviderState = (): UnderstandingSourceProviderState => ({
   errors: [],
   failedCount: 0,
   revision: 0,
@@ -174,11 +174,11 @@ const initialProviderState = (): UnderstandingProviderState => ({
   succeededCount: 0,
 });
 
-const expiredContextError = (provider: string): CollectionError => ({
+const expiredContextError = (sourceProviderId: string): CollectionError => ({
   code: 'UNDERSTANDING_PROVIDER_CONTEXT_EXPIRED',
-  message: `${provider} context expired`,
+  message: `${sourceProviderId} context expired`,
   operation: 'context',
-  provider,
+  sourceProviderId,
   retryable: true,
 });
 
@@ -206,13 +206,15 @@ const normalizeProposal = (
 ) => {
   const completedProviders = Object.entries(session.sources)
     .filter(([, source]) => source.status === 'completed')
-    .map(([providerId]) => providerId)
+    .map(([sourceProviderId]) => sourceProviderId)
     .sort();
   if (
-    proposal.providers.length !== completedProviders.length ||
-    proposal.providers.some((providerId, index) => providerId !== completedProviders[index])
+    proposal.sourceProviderIds.length !== completedProviders.length ||
+    proposal.sourceProviderIds.some(
+      (sourceProviderId, index) => sourceProviderId !== completedProviders[index],
+    )
   ) {
-    throw new Error('Understanding proposal providers do not match completed sources');
+    throw new Error('Understanding proposal source provider ids do not match completed sources');
   }
 
   const terminalSources = Object.values(session.sources).filter(
@@ -287,14 +289,17 @@ export class OnboardingUnderstandingRepository {
   initialize = async (
     topicId: string,
     sessionId: string,
-    providerIds: string[],
+    sourceProviderIds: string[],
   ): Promise<OnboardingUnderstandingSession> =>
     this.db.transaction((tx) =>
       mutateTopicSession(tx, this.userId, topicId, (existing) => {
-        providerIds.forEach(assertProviderId);
+        sourceProviderIds.forEach(assertProviderId);
         if (existing) return { nextSession: existing, result: existing, write: false };
         const sources = Object.fromEntries(
-          [...new Set(providerIds)].map((providerId) => [providerId, initialProviderState()]),
+          [...new Set(sourceProviderIds)].map((sourceProviderId) => [
+            sourceProviderId,
+            initialProviderState(),
+          ]),
         );
         const session = parseSession({ id: sessionId, sources });
         return { nextSession: session, result: session, write: true };
@@ -304,11 +309,11 @@ export class OnboardingUnderstandingRepository {
   extend = async ({
     expectedFeedbackRevision,
     feedback,
-    providerIds,
+    sourceProviderIds,
     sessionId,
     topicId,
   }: ExtendSessionInput): Promise<OnboardingUnderstandingSession> => {
-    providerIds.forEach(assertProviderId);
+    sourceProviderIds.forEach(assertProviderId);
     return this.db.transaction((tx) =>
       mutateTopicSession(tx, this.userId, topicId, (persisted) => {
         const session = requireSession(topicId, sessionId, persisted);
@@ -324,8 +329,8 @@ export class OnboardingUnderstandingRepository {
         }
 
         const sources = { ...session.sources };
-        for (const providerId of new Set(providerIds)) {
-          sources[providerId] ??= initialProviderState();
+        for (const sourceProviderId of new Set(sourceProviderIds)) {
+          sources[sourceProviderId] ??= initialProviderState();
         }
         const nextFeedback = trimmedFeedback
           ? {
@@ -350,17 +355,17 @@ export class OnboardingUnderstandingRepository {
     );
   };
 
-  markProviderRunning = async (
+  markSourceProviderRunning = async (
     topicId: string,
     sessionId: string,
-    providerId: string,
+    sourceProviderId: string,
   ): Promise<{ revision: number }> => {
-    assertProviderId(providerId);
+    assertProviderId(sourceProviderId);
     return this.db.transaction((tx) =>
       mutateTopicSession(tx, this.userId, topicId, (persisted) => {
         const session = requireSession(topicId, sessionId, persisted);
         if (session.confirmedAt) throw new UnderstandingPreconditionError('session_confirmed');
-        const provider = session.sources[providerId];
+        const provider = session.sources[sourceProviderId];
         if (!provider) throw new UnderstandingResourceNotFoundError('session');
         if (provider.status !== 'pending' && provider.status !== 'failed') {
           throw new UnderstandingPreconditionError('source_not_retryable');
@@ -370,7 +375,7 @@ export class OnboardingUnderstandingRepository {
           ...session,
           sources: {
             ...session.sources,
-            [providerId]: {
+            [sourceProviderId]: {
               ...provider,
               completedAt: undefined,
               errors: [],
@@ -386,20 +391,25 @@ export class OnboardingUnderstandingRepository {
     );
   };
 
-  completeProvider = (input: ProviderMutationInput): Promise<OnboardingUnderstandingSession> =>
-    this.finishProvider(input, 'completed');
+  completeSourceProvider = (
+    input: SourceProviderMutationInput,
+  ): Promise<OnboardingUnderstandingSession> => this.finishProvider(input, 'completed');
 
-  failProvider = (input: ProviderMutationInput): Promise<OnboardingUnderstandingSession> =>
-    this.finishProvider(input, 'failed');
+  failSourceProvider = (
+    input: SourceProviderMutationInput,
+  ): Promise<OnboardingUnderstandingSession> => this.finishProvider(input, 'failed');
 
-  expireProviderContexts = async ({
-    providers,
+  expireSourceProviderContexts = async ({
+    sourceProviders,
     sessionId,
     sourceFingerprint,
     topicId,
-  }: ExpireProviderContextsInput): Promise<OnboardingUnderstandingSession> => {
-    providers.forEach(({ providerId }) => assertProviderId(providerId));
-    if (new Set(providers.map(({ providerId }) => providerId)).size !== providers.length) {
+  }: ExpireSourceProviderContextsInput): Promise<OnboardingUnderstandingSession> => {
+    sourceProviders.forEach(({ sourceProviderId }) => assertProviderId(sourceProviderId));
+    if (
+      new Set(sourceProviders.map(({ sourceProviderId }) => sourceProviderId)).size !==
+      sourceProviders.length
+    ) {
       throw new InvalidUnderstandingSessionError('Expired provider contexts must be unique');
     }
     return this.db.transaction((tx) =>
@@ -410,8 +420,8 @@ export class OnboardingUnderstandingRepository {
           return { nextSession: session, result: session, write: false };
         }
         if (
-          providers.some(({ providerId, revision }) => {
-            const provider = session.sources[providerId];
+          sourceProviders.some(({ sourceProviderId, revision }) => {
+            const provider = session.sources[sourceProviderId];
             return !provider || provider.status !== 'completed' || provider.revision !== revision;
           })
         ) {
@@ -419,10 +429,10 @@ export class OnboardingUnderstandingRepository {
         }
         const now = new Date().toISOString();
         const sources = { ...session.sources };
-        for (const { providerId } of providers) {
-          const provider = sources[providerId];
-          const error = expiredContextError(providerId);
-          sources[providerId] = {
+        for (const { sourceProviderId } of sourceProviders) {
+          const provider = sources[sourceProviderId];
+          const error = expiredContextError(sourceProviderId);
+          sources[sourceProviderId] = {
             ...provider,
             completedAt: now,
             errors: [...provider.errors, error].slice(-MAX_COLLECTION_ERRORS),
@@ -758,25 +768,25 @@ export class OnboardingUnderstandingRepository {
     );
 
   private finishProvider = async (
-    input: ProviderMutationInput,
+    input: SourceProviderMutationInput,
     status: 'completed' | 'failed',
   ): Promise<OnboardingUnderstandingSession> => {
-    assertProviderId(input.providerId);
+    assertProviderId(input.sourceProviderId);
     const errors = input.errors.slice(-MAX_COLLECTION_ERRORS);
     return this.db.transaction((tx) =>
       mutateTopicSession(tx, this.userId, input.topicId, (persisted) => {
         const session = requireSession(input.topicId, input.sessionId, persisted);
         if (session.confirmedAt) throw new UnderstandingPreconditionError('session_confirmed');
-        const provider = session.sources[input.providerId];
+        const provider = session.sources[input.sourceProviderId];
         if (!provider) throw new UnderstandingResourceNotFoundError('session');
         if (provider.revision !== input.revision || provider.status !== 'running') {
-          throw new StaleUnderstandingRevisionError(input.providerId, input.revision);
+          throw new StaleUnderstandingRevisionError(input.sourceProviderId, input.revision);
         }
         const nextSession = parseSession({
           ...session,
           sources: {
             ...session.sources,
-            [input.providerId]: {
+            [input.sourceProviderId]: {
               ...provider,
               completedAt: new Date().toISOString(),
               errors,
@@ -813,14 +823,14 @@ export class OnboardingUnderstandingRepository {
     sessionId: string,
     proposal: OnboardingUnderstandingMessageMetadata,
   ) => {
-    const { analysis, diagnostics, providers, sourceFingerprint } = proposal;
+    const { analysis, diagnostics, sourceFingerprint, sourceProviderIds } = proposal;
     const result = await upsertUserPersonaInTransaction(tx, this.userId, {
       metadataPatch: {
         onboardingUnderstanding: {
           composition: analysis.composition,
           diagnostics: CollectionDiagnosticsSummarySchema.parse(diagnostics),
           profile: analysis.profile,
-          providers,
+          sourceProviderIds,
           sessionId,
           sourceFingerprint,
         },

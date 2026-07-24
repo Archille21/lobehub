@@ -16,24 +16,27 @@ import {
 import {
   getUnderstandingWritingFlowControlKey,
   type ProcessCollectedUnderstandingPayload,
-  type ProcessUnderstandingProvidersPayload,
-  ProcessUnderstandingProvidersPayloadSchema,
+  type ProcessUnderstandingSourceProvidersPayload,
+  ProcessUnderstandingSourceProvidersPayloadSchema,
 } from './types';
 
-type ProviderService = Pick<UnderstandingService, 'failProvider' | 'processProvider'>;
+type SourceProviderService = Pick<
+  UnderstandingService,
+  'failSourceProvider' | 'processSourceProvider'
+>;
 
-type ProviderWorkflowContext = Pick<
-  WorkflowContext<ProcessUnderstandingProvidersPayload>,
+type SourceProviderWorkflowContext = Pick<
+  WorkflowContext<ProcessUnderstandingSourceProvidersPayload>,
   'invoke' | 'requestPayload' | 'run'
 >;
 
-interface ProviderWorkflowDependencies {
-  createService?: (userId: string) => Promise<ProviderService>;
+interface SourceProviderWorkflowDependencies {
+  createService?: (userId: string) => Promise<SourceProviderService>;
   processCollectedWorkflow: InvokableWorkflow<ProcessCollectedUnderstandingPayload, unknown>;
 }
 
-interface ProviderFailureDependencies {
-  createService?: (userId: string) => Promise<ProviderService>;
+interface SourceProviderFailureDependencies {
+  createService?: (userId: string) => Promise<SourceProviderService>;
 }
 
 const createService = async (userId: string) =>
@@ -52,29 +55,33 @@ const collectedWorkflowRunId = (sessionId: string, sourceFingerprint: string) =>
     .digest('hex')
     .slice(0, 32)}`;
 
-export const processUnderstandingProviders = async (
-  context: ProviderWorkflowContext,
-  dependencies: ProviderWorkflowDependencies,
+export const processUnderstandingSourceProviders = async (
+  context: SourceProviderWorkflowContext,
+  dependencies: SourceProviderWorkflowDependencies,
 ) => {
-  const parsed = ProcessUnderstandingProvidersPayloadSchema.parse(context.requestPayload);
+  const parsed = ProcessUnderstandingSourceProvidersPayloadSchema.parse(context.requestPayload);
   const payload = {
     ...parsed,
-    providers: parsed.providers.toSorted((left, right) => left.id.localeCompare(right.id)),
+    sourceProviders: parsed.sourceProviders.toSorted((left, right) =>
+      left.sourceProviderId.localeCompare(right.sourceProviderId),
+    ),
   };
   const service = await (dependencies.createService ?? createService)(payload.userId);
 
-  const providers = await Promise.all(
-    payload.providers.map(async ({ id: providerId, revision }) => {
-      const result = await context.run(`provider:${providerId}:${revision}:process`, () =>
-        service.processProvider({
-          providerId,
-          revision,
-          sessionId: payload.sessionId,
-          topicId: payload.topicId,
-        }),
+  const sourceProviders = await Promise.all(
+    payload.sourceProviders.map(async ({ revision, sourceProviderId }) => {
+      const result = await context.run(
+        `source-provider:${sourceProviderId}:${revision}:process`,
+        () =>
+          service.processSourceProvider({
+            revision,
+            sessionId: payload.sessionId,
+            sourceProviderId,
+            topicId: payload.topicId,
+          }),
       );
       if (result.status === 'completed' && result.revision === revision) {
-        await context.invoke(`provider:${providerId}:write:${result.revision}`, {
+        await context.invoke(`source-provider:${sourceProviderId}:write:${result.revision}`, {
           body: {
             responseLanguage: payload.responseLanguage,
             sessionId: payload.sessionId,
@@ -95,7 +102,7 @@ export const processUnderstandingProviders = async (
 
       return {
         failedCount: result.failedCount,
-        providerId,
+        sourceProviderId,
         revision: result.revision,
         sourceCount: result.sourceCount,
         status: result.status,
@@ -104,47 +111,47 @@ export const processUnderstandingProviders = async (
     }),
   );
 
-  return { providers };
+  return { sourceProviders };
 };
 
-export const failRunningUnderstandingProviders = async (
+export const failRunningUnderstandingSourceProviders = async (
   input: unknown,
-  dependencies: ProviderFailureDependencies = {},
+  dependencies: SourceProviderFailureDependencies = {},
 ) => {
-  const payload = ProcessUnderstandingProvidersPayloadSchema.parse(input);
+  const payload = ProcessUnderstandingSourceProvidersPayloadSchema.parse(input);
   const service = await (dependencies.createService ?? createService)(payload.userId);
-  const failedProviderIds: string[] = [];
+  const failedSourceProviderIds: string[] = [];
 
   await Promise.all(
-    payload.providers.map(async ({ id: providerId, revision }) => {
+    payload.sourceProviders.map(async ({ revision, sourceProviderId }) => {
       try {
-        const failed = await service.failProvider({
-          providerId,
+        const failed = await service.failSourceProvider({
+          sourceProviderId,
           revision,
           sessionId: payload.sessionId,
           topicId: payload.topicId,
         });
-        if (failed) failedProviderIds.push(providerId);
+        if (failed) failedSourceProviderIds.push(sourceProviderId);
       } catch (error) {
         if (!isTerminalizedSession(error)) throw error;
       }
     }),
   );
 
-  return { failedProviderIds: failedProviderIds.sort() };
+  return { failedSourceProviderIds: failedSourceProviderIds.sort() };
 };
 
-export const processProvidersWorkflowOptions = {
+export const processSourceProvidersWorkflowOptions = {
   failureFunction: async ({
     context: { requestPayload },
   }: {
     context: { requestPayload?: unknown };
   }) => {
-    const parsed = ProcessUnderstandingProvidersPayloadSchema.safeParse(requestPayload);
+    const parsed = ProcessUnderstandingSourceProvidersPayloadSchema.safeParse(requestPayload);
     if (!parsed.success) return 'invalid-payload';
-    const result = await failRunningUnderstandingProviders(parsed.data);
-    return `failed-providers:${result.failedProviderIds.length}`;
+    const result = await failRunningUnderstandingSourceProviders(parsed.data);
+    return `failed-source-providers:${result.failedSourceProviderIds.length}`;
   },
   initialPayloadParser: (input: string) =>
-    ProcessUnderstandingProvidersPayloadSchema.parse(JSON.parse(input)),
-} satisfies PublicServeOptions<ProcessUnderstandingProvidersPayload>;
+    ProcessUnderstandingSourceProvidersPayloadSchema.parse(JSON.parse(input)),
+} satisfies PublicServeOptions<ProcessUnderstandingSourceProvidersPayload>;

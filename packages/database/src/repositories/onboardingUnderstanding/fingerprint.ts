@@ -4,5 +4,5 @@ export const getUnderstandingSourceFingerprint = (session: OnboardingUnderstandi
   Object.entries(session.sources)
     .filter(([, source]) => source.status === 'completed')
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([providerId, source]) => `${providerId}@${source.revision}`)
+    .map(([sourceProviderId, source]) => `${sourceProviderId}@${source.revision}`)
     .join(',');

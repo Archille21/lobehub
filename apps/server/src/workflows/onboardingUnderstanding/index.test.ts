@@ -32,32 +32,32 @@ describe('OnboardingUnderstandingWorkflow', () => {
   it('triggers provider processing without serializing parallel provider branches', async () => {
     const { OnboardingUnderstandingWorkflow } = await import('.');
     const payload = {
-      providers: [{ id: 'github', revision: 1 }],
       responseLanguage: 'zh-CN',
+      sourceProviders: [{ revision: 1, sourceProviderId: 'github' }],
       sessionId: 'session:1',
       topicId: 'topic-1',
       userId: 'user-1',
     };
 
-    await OnboardingUnderstandingWorkflow.triggerProviders(payload);
+    await OnboardingUnderstandingWorkflow.triggerSourceProviders(payload);
 
     expect(triggerMock).toHaveBeenCalledWith({
       body: payload,
       headers: { traceparent: 'trace-1' },
-      url: 'http://internal:3011/api/workflows/onboarding/understanding/process-providers',
+      url: 'http://internal:3011/api/workflows/onboarding/understanding/process-source-providers',
     });
   });
 
   it('allows an explicit deterministic workflow run id for initial and retry triggers', async () => {
     const { OnboardingUnderstandingWorkflow } = await import('.');
 
-    await OnboardingUnderstandingWorkflow.triggerProviders(
+    await OnboardingUnderstandingWorkflow.triggerSourceProviders(
       {
-        providers: [
-          { id: 'gmail', revision: 1 },
-          { id: 'github', revision: 1 },
-        ],
         responseLanguage: 'zh-CN',
+        sourceProviders: [
+          { revision: 1, sourceProviderId: 'gmail' },
+          { revision: 1, sourceProviderId: 'github' },
+        ],
         sessionId: 'session-1',
         topicId: 'topic-1',
         userId: 'user-1',
@@ -105,9 +105,9 @@ describe('OnboardingUnderstandingWorkflow', () => {
       UnderstandingWorkflowUnavailableError,
     );
     await expect(
-      OnboardingUnderstandingWorkflow.triggerProviders({
-        providers: [{ id: 'github', revision: 1 }],
+      OnboardingUnderstandingWorkflow.triggerSourceProviders({
         responseLanguage: 'zh-CN',
+        sourceProviders: [{ revision: 1, sourceProviderId: 'github' }],
         sessionId: 'session-1',
         topicId: 'topic-1',
         userId: 'user-1',

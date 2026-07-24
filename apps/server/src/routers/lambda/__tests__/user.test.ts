@@ -26,9 +26,11 @@ const mockAfterTasks = vi.hoisted((): Promise<void>[] => []);
 const mockUnderstandingService = vi.hoisted(() => ({
   confirm: vi.fn(),
   get: vi.fn(),
+  listSourceProviders: vi.fn(),
   revise: vi.fn(),
   retry: vi.fn(),
   start: vi.fn(),
+  validateSourceProvider: vi.fn(),
 }));
 const mockCreateUnderstandingService = vi.hoisted(() => vi.fn());
 
@@ -113,13 +115,13 @@ describe('userRouter', () => {
 
       const result = await userRouter
         .createCaller(scopedCtx)
-        .startOnboardingUnderstanding({ topicId: 'topic-1' });
+        .startOnboardingUnderstanding({ responseLanguage: 'zh-CN', topicId: 'topic-1' });
 
       expect(mockCreateUnderstandingService).toHaveBeenCalledWith({
         db: serverDB,
         userId: mockUserId,
       });
-      expect(mockUnderstandingService.start).toHaveBeenCalledWith('topic-1');
+      expect(mockUnderstandingService.start).toHaveBeenCalledWith('topic-1', 'zh-CN', undefined);
       expect(result).toEqual(pollingResult);
     });
 
@@ -129,7 +131,9 @@ describe('userRouter', () => {
       );
 
       await expect(
-        userRouter.createCaller(scopedCtx).startOnboardingUnderstanding({ topicId: 'topic-1' }),
+        userRouter
+          .createCaller(scopedCtx)
+          .startOnboardingUnderstanding({ responseLanguage: 'zh-CN', topicId: 'topic-1' }),
       ).rejects.toMatchObject({
         code: 'PRECONDITION_FAILED',
         message: 'Onboarding understanding workflow is unavailable',
@@ -144,7 +148,8 @@ describe('userRouter', () => {
       await expect(
         userRouter.createCaller(scopedCtx).retryOnboardingUnderstandingSource({
           sessionId: 'session-1',
-          providerId: 'github',
+          sourceProviderId: 'github',
+          responseLanguage: 'zh-CN',
           topicId: 'topic-1',
         }),
       ).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' });
@@ -158,10 +163,15 @@ describe('userRouter', () => {
     });
 
     it.each([
-      ['startOnboardingUnderstanding', { topicId: 'topic-1' }],
+      ['startOnboardingUnderstanding', { responseLanguage: 'zh-CN', topicId: 'topic-1' }],
       [
         'retryOnboardingUnderstandingSource',
-        { providerId: 'github', sessionId: 'session-1', topicId: 'topic-1' },
+        {
+          responseLanguage: 'zh-CN',
+          sessionId: 'session-1',
+          sourceProviderId: 'github',
+          topicId: 'topic-1',
+        },
       ],
       [
         'confirmOnboardingUnderstanding',
@@ -171,7 +181,8 @@ describe('userRouter', () => {
         'reviseOnboardingUnderstanding',
         {
           feedback: 'Focus on infrastructure.',
-          providerIds: ['gmail'],
+          responseLanguage: 'zh-CN',
+          sourceProviderIds: ['gmail'],
           sessionId: 'session-1',
           topicId: 'topic-1',
         },
@@ -203,12 +214,14 @@ describe('userRouter', () => {
 
       const result = await userRouter.createCaller(scopedCtx).retryOnboardingUnderstandingSource({
         sessionId: 'session-1',
-        providerId: 'github',
+        sourceProviderId: 'github',
+        responseLanguage: 'zh-CN',
         topicId: 'topic-1',
       });
 
       expect(mockUnderstandingService.retry).toHaveBeenCalledWith({
-        providerId: 'github',
+        sourceProviderId: 'github',
+        responseLanguage: 'zh-CN',
         sessionId: 'session-1',
         topicId: 'topic-1',
       });
@@ -227,7 +240,8 @@ describe('userRouter', () => {
       const input = {
         expectedFeedbackRevision: 0,
         feedback: 'Focus on infrastructure.',
-        providerIds: ['gmail'],
+        responseLanguage: 'zh-CN',
+        sourceProviderIds: ['gmail'],
         sessionId: 'session-1',
         topicId: 'topic-1',
       };
@@ -236,6 +250,31 @@ describe('userRouter', () => {
 
       expect(mockUnderstandingService.revise).toHaveBeenCalledWith(input);
       expect(result).toMatchObject({ status: 'processing' });
+    });
+
+    it('lists source providers with local connection state', async () => {
+      mockUnderstandingService.listSourceProviders.mockResolvedValueOnce([
+        { connected: true, sourceProviderId: 'github' },
+      ]);
+
+      await expect(
+        userRouter.createCaller(scopedCtx).listOnboardingUnderstandingSourceProviders(),
+      ).resolves.toEqual([{ connected: true, sourceProviderId: 'github' }]);
+      expect(mockUnderstandingService.listSourceProviders).toHaveBeenCalledOnce();
+    });
+
+    it('actively validates only the requested source provider', async () => {
+      mockUnderstandingService.validateSourceProvider.mockResolvedValueOnce({
+        sourceProviderId: 'gmail',
+        valid: true,
+      });
+
+      await expect(
+        userRouter
+          .createCaller(scopedCtx)
+          .validateOnboardingUnderstandingSourceProvider({ sourceProviderId: 'gmail' }),
+      ).resolves.toEqual({ sourceProviderId: 'gmail', valid: true });
+      expect(mockUnderstandingService.validateSourceProvider).toHaveBeenCalledWith('gmail');
     });
 
     it('delegates confirmation and returns the created persona version', async () => {
@@ -268,6 +307,7 @@ describe('userRouter', () => {
       await expect(
         start({
           topicId: 'topic-1',
+          responseLanguage: 'zh-CN',
           userId: 'other-user',
           workspaceId: 'other-workspace',
         }),
@@ -298,7 +338,8 @@ describe('userRouter', () => {
       await expect(
         userRouter.createCaller(scopedCtx).retryOnboardingUnderstandingSource({
           sessionId: 'another-users-session',
-          providerId: 'github',
+          sourceProviderId: 'github',
+          responseLanguage: 'zh-CN',
           topicId: 'topic-1',
         }),
       ).rejects.toMatchObject({
@@ -321,7 +362,7 @@ describe('userRouter', () => {
       ).rejects.toMatchObject({ code: 'CONFLICT' });
     });
 
-    it('maps nonretryable providers to a safe precondition error', async () => {
+    it('maps nonretryable sourceProviders to a safe precondition error', async () => {
       mockUnderstandingService.retry.mockRejectedValueOnce(
         new UnderstandingPreconditionError('source_not_retryable'),
       );
@@ -329,7 +370,8 @@ describe('userRouter', () => {
       await expect(
         userRouter.createCaller(scopedCtx).retryOnboardingUnderstandingSource({
           sessionId: 'session-1',
-          providerId: 'github',
+          sourceProviderId: 'github',
+          responseLanguage: 'zh-CN',
           topicId: 'topic-1',
         }),
       ).rejects.toMatchObject({
@@ -411,7 +453,7 @@ describe('userRouter', () => {
   });
 
   describe('getUserSSOProviders', () => {
-    it('should return SSO providers', async () => {
+    it('should return SSO sourceProviders', async () => {
       const mockProviders = [
         {
           provider: 'google',

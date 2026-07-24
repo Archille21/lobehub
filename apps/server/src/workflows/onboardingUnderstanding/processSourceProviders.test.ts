@@ -2,9 +2,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  failRunningUnderstandingProviders,
-  processUnderstandingProviders,
-} from './processProviders';
+  failRunningUnderstandingSourceProviders,
+  processUnderstandingSourceProviders,
+} from './processSourceProviders';
 
 const errors = vi.hoisted(() => {
   class DomainError extends Error {}
@@ -22,9 +22,10 @@ vi.mock('@/server/services/understanding/service', () => ({
 }));
 
 const payload = {
-  providers: [
-    { id: 'gmail', revision: 1 },
-    { id: 'github', revision: 1 },
+  responseLanguage: 'zh-CN',
+  sourceProviders: [
+    { revision: 1, sourceProviderId: 'gmail' },
+    { revision: 1, sourceProviderId: 'github' },
   ],
   responseLanguage: 'zh-CN',
   sessionId: 'session-1',
@@ -53,9 +54,9 @@ const createContext = (requestPayload: unknown) => {
   };
 };
 
-const completed = (providerId: string, sourceFingerprint: string, revision = 1) => ({
+const completed = (sourceProviderId: string, sourceFingerprint: string, revision = 1) => ({
   failedCount: 0,
-  providerId,
+  sourceProviderId,
   revision,
   sourceCount: 2,
   sourceFingerprint,
@@ -63,18 +64,21 @@ const completed = (providerId: string, sourceFingerprint: string, revision = 1) 
   succeededCount: 2,
 });
 
-describe('processUnderstandingProviders', () => {
+describe('processUnderstandingSourceProviders', () => {
   it('runs one durable operation per provider concurrently and invokes each completed fingerprint immediately', async () => {
     let releaseGmail!: () => void;
     const gmailGate = new Promise<void>((resolve) => (releaseGmail = resolve));
     const service = {
-      processProvider: vi.fn(async ({ providerId }: { providerId: string }) => {
-        if (providerId === 'gmail') await gmailGate;
-        return completed(providerId, providerId === 'github' ? 'github@1' : 'github@1,gmail@1');
+      processSourceProvider: vi.fn(async ({ sourceProviderId }: { sourceProviderId: string }) => {
+        if (sourceProviderId === 'gmail') await gmailGate;
+        return completed(
+          sourceProviderId,
+          sourceProviderId === 'github' ? 'github@1' : 'github@1,gmail@1',
+        );
       }),
     };
     const { context, invocations, steps } = createContext(payload);
-    const running = processUnderstandingProviders(context as never, {
+    const running = processUnderstandingSourceProviders(context as never, {
       createService: async () => service as never,
       processCollectedWorkflow: workflow as never,
     });
@@ -90,9 +94,9 @@ describe('processUnderstandingProviders', () => {
     releaseGmail();
     await running;
 
-    expect(steps).toEqual(['provider:github:1:process', 'provider:gmail:1:process']);
-    expect(service.processProvider).toHaveBeenCalledWith({
-      providerId: 'github',
+    expect(steps).toEqual(['source-provider:github:1:process', 'source-provider:gmail:1:process']);
+    expect(service.processSourceProvider).toHaveBeenCalledWith({
+      sourceProviderId: 'github',
       revision: 1,
       sessionId: 'session-1',
       topicId: 'topic-1',
@@ -106,19 +110,21 @@ describe('processUnderstandingProviders', () => {
   });
 
   it('replays a commit-before-ack delivery with the same fingerprint child identity', async () => {
-    const service = { processProvider: vi.fn(async () => completed('github', 'github@2', 2)) };
-    const attempt = { id: 'github', revision: 2 };
-    const first = createContext({ ...payload, providers: [attempt] });
-    const replay = createContext({ ...payload, providers: [attempt] });
+    const service = {
+      processSourceProvider: vi.fn(async () => completed('github', 'github@2', 2)),
+    };
+    const attempt = { revision: 2, sourceProviderId: 'github' };
+    const first = createContext({ ...payload, sourceProviders: [attempt] });
+    const replay = createContext({ ...payload, sourceProviders: [attempt] });
     const dependencies = {
       createService: async () => service as never,
       processCollectedWorkflow: workflow as never,
     };
 
-    await processUnderstandingProviders(first.context as never, dependencies);
-    await processUnderstandingProviders(replay.context as never, dependencies);
+    await processUnderstandingSourceProviders(first.context as never, dependencies);
+    await processUnderstandingSourceProviders(replay.context as never, dependencies);
 
-    expect(service.processProvider).toHaveBeenCalledTimes(2);
+    expect(service.processSourceProvider).toHaveBeenCalledTimes(2);
     expect(first.invocations[0].settings.workflowRunId).toBe(
       replay.invocations[0].settings.workflowRunId,
     );
@@ -130,12 +136,15 @@ describe('processUnderstandingProviders', () => {
   it('does not invoke writing for terminal failure and lets transient errors retry', async () => {
     const terminal = createContext({
       ...payload,
-      providers: [{ id: 'github', revision: 1 }],
+      sourceProviders: [{ revision: 1, sourceProviderId: 'github' }],
     });
-    await processUnderstandingProviders(terminal.context as never, {
+    await processUnderstandingSourceProviders(terminal.context as never, {
       createService: async () =>
         ({
-          processProvider: vi.fn(async () => ({ ...completed('github', ''), status: 'failed' })),
+          processSourceProvider: vi.fn(async () => ({
+            ...completed('github', ''),
+            status: 'failed',
+          })),
         }) as never,
       processCollectedWorkflow: workflow as never,
     });
@@ -143,10 +152,10 @@ describe('processUnderstandingProviders', () => {
 
     const transient = new Error('connector temporarily unavailable');
     await expect(
-      processUnderstandingProviders(terminal.context as never, {
+      processUnderstandingSourceProviders(terminal.context as never, {
         createService: async () =>
           ({
-            processProvider: vi.fn(async () => {
+            processSourceProvider: vi.fn(async () => {
               throw transient;
             }),
           }) as never,
@@ -158,12 +167,12 @@ describe('processUnderstandingProviders', () => {
   it('does not invoke writing for a stale provider attempt', async () => {
     const stale = createContext({
       ...payload,
-      providers: [{ id: 'github', revision: 4 }],
+      sourceProviders: [{ revision: 4, sourceProviderId: 'github' }],
     });
-    await processUnderstandingProviders(stale.context as never, {
+    await processUnderstandingSourceProviders(stale.context as never, {
       createService: async () =>
         ({
-          processProvider: vi.fn(async () => ({
+          processSourceProvider: vi.fn(async () => ({
             ...completed('github', 'github@5', 4),
             status: 'stale',
           })),
@@ -175,16 +184,16 @@ describe('processUnderstandingProviders', () => {
   });
 
   it('rejects duplicate attempts and unsafe external payload fields', async () => {
-    const service = { processProvider: vi.fn(async () => completed('github', 'github@1')) };
+    const service = { processSourceProvider: vi.fn(async () => completed('github', 'github@1')) };
     const duplicate = createContext({
       ...payload,
-      providers: [
-        { id: 'github', revision: 1 },
-        { id: 'github', revision: 2 },
+      sourceProviders: [
+        { revision: 1, sourceProviderId: 'github' },
+        { revision: 2, sourceProviderId: 'github' },
       ],
     });
     await expect(
-      processUnderstandingProviders(duplicate.context as never, {
+      processUnderstandingSourceProviders(duplicate.context as never, {
         createService: async () => service as never,
         processCollectedWorkflow: workflow as never,
       }),
@@ -193,10 +202,10 @@ describe('processUnderstandingProviders', () => {
     const unsafe = createContext({
       ...payload,
       accessToken: 'secret',
-      providers: [{ id: 'github:1', revision: 1 }],
+      sourceProviders: [{ revision: 1, sourceProviderId: 'github:1' }],
     });
     await expect(
-      processUnderstandingProviders(unsafe.context as never, {
+      processUnderstandingSourceProviders(unsafe.context as never, {
         createService: vi.fn(),
         processCollectedWorkflow: workflow as never,
       }),
@@ -204,22 +213,24 @@ describe('processUnderstandingProviders', () => {
   });
 });
 
-describe('failRunningUnderstandingProviders', () => {
+describe('failRunningUnderstandingSourceProviders', () => {
   it('terminalizes only the selected target revision and ignores an older attempt', async () => {
     const service = {
-      failProvider: vi.fn(async ({ revision }: { revision: number }) =>
+      failSourceProvider: vi.fn(async ({ revision }: { revision: number }) =>
         revision === 8 ? {} : undefined,
       ),
     };
     const current = {
       ...payload,
-      providers: [{ id: 'github', revision: 8 }],
+      sourceProviders: [{ revision: 8, sourceProviderId: 'github' }],
     };
     await expect(
-      failRunningUnderstandingProviders(current, { createService: async () => service as never }),
-    ).resolves.toEqual({ failedProviderIds: ['github'] });
-    expect(service.failProvider).toHaveBeenCalledWith({
-      providerId: 'github',
+      failRunningUnderstandingSourceProviders(current, {
+        createService: async () => service as never,
+      }),
+    ).resolves.toEqual({ failedSourceProviderIds: ['github'] });
+    expect(service.failSourceProvider).toHaveBeenCalledWith({
+      sourceProviderId: 'github',
       revision: 8,
       sessionId: 'session-1',
       topicId: 'topic-1',
@@ -227,15 +238,15 @@ describe('failRunningUnderstandingProviders', () => {
 
     const oldAttempt = {
       ...payload,
-      providers: [{ id: 'github', revision: 4 }],
+      sourceProviders: [{ revision: 4, sourceProviderId: 'github' }],
     };
     await expect(
-      failRunningUnderstandingProviders(oldAttempt, {
+      failRunningUnderstandingSourceProviders(oldAttempt, {
         createService: async () => service as never,
       }),
-    ).resolves.toEqual({ failedProviderIds: [] });
-    expect(service.failProvider).toHaveBeenLastCalledWith({
-      providerId: 'github',
+    ).resolves.toEqual({ failedSourceProviderIds: [] });
+    expect(service.failSourceProvider).toHaveBeenLastCalledWith({
+      sourceProviderId: 'github',
       revision: 4,
       sessionId: 'session-1',
       topicId: 'topic-1',

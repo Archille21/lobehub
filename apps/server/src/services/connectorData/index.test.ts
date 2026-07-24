@@ -67,8 +67,8 @@ describe('ConnectorDataService', () => {
 
   it('selects the first stable active GitHub connector and refreshes its OAuth token', async () => {
     mocks.queryReferences.mockResolvedValue([
-      { id: 'connector-z', isEnabled: true, status: 'connected' },
-      { id: 'connector-a', isEnabled: true, status: 'connected' },
+      { id: 'connector-z', isEnabled: true, status: 'connected', tokenExpiresAt: null },
+      { id: 'connector-a', isEnabled: true, status: 'connected', tokenExpiresAt: null },
     ]);
     mocks.findById.mockResolvedValue({
       credentials: { accessToken: 'old-token', type: 'oauth2' },
@@ -106,7 +106,7 @@ describe('ConnectorDataService', () => {
 
   it('skips an expired refreshed connector and falls back to a valid auth account', async () => {
     mocks.queryReferences.mockResolvedValue([
-      { id: 'connector-a', isEnabled: true, status: 'connected' },
+      { id: 'connector-a', isEnabled: true, status: 'connected', tokenExpiresAt: null },
     ]);
     mocks.findById.mockResolvedValue({
       credentials: { accessToken: 'old-token', type: 'oauth2' },
@@ -182,6 +182,7 @@ describe('ConnectorDataService', () => {
         id: 'gmail-a',
         isEnabled: true,
         status: 'connected',
+        tokenExpiresAt: null,
       },
     ]);
 
@@ -194,5 +195,49 @@ describe('ConnectorDataService', () => {
       userId: 'gmail-owner',
     });
     expect(mocks.getAccount).toHaveBeenCalledOnce();
+  });
+
+  it('lists GitHub as connected from local connector state without decrypting credentials', async () => {
+    mocks.queryReferences.mockResolvedValue([
+      { id: 'github-a', isEnabled: true, status: 'connected', tokenExpiresAt: null },
+    ]);
+
+    await expect(
+      new ConnectorDataService(authDb([]), 'user-1').hasGitHubConnection(),
+    ).resolves.toBe(true);
+    expect(mocks.findById).not.toHaveBeenCalled();
+    expect(mocks.initWithEnvKey).not.toHaveBeenCalled();
+  });
+
+  it('lists GitHub as connected from a valid sign-in account fallback', async () => {
+    await expect(
+      new ConnectorDataService(
+        authDb([{ accessToken: 'account-token', id: 'account-a' }]),
+        'user-1',
+      ).hasGitHubConnection(),
+    ).resolves.toBe(true);
+  });
+
+  it('lists Gmail from the local active Composio projection only', async () => {
+    mocks.queryComposioReferences.mockResolvedValue([
+      {
+        composio: {
+          appSlug: 'gmail',
+          connectedAccountId: 'gmail-account',
+          ownerUserId: 'gmail-owner',
+          status: 'ACTIVE',
+        },
+        id: 'gmail-a',
+        isEnabled: true,
+        status: 'connected',
+        tokenExpiresAt: null,
+      },
+    ]);
+
+    await expect(new ConnectorDataService(authDb([]), 'user-1').hasGmailConnection()).resolves.toBe(
+      true,
+    );
+    expect(mocks.createGmailClient).not.toHaveBeenCalled();
+    expect(mocks.getComposioClient).not.toHaveBeenCalled();
   });
 });

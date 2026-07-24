@@ -15,13 +15,16 @@ import type {
   ConfirmOnboardingUnderstandingInput,
   ConfirmOnboardingUnderstandingResult,
   OnboardingUnderstandingPollingResult,
+  OnboardingUnderstandingSourceProvider,
   OnboardingUnderstandingTopicInput,
-  RetryOnboardingUnderstandingProviderInput,
+  RetryOnboardingUnderstandingSourceProviderInput,
   ReviseOnboardingUnderstandingInput,
   StartOnboardingUnderstandingInput,
   UserInitializationState,
   UserPreference,
   UserSettings,
+  ValidateOnboardingUnderstandingSourceProviderInput,
+  ValidateOnboardingUnderstandingSourceProviderResult,
 } from '@lobechat/types';
 import {
   MAX_COLLECTION_COUNT,
@@ -55,7 +58,7 @@ import { FileS3 } from '@/server/modules/S3';
 import { AgentDocumentsService } from '@/server/services/agentDocuments';
 import { FileService } from '@/server/services/file';
 import { OnboardingService } from '@/server/services/onboarding';
-import { understandingProviders } from '@/server/services/understanding/providers';
+import { understandingSourceProviders } from '@/server/services/understanding/sourceProviders';
 import {
   createUnderstandingService,
   type UnderstandingService,
@@ -117,44 +120,40 @@ const usernameSchema = z
   .regex(/^\w+$/, { message: 'USERNAME_INVALID' });
 
 const understandingIdSchema = z.string().trim().min(1).max(512);
+const understandingSourceProviderIdSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[\w-]+$/);
 const onboardingUnderstandingTopicInputSchema = z
   .object({ topicId: understandingIdSchema })
   .strict() satisfies z.ZodType<OnboardingUnderstandingTopicInput>;
 const startOnboardingUnderstandingInputSchema = z
   .object({
-    providerIds: z
-      .array(
-        z
-          .string()
-          .trim()
-          .min(1)
-          .max(64)
-          .regex(/^[\w-]+$/),
-      )
-      .max(16)
-      .optional(),
     responseLanguage: z
       .string()
       .trim()
       .min(2)
       .max(64)
       .regex(/^[A-Z]{2,3}(?:-[A-Z0-9]{2,8})*$/i),
+    sourceProviderIds: z.array(understandingSourceProviderIdSchema).max(16).optional(),
     topicId: understandingIdSchema,
   })
   .strict() satisfies z.ZodType<StartOnboardingUnderstandingInput>;
 const retryOnboardingUnderstandingSourceInputSchema = z
   .object({
-    providerId: understandingIdSchema,
     responseLanguage: z
       .string()
       .trim()
       .min(2)
       .max(64)
       .regex(/^[A-Z]{2,3}(?:-[A-Z0-9]{2,8})*$/i),
+    sourceProviderId: understandingSourceProviderIdSchema,
     sessionId: understandingIdSchema,
     topicId: understandingIdSchema,
   })
-  .strict() satisfies z.ZodType<RetryOnboardingUnderstandingProviderInput>;
+  .strict() satisfies z.ZodType<RetryOnboardingUnderstandingSourceProviderInput>;
 const confirmOnboardingUnderstandingInputSchema = z
   .object({
     resultId: understandingIdSchema,
@@ -166,26 +165,20 @@ const reviseOnboardingUnderstandingInputSchema = z
   .object({
     expectedFeedbackRevision: z.number().int().nonnegative().max(MAX_COLLECTION_COUNT),
     feedback: z.string().trim().min(1).max(MAX_UNDERSTANDING_FEEDBACK_LENGTH).optional(),
-    providerIds: z
-      .array(
-        z
-          .string()
-          .trim()
-          .min(1)
-          .max(64)
-          .regex(/^[\w-]+$/),
-      )
-      .max(16),
     responseLanguage: z
       .string()
       .trim()
       .min(2)
       .max(64)
       .regex(/^[A-Z]{2,3}(?:-[A-Z0-9]{2,8})*$/i),
+    sourceProviderIds: z.array(understandingSourceProviderIdSchema).max(16),
     sessionId: understandingIdSchema,
     topicId: understandingIdSchema,
   })
   .strict() satisfies z.ZodType<ReviseOnboardingUnderstandingInput>;
+const validateOnboardingUnderstandingSourceProviderInputSchema = z
+  .object({ sourceProviderId: understandingSourceProviderIdSchema })
+  .strict() satisfies z.ZodType<ValidateOnboardingUnderstandingSourceProviderInput>;
 
 const AVATAR_WEBAPI_PREFIX = '/webapi/';
 const OWNER_SETTING_KEYS = ['defaultAgent', 'image', 'memory', 'systemAgent', 'tts'] as const;
@@ -286,7 +279,13 @@ export const userRouter = router({
 
   getSupportedUnderstandingProviders: authedProcedure.query(
     async (): Promise<{ providerIds: string[] }> => {
-      return { providerIds: understandingProviders.map((provider) => provider.id) };
+      return { providerIds: understandingSourceProviders.map((provider) => provider.id) };
+    },
+  ),
+
+  listOnboardingUnderstandingSourceProviders: understandingServiceProcedure.query(
+    async ({ ctx }): Promise<OnboardingUnderstandingSourceProvider[]> => {
+      return ctx.understandingService.listSourceProviders();
     },
   ),
 
@@ -395,9 +394,11 @@ export const userRouter = router({
   startOnboardingUnderstanding: understandingServiceProcedure
     .input(startOnboardingUnderstandingInputSchema)
     .mutation(async ({ ctx, input }): Promise<OnboardingUnderstandingPollingResult> => {
-      return input.providerIds
-        ? ctx.understandingService.start(input.topicId, input.responseLanguage, input.providerIds)
-        : ctx.understandingService.start(input.topicId, input.responseLanguage);
+      return ctx.understandingService.start(
+        input.topicId,
+        input.responseLanguage,
+        input.sourceProviderIds,
+      );
     }),
 
   updateAvatar: userProcedure.input(z.string()).mutation(async ({ ctx, input }) => {
@@ -761,6 +762,12 @@ export const userRouter = router({
 
     return ctx.userModel.updateUser({ username: input });
   }),
+
+  validateOnboardingUnderstandingSourceProvider: understandingServiceProcedure
+    .input(validateOnboardingUnderstandingSourceProviderInputSchema)
+    .query(async ({ ctx, input }): Promise<ValidateOnboardingUnderstandingSourceProviderResult> => {
+      return ctx.understandingService.validateSourceProvider(input.sourceProviderId);
+    }),
 });
 
 export type UserRouter = typeof userRouter;

@@ -3,9 +3,11 @@ import { type MarkdownPatchHunk } from '@lobechat/markdown-patch';
 import type {
   ConfirmOnboardingUnderstandingInput,
   OnboardingUnderstandingPollingResult,
-  RetryOnboardingUnderstandingProviderInput,
+  OnboardingUnderstandingSourceProvider,
+  RetryOnboardingUnderstandingSourceProviderInput,
   ReviseOnboardingUnderstandingInput,
   StartOnboardingUnderstandingInput,
+  ValidateOnboardingUnderstandingSourceProviderResult,
 } from '@lobechat/types';
 import { type PartialDeep } from 'type-fest';
 
@@ -30,6 +32,10 @@ export class UserService {
   ): Promise<OnboardingUnderstandingPollingResult> => {
     return lambdaClient.user.getOnboardingUnderstanding.query({ topicId });
   };
+
+  listOnboardingUnderstandingSourceProviders = async (): Promise<
+    OnboardingUnderstandingSourceProvider[]
+  > => lambdaClient.user.listOnboardingUnderstandingSourceProviders.query();
 
   getUserActivitySummary = async (): Promise<{
     lastUserMessageAt: Date | null;
@@ -86,7 +92,7 @@ export class UserService {
   };
 
   retryOnboardingUnderstandingSource = async (
-    input: RetryOnboardingUnderstandingProviderInput,
+    input: RetryOnboardingUnderstandingSourceProviderInput,
   ): Promise<OnboardingUnderstandingPollingResult> => {
     return lambdaClient.user.retryOnboardingUnderstandingSource.mutate(input);
   };
@@ -102,6 +108,11 @@ export class UserService {
   ): Promise<OnboardingUnderstandingPollingResult> => {
     return lambdaClient.user.startOnboardingUnderstanding.mutate(input);
   };
+
+  validateOnboardingUnderstandingSourceProvider = async (
+    sourceProviderId: string,
+  ): Promise<ValidateOnboardingUnderstandingSourceProviderResult> =>
+    lambdaClient.user.validateOnboardingUnderstandingSourceProvider.query({ sourceProviderId });
 
   updateOnboarding = async (onboarding: UserOnboarding) => {
     return lambdaClient.user.updateOnboarding.mutate(onboarding);

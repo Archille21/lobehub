@@ -14,8 +14,8 @@ type SafeCollectionDiagnostics = Pick<
 interface UnderstandingPersonaPromptInput {
   diagnostics: SafeCollectionDiagnostics;
   feedback?: UnderstandingFeedbackTurn[];
-  providers: string[];
   responseLanguage: string;
+  sourceProviderIds: string[];
 }
 
 interface UnderstandingAnalysisJsonSchema {
@@ -30,7 +30,7 @@ interface UnderstandingAnalysisJsonSchema {
   strict: boolean;
 }
 
-const PROVIDER_ID_MAX_LENGTH = 64;
+const SOURCE_PROVIDER_ID_MAX_LENGTH = 64;
 
 const displayStringJsonConstraints = (maxLength: number) => ({
   maxLength,
@@ -205,8 +205,8 @@ const outputContract = [
 export const chainUnderstandingPersona = ({
   diagnostics,
   feedback = [],
-  providers,
   responseLanguage,
+  sourceProviderIds,
 }: UnderstandingPersonaPromptInput): string => {
   const feedbackSection =
     feedback.length > 0
@@ -225,16 +225,18 @@ export const chainUnderstandingPersona = ({
   return [
     'Write one coherent onboarding persona from all available provider-delimited Markdown and XML contexts.',
     `Write every user-visible string value in ${boundUntrustedMetadata(responseLanguage, 64)}. Keep JSON property names unchanged and preserve proper names when translation would make them inaccurate.`,
-    'Analyze the original provider contexts directly, not prior generated analyses.',
-    'Providers represented in the input (untrusted JSON):',
+    'Analyze the original source provider contexts directly, not prior generated analyses.',
+    'Source providers represented in the input (untrusted JSON):',
     JSON.stringify(
-      providers.map((provider) => boundUntrustedMetadata(provider, PROVIDER_ID_MAX_LENGTH)),
+      sourceProviderIds.map((sourceProviderId) =>
+        boundUntrustedMetadata(sourceProviderId, SOURCE_PROVIDER_ID_MAX_LENGTH),
+      ),
     ),
-    'End provider metadata.',
+    'End source provider metadata.',
     `Collection completeness: ${formatCompleteness(diagnostics)}. Treat incomplete collection as uncertainty; do not invent the missing information.`,
     ...feedbackSection,
-    'The current ephemeral user message contains the complete available provider contexts.',
-    'Reconcile conflicts by preferring explicit and specific statements and signals recurring across independent providers.',
+    'The current ephemeral user message contains the complete available source provider contexts.',
+    'Reconcile conflicts by preferring explicit and specific statements and signals recurring across independent source providers.',
     'Deduplicate overlapping identities and interests. Combine descriptions only when they refer to the same durable signal.',
     'Preserve uncertainty instead of resolving weak conflicts by guessing. Optional working, lifeStyle, and social vectors may remain empty.',
     ...sharedAnalysisRules,

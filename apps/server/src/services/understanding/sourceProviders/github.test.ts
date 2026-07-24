@@ -1,9 +1,29 @@
 import type { GitHubConnectorClient, GitHubUserProfile } from '@lobechat/connector-data/github';
 import { describe, expect, it, vi } from 'vitest';
 
-import { githubUnderstandingProvider } from './github';
+import { githubUnderstandingSourceProvider } from './github';
 
-describe('githubUnderstandingProvider', () => {
+describe('githubUnderstandingSourceProvider', () => {
+  it('delegates local connection checks and actively validates the profile endpoint', async () => {
+    const getUserProfile = vi.fn(async () => ({
+      externalAccountId: 'account-id',
+      login: 'octocat',
+    }));
+    const connectorData = {
+      getGitHubClient: vi.fn(async () => ({ getUserProfile })),
+      hasGitHubConnection: vi.fn(async () => true),
+    };
+
+    await expect(
+      githubUnderstandingSourceProvider.isConnected({ connectorData, userId: 'user-id' } as never),
+    ).resolves.toBe(true);
+    await expect(
+      githubUnderstandingSourceProvider.validate({ connectorData, userId: 'user-id' } as never),
+    ).resolves.toBe(true);
+    expect(connectorData.hasGitHubConnection).toHaveBeenCalledOnce();
+    expect(getUserProfile).toHaveBeenCalledOnce();
+  });
+
   it('starts supplemental collection without waiting for the profile', async () => {
     let resolveProfile: (profile: GitHubUserProfile) => void;
     const profile = new Promise<GitHubUserProfile>((resolve) => {
@@ -26,7 +46,7 @@ describe('githubUnderstandingProvider', () => {
       listUserOrganizations: supplemental('organizations', []),
     } satisfies GitHubConnectorClient;
 
-    const collecting = githubUnderstandingProvider.collect({
+    const collecting = githubUnderstandingSourceProvider.collect({
       connectorData: {
         getGitHubClient: vi.fn(async () => client),
       } as never,

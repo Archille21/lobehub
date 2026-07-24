@@ -65,7 +65,7 @@ const analysis: UnderstandingAnalysis = {
 const proposal = (
   resultId: string,
   sourceFingerprint: string,
-  providers: string[],
+  sourceProviderIds: string[],
   succeededCount: number,
   revisions?: { feedbackRevision: number; generationRevision: number },
 ): OnboardingUnderstandingMessageMetadata => ({
@@ -73,7 +73,7 @@ const proposal = (
   diagnostics: { errors: [], evidenceCount: 4, failedCount: 0, succeededCount },
   ...revisions,
   kind: 'proposal',
-  providers,
+  sourceProviderIds,
   resultId,
   sourceFingerprint,
 });
@@ -117,12 +117,16 @@ const insertAssistant = async (
 describe('OnboardingUnderstandingRepository', () => {
   let repository: OnboardingUnderstandingRepository;
 
-  const completeProvider = async (providerId: string, succeededCount: number) => {
-    const { revision } = await repository.markProviderRunning(topicId, sessionId, providerId);
-    return repository.completeProvider({
+  const completeSourceProvider = async (sourceProviderId: string, succeededCount: number) => {
+    const { revision } = await repository.markSourceProviderRunning(
+      topicId,
+      sessionId,
+      sourceProviderId,
+    );
+    return repository.completeSourceProvider({
       errors: [],
       failedCount: 0,
-      providerId,
+      sourceProviderId,
       revision,
       sessionId,
       succeededCount,
@@ -132,7 +136,7 @@ describe('OnboardingUnderstandingRepository', () => {
 
   const publish = async (
     fingerprint: string,
-    providers: string[],
+    sourceProviderIds: string[],
     messageId: string,
     threadId: string,
   ) => {
@@ -149,10 +153,16 @@ describe('OnboardingUnderstandingRepository', () => {
       assistantMessageId: messageId,
       feedbackRevision: prepared.feedbackRevision,
       generationRevision: prepared.generationRevision,
-      metadata: proposal(messageId, fingerprint, providers, providers.length === 1 ? 3 : 5, {
-        feedbackRevision: prepared.feedbackRevision,
-        generationRevision: prepared.generationRevision,
-      }),
+      metadata: proposal(
+        messageId,
+        fingerprint,
+        sourceProviderIds,
+        sourceProviderIds.length === 1 ? 3 : 5,
+        {
+          feedbackRevision: prepared.feedbackRevision,
+          generationRevision: prepared.generationRevision,
+        },
+      ),
       sessionId,
       sourceFingerprint: fingerprint,
       threadId,
@@ -181,14 +191,14 @@ describe('OnboardingUnderstandingRepository', () => {
     const first = await repository.extend({
       expectedFeedbackRevision: 0,
       feedback: 'Focus on my open-source infrastructure work.',
-      providerIds: ['github', 'gmail'],
+      sourceProviderIds: ['github', 'gmail'],
       sessionId,
       topicId,
     });
     const second = await repository.extend({
       expectedFeedbackRevision: 1,
       feedback: 'Do not treat newsletters as durable interests.',
-      providerIds: ['gmail'],
+      sourceProviderIds: ['gmail'],
       sessionId,
       topicId,
     });
@@ -214,7 +224,7 @@ describe('OnboardingUnderstandingRepository', () => {
       repository.extend({
         expectedFeedbackRevision: 1,
         feedback: 'Duplicate stale submission.',
-        providerIds: [],
+        sourceProviderIds: [],
         sessionId,
         topicId,
       }),
@@ -227,7 +237,7 @@ describe('OnboardingUnderstandingRepository', () => {
    */
   it('publishes only the latest feedback and source generation', async () => {
     await repository.initialize(topicId, sessionId, ['github']);
-    await completeProvider('github', 3);
+    await completeSourceProvider('github', 3);
     const first = await repository.prepareWriting({
       agentId,
       sessionId,
@@ -240,7 +250,7 @@ describe('OnboardingUnderstandingRepository', () => {
     await repository.extend({
       expectedFeedbackRevision: 0,
       feedback: 'Focus on infrastructure.',
-      providerIds: [],
+      sourceProviderIds: [],
       sessionId,
       topicId,
     });
@@ -287,7 +297,7 @@ describe('OnboardingUnderstandingRepository', () => {
 
   it('freezes the confirmed proposal while preserving later user edits', async () => {
     await repository.initialize(topicId, sessionId, ['github', 'gmail']);
-    await completeProvider('github', 3);
+    await completeSourceProvider('github', 3);
     await expect(
       publish('github@1', ['github'], 'github-result', 'github-thread'),
     ).resolves.toEqual({
@@ -298,7 +308,7 @@ describe('OnboardingUnderstandingRepository', () => {
         code: 'UNDERSTANDING_WRITING_FAILED',
         message: 'understanding writing failed',
         operation: 'writing',
-        provider: 'understanding',
+        sourceProviderId: 'understanding',
         retryable: true,
       },
       feedbackRevision: 0,
@@ -316,7 +326,7 @@ describe('OnboardingUnderstandingRepository', () => {
       repository.confirm({ resultId: 'github-result', sessionId, topicId }),
     ).rejects.toThrow('result_not_confirmable');
 
-    await completeProvider('gmail', 2);
+    await completeSourceProvider('gmail', 2);
     await expect(
       publish('github@1,gmail@1', ['github', 'gmail'], 'combined-result', 'combined-thread'),
     ).resolves.toEqual({
@@ -349,7 +359,7 @@ describe('OnboardingUnderstandingRepository', () => {
       repository.extend({
         expectedFeedbackRevision: 0,
         feedback: 'This must not update a confirmed session.',
-        providerIds: [],
+        sourceProviderIds: [],
         sessionId,
         topicId,
       }),
@@ -368,40 +378,40 @@ describe('OnboardingUnderstandingRepository', () => {
 
   it('rejects delayed provider revisions and refuses stale writing fingerprints', async () => {
     await repository.initialize(topicId, sessionId, ['github', 'gmail']);
-    const { revision: firstRevision } = await repository.markProviderRunning(
+    const { revision: firstRevision } = await repository.markSourceProviderRunning(
       topicId,
       sessionId,
       'github',
     );
-    await repository.failProvider({
+    await repository.failSourceProvider({
       errors: [],
       failedCount: 1,
-      providerId: 'github',
+      sourceProviderId: 'github',
       revision: firstRevision,
       sessionId,
       succeededCount: 0,
       topicId,
     });
-    const { revision: secondRevision } = await repository.markProviderRunning(
+    const { revision: secondRevision } = await repository.markSourceProviderRunning(
       topicId,
       sessionId,
       'github',
     );
     await expect(
-      repository.completeProvider({
+      repository.completeSourceProvider({
         errors: [],
         failedCount: 0,
-        providerId: 'github',
+        sourceProviderId: 'github',
         revision: firstRevision,
         sessionId,
         succeededCount: 3,
         topicId,
       }),
     ).rejects.toBeInstanceOf(StaleUnderstandingRevisionError);
-    await repository.completeProvider({
+    await repository.completeSourceProvider({
       errors: [],
       failedCount: 0,
-      providerId: 'github',
+      sourceProviderId: 'github',
       revision: secondRevision,
       sessionId,
       succeededCount: 3,
@@ -419,7 +429,7 @@ describe('OnboardingUnderstandingRepository', () => {
         code: 'UNDERSTANDING_WRITING_FAILED',
         message: 'understanding writing failed',
         operation: 'writing',
-        provider: 'understanding',
+        sourceProviderId: 'understanding',
         retryable: true,
       },
       feedbackRevision: 0,
@@ -457,14 +467,14 @@ describe('OnboardingUnderstandingRepository', () => {
 
   it('expires all exact missing revisions while retaining the previous proposal', async () => {
     await repository.initialize(topicId, sessionId, ['github', 'gmail']);
-    await completeProvider('github', 3);
+    await completeSourceProvider('github', 3);
     await publish('github@1', ['github'], 'retained-result', 'retained-thread');
-    await completeProvider('gmail', 2);
+    await completeSourceProvider('gmail', 2);
 
-    const expired = await repository.expireProviderContexts({
-      providers: [
-        { providerId: 'github', revision: 1 },
-        { providerId: 'gmail', revision: 1 },
+    const expired = await repository.expireSourceProviderContexts({
+      sourceProviders: [
+        { sourceProviderId: 'github', revision: 1 },
+        { sourceProviderId: 'gmail', revision: 1 },
       ],
       sessionId,
       sourceFingerprint: 'github@1,gmail@1',
@@ -487,14 +497,16 @@ describe('OnboardingUnderstandingRepository', () => {
       resultMessageId: 'retained-result',
       status: 'failed',
     });
-    await expect(repository.markProviderRunning(topicId, sessionId, 'gmail')).resolves.toEqual({
+    await expect(
+      repository.markSourceProviderRunning(topicId, sessionId, 'gmail'),
+    ).resolves.toEqual({
       revision: 2,
     });
   });
 
   it('scopes every operation and writing resource to an owned personal topic', async () => {
     await repository.initialize(topicId, sessionId, ['github']);
-    await completeProvider('github', 3);
+    await completeSourceProvider('github', 3);
     await expect(
       repository.prepareWriting({
         agentId,
@@ -539,30 +551,31 @@ describe('OnboardingUnderstandingRepository', () => {
     await expect(repository.get('workspace-topic')).resolves.toBeUndefined();
 
     const inaccessibleOperations = (inaccessibleTopicId: string) => [
-      () => repository.markProviderRunning(inaccessibleTopicId, 'inaccessible-session', 'github'),
       () =>
-        repository.completeProvider({
+        repository.markSourceProviderRunning(inaccessibleTopicId, 'inaccessible-session', 'github'),
+      () =>
+        repository.completeSourceProvider({
           errors: [],
           failedCount: 0,
-          providerId: 'github',
+          sourceProviderId: 'github',
           revision: 1,
           sessionId: 'inaccessible-session',
           succeededCount: 1,
           topicId: inaccessibleTopicId,
         }),
       () =>
-        repository.failProvider({
+        repository.failSourceProvider({
           errors: [],
           failedCount: 1,
-          providerId: 'github',
+          sourceProviderId: 'github',
           revision: 1,
           sessionId: 'inaccessible-session',
           succeededCount: 0,
           topicId: inaccessibleTopicId,
         }),
       () =>
-        repository.expireProviderContexts({
-          providers: [{ providerId: 'github', revision: 1 }],
+        repository.expireSourceProviderContexts({
+          sourceProviders: [{ sourceProviderId: 'github', revision: 1 }],
           sessionId: 'inaccessible-session',
           sourceFingerprint: 'github@1',
           topicId: inaccessibleTopicId,
@@ -595,7 +608,7 @@ describe('OnboardingUnderstandingRepository', () => {
             code: 'UNDERSTANDING_WRITING_FAILED',
             message: 'understanding writing failed',
             operation: 'writing',
-            provider: 'understanding',
+            sourceProviderId: 'understanding',
             retryable: true,
           },
           feedbackRevision: 0,

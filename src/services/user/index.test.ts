@@ -8,6 +8,7 @@ const mockLambdaClient = vi.hoisted(() => ({
   user: {
     confirmOnboardingUnderstanding: { mutate: vi.fn() },
     getOnboardingUnderstanding: { query: vi.fn() },
+    listOnboardingUnderstandingSourceProviders: { query: vi.fn() },
     getUserRegistrationDuration: { query: vi.fn() },
     getUserState: { query: vi.fn() },
     getUserSSOProviders: { query: vi.fn() },
@@ -19,6 +20,7 @@ const mockLambdaClient = vi.hoisted(() => ({
     updatePreference: { mutate: vi.fn() },
     updateGuide: { mutate: vi.fn() },
     updateSettings: { mutate: vi.fn() },
+    validateOnboardingUnderstandingSourceProvider: { query: vi.fn() },
     resetSettings: { mutate: vi.fn() },
   },
 }));
@@ -59,19 +61,22 @@ describe('UserService', () => {
     });
 
     await userService.startOnboardingUnderstanding({
-      providerIds: ['github'],
+      responseLanguage: 'zh-CN',
+      sourceProviderIds: ['github'],
       topicId: 'topic-1',
     });
     await userService.getOnboardingUnderstanding('topic-1');
     await userService.reviseOnboardingUnderstanding({
       expectedFeedbackRevision: 0,
       feedback: 'Focus on infrastructure.',
-      providerIds: ['gmail'],
+      responseLanguage: 'zh-CN',
+      sourceProviderIds: ['gmail'],
       sessionId: 'session-1',
       topicId: 'topic-1',
     });
     await userService.retryOnboardingUnderstandingSource({
-      providerId: 'gmail',
+      responseLanguage: 'zh-CN',
+      sourceProviderId: 'gmail',
       sessionId: 'session-1',
       topicId: 'topic-1',
     });
@@ -82,7 +87,8 @@ describe('UserService', () => {
     });
 
     expect(mockLambdaClient.user.startOnboardingUnderstanding.mutate).toHaveBeenCalledWith({
-      providerIds: ['github'],
+      responseLanguage: 'zh-CN',
+      sourceProviderIds: ['github'],
       topicId: 'topic-1',
     });
     expect(mockLambdaClient.user.getOnboardingUnderstanding.query).toHaveBeenCalledWith({
@@ -91,7 +97,8 @@ describe('UserService', () => {
     expect(mockLambdaClient.user.reviseOnboardingUnderstanding.mutate).toHaveBeenCalledWith({
       expectedFeedbackRevision: 0,
       feedback: 'Focus on infrastructure.',
-      providerIds: ['gmail'],
+      responseLanguage: 'zh-CN',
+      sourceProviderIds: ['gmail'],
       sessionId: 'session-1',
       topicId: 'topic-1',
     });

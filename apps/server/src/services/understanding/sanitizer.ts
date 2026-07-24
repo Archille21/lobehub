@@ -6,7 +6,7 @@ import {
   MAX_DIAGNOSTIC_CODE_LENGTH,
   MAX_DIAGNOSTIC_MESSAGE_LENGTH,
   MAX_DIAGNOSTIC_OPERATION_LENGTH,
-  MAX_PROVIDER_ID_LENGTH,
+  MAX_SOURCE_PROVIDER_ID_LENGTH,
 } from '@lobechat/types';
 
 export {
@@ -15,7 +15,7 @@ export {
   MAX_DIAGNOSTIC_CODE_LENGTH,
   MAX_DIAGNOSTIC_MESSAGE_LENGTH,
   MAX_DIAGNOSTIC_OPERATION_LENGTH,
-  MAX_PROVIDER_ID_LENGTH,
+  MAX_SOURCE_PROVIDER_ID_LENGTH,
 } from '@lobechat/types';
 
 export const MAX_AGENT_INPUT_LENGTH = 128_000;
@@ -68,14 +68,14 @@ const canonicalErrors: Record<string, { code: string; operation: string }> = {
 const boundedCount = (value: number) =>
   Number.isFinite(value) ? Math.min(MAX_COLLECTION_COUNT, Math.max(0, Math.floor(value))) : 0;
 
-const trustedProvider = (provider: string) =>
-  provider.trim().slice(0, MAX_PROVIDER_ID_LENGTH) || 'provider';
+const trustedSourceProvider = (sourceProviderId: string) =>
+  sourceProviderId.trim().slice(0, MAX_SOURCE_PROVIDER_ID_LENGTH) || 'source-provider';
 
-export const sanitizeProviderDiagnostics = (
-  provider: string,
+export const sanitizeSourceProviderDiagnostics = (
+  sourceProviderId: string,
   value: CollectionDiagnostics,
 ): CollectionDiagnostics => {
-  const trusted = trustedProvider(provider);
+  const trusted = trustedSourceProvider(sourceProviderId);
   return {
     errors: value.errors.slice(0, MAX_COLLECTION_ERRORS).map((error) => {
       const canonical = canonicalErrors[error.code] ?? {
@@ -86,7 +86,7 @@ export const sanitizeProviderDiagnostics = (
         code: canonical.code.slice(0, MAX_DIAGNOSTIC_CODE_LENGTH),
         message: `${trusted} ${canonical.operation} failed`.slice(0, MAX_DIAGNOSTIC_MESSAGE_LENGTH),
         operation: canonical.operation.slice(0, MAX_DIAGNOSTIC_OPERATION_LENGTH),
-        provider: trusted,
+        sourceProviderId: trusted,
         retryable: Boolean(error.retryable),
       };
     }),
@@ -104,18 +104,18 @@ export const boundCanonicalDiagnostics = (value: CollectionDiagnostics): Collect
 });
 
 export const canonicalCollectionError = (
-  provider: string,
+  sourceProviderId: string,
   operation: string,
   code: string,
   retryable: boolean,
 ): CollectionError => {
-  const trusted = trustedProvider(provider);
+  const trusted = trustedSourceProvider(sourceProviderId);
   const safeOperation = operation.slice(0, MAX_DIAGNOSTIC_OPERATION_LENGTH);
   return {
     code: code.slice(0, MAX_DIAGNOSTIC_CODE_LENGTH),
     message: `${trusted} ${safeOperation} failed`.slice(0, MAX_DIAGNOSTIC_MESSAGE_LENGTH),
     operation: safeOperation,
-    provider: trusted,
+    sourceProviderId: trusted,
     retryable,
   };
 };

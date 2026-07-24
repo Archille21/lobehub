@@ -2,7 +2,7 @@ import { ConnectorDataError } from '@lobechat/connector-data';
 import type { GitHubUserContext } from '@lobechat/connector-data/github';
 import { toGitHubUserContextMarkdown } from '@lobechat/connector-data/github';
 
-import type { UnderstandingProvider } from '../types';
+import type { UnderstandingSourceProvider } from '../types';
 
 interface SupplementalOperation {
   code: string;
@@ -11,8 +11,19 @@ interface SupplementalOperation {
   run: () => Promise<unknown>;
 }
 
-export const githubUnderstandingProvider: UnderstandingProvider = {
+export const githubUnderstandingSourceProvider: UnderstandingSourceProvider = {
   id: 'github',
+  isConnected: ({ connectorData }) => connectorData.hasGitHubConnection(),
+  validate: async ({ connectorData }) => {
+    try {
+      const client = await connectorData.getGitHubClient();
+      await client.getUserProfile();
+      return true;
+    } catch (error) {
+      if (error instanceof ConnectorDataError && !error.retryable) return false;
+      throw error;
+    }
+  },
   collect: async ({ connectorData }) => {
     const client = await connectorData.getGitHubClient();
     const profilePromise = client.getUserProfile();
@@ -69,7 +80,7 @@ export const githubUnderstandingProvider: UnderstandingProvider = {
           code: operations[index].code,
           message: operations[index].message,
           operation: operations[index].key,
-          provider: 'github',
+          sourceProviderId: 'github',
           retryable: result.reason instanceof ConnectorDataError ? result.reason.retryable : true,
         },
       ];

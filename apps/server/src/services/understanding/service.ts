@@ -21,9 +21,11 @@ import type {
   OnboardingUnderstandingMessageMetadata,
   OnboardingUnderstandingPollingResult,
   OnboardingUnderstandingSession,
-  RetryOnboardingUnderstandingProviderInput,
+  OnboardingUnderstandingSourceProvider,
+  RetryOnboardingUnderstandingSourceProviderInput,
   ReviseOnboardingUnderstandingInput,
   UnderstandingFeedbackTurn,
+  ValidateOnboardingUnderstandingSourceProviderResult,
 } from '@lobechat/types';
 import {
   MAX_COLLECTION_ERRORS,
@@ -42,24 +44,24 @@ import type { LobeChatDatabase } from '@/database/type';
 import { AiGenerationService } from '@/server/services/aiGeneration';
 import { ConnectorDataService } from '@/server/services/connectorData';
 
-import { understandingProviderMap } from './providers';
 import {
   boundCanonicalDiagnostics,
   canonicalCollectionError,
   MAX_AGENT_INPUT_LENGTH,
   MAX_SOURCE_BRIEF_LENGTH,
-  sanitizeProviderDiagnostics,
+  sanitizeSourceProviderDiagnostics,
 } from './sanitizer';
-import type { StoredUnderstandingProviderContext } from './sourceStore';
+import { understandingSourceProviderMap } from './sourceProviders';
+import type { StoredUnderstandingSourceProviderContext } from './sourceStore';
 import { UnderstandingSourceStore } from './sourceStore';
-import type { UnderstandingProvider } from './types';
+import type { UnderstandingSourceProvider } from './types';
 
 const BASELINE_MAX_LENGTH = 8_000;
 
-interface ProviderOperationInput {
-  providerId: string;
+interface SourceProviderOperationInput {
   revision: number;
   sessionId: string;
+  sourceProviderId: string;
   topicId: string;
 }
 
@@ -73,15 +75,15 @@ interface ProcessCollectedInput {
 type UnderstandingRepository = Pick<
   OnboardingUnderstandingRepository,
   | 'commitWriting'
-  | 'completeProvider'
+  | 'completeSourceProvider'
   | 'confirm'
-  | 'expireProviderContexts'
+  | 'expireSourceProviderContexts'
   | 'extend'
-  | 'failProvider'
+  | 'failSourceProvider'
   | 'failWriting'
   | 'get'
   | 'initialize'
-  | 'markProviderRunning'
+  | 'markSourceProviderRunning'
   | 'prepareWriting'
 >;
 
@@ -117,8 +119,8 @@ export interface UnderstandingServiceDependencies {
       { persona?: string | null; tagline?: string | null } | null | undefined
     >;
   };
-  providers: ReadonlyMap<string, UnderstandingProvider>;
   repository: UnderstandingRepository;
+  sourceProviders: ReadonlyMap<string, UnderstandingSourceProvider>;
   sourceStore: () => UnderstandingContexts;
   topic: {
     assertActiveOnboardingTopic: (topicId: string) => Promise<void>;
@@ -127,10 +129,10 @@ export interface UnderstandingServiceDependencies {
   writerAgent: () => Promise<{ id: string; model: string; provider: string }>;
 }
 
-export class UnderstandingProviderContextUnavailableError extends Error {
+export class UnderstandingSourceProviderContextUnavailableError extends Error {
   constructor() {
     super('Current onboarding Understanding provider context is unavailable');
-    this.name = 'UnderstandingProviderContextUnavailableError';
+    this.name = 'UnderstandingSourceProviderContextUnavailableError';
   }
 }
 
@@ -156,7 +158,7 @@ const writingThreadId = (sessionId: string, sourceFingerprint: string, feedbackR
 
 const sumDiagnostics = (
   session: OnboardingUnderstandingSession,
-  contexts: StoredUnderstandingProviderContext[],
+  contexts: StoredUnderstandingSourceProviderContext[],
 ): CollectionDiagnostics => {
   const terminalSources = Object.values(session.sources).filter(
     ({ status }) => status === 'completed' || status === 'failed',
@@ -173,7 +175,7 @@ const sumDiagnostics = (
 };
 
 const buildEphemeralDocument = (
-  contexts: StoredUnderstandingProviderContext[],
+  contexts: StoredUnderstandingSourceProviderContext[],
   baseline?: { persona?: string | null; tagline?: string | null } | null,
 ) => {
   const baselineContent = [baseline?.tagline, baseline?.persona]
@@ -183,9 +185,9 @@ const buildEphemeralDocument = (
   const baselineSection = baselineContent
     ? `<current-persona-baseline>\n${baselineContent}\n</current-persona-baseline>\n\n`
     : '';
-  const delimiters = contexts.map(({ providerId, revision }) => ({
+  const delimiters = contexts.map(({ sourceProviderId, revision }) => ({
     close: '\n</provider-context>',
-    open: `<provider-context provider="${providerId}" revision="${revision}">\n`,
+    open: `<provider-context provider="${sourceProviderId}" revision="${revision}">\n`,
   }));
   const structuralLength =
     baselineSection.length +
@@ -195,7 +197,7 @@ const buildEphemeralDocument = (
       0,
     );
   if (structuralLength > MAX_AGENT_INPUT_LENGTH) {
-    throw new UnderstandingProviderContextUnavailableError();
+    throw new UnderstandingSourceProviderContextUnavailableError();
   }
   let remainingContent = MAX_AGENT_INPUT_LENGTH - structuralLength;
   const providerSections = contexts.map(({ context }, index) => {
@@ -218,40 +220,103 @@ const storedProposal = (metadata: unknown) => {
 export class UnderstandingService {
   constructor(private readonly dependencies: UnderstandingServiceDependencies) {}
 
+  /**
+   * Lists registered source providers with local-only connection state.
+   *
+   * Use when:
+   * - Rendering the onboarding source-provider picker
+   *
+   * Expects:
+   * - Each registered provider implements a side-effect-free local connection check
+   *
+   * Returns:
+   * - A stable list sorted by source provider identifier
+   */
+  listSourceProviders = async (): Promise<OnboardingUnderstandingSourceProvider[]> =>
+    Promise.all(
+      [...this.dependencies.sourceProviders.values()]
+        .toSorted((left, right) => left.id.localeCompare(right.id))
+        .map(async (sourceProvider) => ({
+          connected: await sourceProvider.isConnected({
+            connectorData: this.dependencies.connectorData,
+            userId: this.dependencies.userId,
+          }),
+          sourceProviderId: sourceProvider.id,
+        })),
+    );
+
+  /**
+   * Performs the provider-owned remote validation for one registered source.
+   *
+   * Use when:
+   * - Rechecking one source after its connector OAuth flow completes
+   *
+   * Expects:
+   * - The source provider identifier exists in the runtime registry
+   *
+   * Returns:
+   * - The source identifier and whether its current authorization is usable
+   */
+  validateSourceProvider = async (
+    sourceProviderId: string,
+  ): Promise<ValidateOnboardingUnderstandingSourceProviderResult> => {
+    const sourceProvider = this.dependencies.sourceProviders.get(sourceProviderId);
+    if (!sourceProvider) throw new UnderstandingResourceNotFoundError('source_provider');
+
+    return {
+      sourceProviderId,
+      valid: await sourceProvider.validate({
+        connectorData: this.dependencies.connectorData,
+        userId: this.dependencies.userId,
+      }),
+    };
+  };
+
   private initialize = async (
     topicId: string,
-    selectedProviderIds?: string[],
+    selectedSourceProviderIds?: string[],
   ): Promise<OnboardingUnderstandingSession> => {
     await this.dependencies.topic.assertActiveOnboardingTopic(topicId);
     const current = await this.dependencies.repository.get(topicId);
     if (current) return current;
-    const providerIds = selectedProviderIds
-      ? [...new Set(selectedProviderIds)].sort()
-      : [...this.dependencies.providers.keys()].sort();
-    if (providerIds.some((providerId) => !this.dependencies.providers.has(providerId))) {
+    const sourceProviderIds = selectedSourceProviderIds
+      ? [...new Set(selectedSourceProviderIds)].sort()
+      : [...this.dependencies.sourceProviders.keys()].sort();
+    if (
+      sourceProviderIds.some(
+        (sourceProviderId) => !this.dependencies.sourceProviders.has(sourceProviderId),
+      )
+    ) {
       throw new UnderstandingResourceNotFoundError('session');
     }
-    return this.dependencies.repository.initialize(topicId, this.dependencies.ids(), providerIds);
+    return this.dependencies.repository.initialize(
+      topicId,
+      this.dependencies.ids(),
+      sourceProviderIds,
+    );
   };
 
   start = async (
     topicId: string,
     responseLanguage: string,
-    selectedProviderIds?: string[],
+    selectedSourceProviderIds?: string[],
   ): Promise<OnboardingUnderstandingPollingResult> => {
     const { OnboardingUnderstandingWorkflow } =
       await import('@/server/workflows/onboardingUnderstanding');
     OnboardingUnderstandingWorkflow.assertAvailable();
-    const session = await this.initialize(topicId, selectedProviderIds);
-    const providers = Object.entries(session.sources)
+    const session = await this.initialize(topicId, selectedSourceProviderIds);
+    const sourceProviders = Object.entries(session.sources)
       .filter(([, state]) => state.status === 'pending')
       .toSorted(([left], [right]) => left.localeCompare(right))
-      .map(([id, state]) => ({ id, revision: state.revision + 1 }));
-    if (providers.length > 0) {
-      await OnboardingUnderstandingWorkflow.triggerProviders(
+      .map(([sourceProviderId, state]) => ({
+        revision: state.revision + 1,
+        sourceProviderId,
+      }));
+    if (sourceProviders.length > 0) {
+      await OnboardingUnderstandingWorkflow.triggerSourceProviders(
         {
-          providers,
           responseLanguage,
+          sourceProviders,
           sessionId: session.id,
           topicId,
           userId: this.dependencies.userId,
@@ -269,30 +334,34 @@ export class UnderstandingService {
       await import('@/server/workflows/onboardingUnderstanding');
     OnboardingUnderstandingWorkflow.assertAvailable();
     const current = await this.activeSession(input.topicId, input.sessionId);
-    const providerIds = [...new Set(input.providerIds)].sort();
-    if (providerIds.some((providerId) => !this.dependencies.providers.has(providerId))) {
+    const sourceProviderIds = [...new Set(input.sourceProviderIds)].sort();
+    if (
+      sourceProviderIds.some(
+        (sourceProviderId) => !this.dependencies.sourceProviders.has(sourceProviderId),
+      )
+    ) {
       throw new UnderstandingResourceNotFoundError('session');
     }
 
     const next = await this.dependencies.repository.extend({
       expectedFeedbackRevision: input.expectedFeedbackRevision,
       feedback: input.feedback,
-      providerIds,
+      sourceProviderIds,
       sessionId: input.sessionId,
       topicId: input.topicId,
     });
-    const addedProviders = providerIds
-      .filter((providerId) => !current.sources[providerId])
-      .map((id) => ({ id, revision: 1 }));
+    const addedProviders = sourceProviderIds
+      .filter((sourceProviderId) => !current.sources[sourceProviderId])
+      .map((sourceProviderId) => ({ revision: 1, sourceProviderId }));
     const completedProviders = Object.entries(next.sources).filter(
       ([, state]) => state.status === 'completed',
     );
     const sourceStore = completedProviders.length > 0 ? this.dependencies.sourceStore() : undefined;
     const storedContexts = sourceStore
       ? await Promise.all(
-          completedProviders.map(([providerId, state]) =>
+          completedProviders.map(([sourceProviderId, state]) =>
             sourceStore.get({
-              providerId,
+              sourceProviderId,
               revision: state.revision,
               sessionId: input.sessionId,
               userId: this.dependencies.userId,
@@ -300,43 +369,43 @@ export class UnderstandingService {
           ),
         )
       : [];
-    const expiredProviders = completedProviders.flatMap(([providerId, state], index) =>
-      storedContexts[index] ? [] : [{ providerId, revision: state.revision }],
+    const expiredProviders = completedProviders.flatMap(([sourceProviderId, state], index) =>
+      storedContexts[index] ? [] : [{ sourceProviderId, revision: state.revision }],
     );
     const currentSourceFingerprint = getUnderstandingSourceFingerprint(next);
     const availableSession =
       expiredProviders.length > 0 && currentSourceFingerprint
-        ? await this.dependencies.repository.expireProviderContexts({
-            providers: expiredProviders,
+        ? await this.dependencies.repository.expireSourceProviderContexts({
+            sourceProviders: expiredProviders,
             sessionId: input.sessionId,
             sourceFingerprint: currentSourceFingerprint,
             topicId: input.topicId,
           })
         : next;
     const recollectedProviders = await Promise.all(
-      expiredProviders.map(async ({ providerId }) => ({
-        id: providerId,
-        ...(await this.dependencies.repository.markProviderRunning(
+      expiredProviders.map(async ({ sourceProviderId }) => ({
+        ...(await this.dependencies.repository.markSourceProviderRunning(
           input.topicId,
           input.sessionId,
-          providerId,
+          sourceProviderId,
         )),
+        sourceProviderId,
       })),
     );
-    const providerAttempts = [...addedProviders, ...recollectedProviders].sort((left, right) =>
-      left.id.localeCompare(right.id),
+    const sourceProviderAttempts = [...addedProviders, ...recollectedProviders].sort(
+      (left, right) => left.sourceProviderId.localeCompare(right.sourceProviderId),
     );
-    if (providerAttempts.length > 0) {
-      await OnboardingUnderstandingWorkflow.triggerProviders(
+    if (sourceProviderAttempts.length > 0) {
+      await OnboardingUnderstandingWorkflow.triggerSourceProviders(
         {
-          providers: providerAttempts,
           responseLanguage: input.responseLanguage,
+          sourceProviders: sourceProviderAttempts,
           sessionId: input.sessionId,
           topicId: input.topicId,
           userId: this.dependencies.userId,
         },
         {
-          workflowRunId: `onboarding-understanding-extend-${input.sessionId}-${next.feedback?.revision ?? 0}-${providerAttempts.map(({ id, revision }) => `${id}-${revision}`).join('-')}`,
+          workflowRunId: `onboarding-understanding-extend-${input.sessionId}-${next.feedback?.revision ?? 0}-${sourceProviderAttempts.map(({ revision, sourceProviderId }) => `${sourceProviderId}-${revision}`).join('-')}`,
         },
       );
     }
@@ -345,8 +414,8 @@ export class UnderstandingService {
     if (input.feedback?.trim() && sourceFingerprint) {
       await OnboardingUnderstandingWorkflow.triggerWriting(
         {
-          sessionId: input.sessionId,
           responseLanguage: input.responseLanguage,
+          sessionId: input.sessionId,
           sourceFingerprint,
           topicId: input.topicId,
           userId: this.dependencies.userId,
@@ -389,40 +458,40 @@ export class UnderstandingService {
   };
 
   retry = async (
-    input: RetryOnboardingUnderstandingProviderInput,
+    input: RetryOnboardingUnderstandingSourceProviderInput,
   ): Promise<OnboardingUnderstandingPollingResult> => {
     const { OnboardingUnderstandingWorkflow } =
       await import('@/server/workflows/onboardingUnderstanding');
     OnboardingUnderstandingWorkflow.assertAvailable();
     const session = await this.activeSession(input.topicId, input.sessionId);
-    const state = session.sources[input.providerId];
-    if (!this.dependencies.providers.has(input.providerId) || !state) {
+    const state = session.sources[input.sourceProviderId];
+    if (!this.dependencies.sourceProviders.has(input.sourceProviderId) || !state) {
       throw new UnderstandingResourceNotFoundError('session');
     }
     if (state.status !== 'failed') {
       throw new UnderstandingPreconditionError('source_not_retryable');
     }
-    const { revision } = await this.dependencies.repository.markProviderRunning(
+    const { revision } = await this.dependencies.repository.markSourceProviderRunning(
       input.topicId,
       input.sessionId,
-      input.providerId,
+      input.sourceProviderId,
     );
     try {
-      await OnboardingUnderstandingWorkflow.triggerProviders(
+      await OnboardingUnderstandingWorkflow.triggerSourceProviders(
         {
-          providers: [{ id: input.providerId, revision }],
           responseLanguage: input.responseLanguage,
+          sourceProviders: [{ revision, sourceProviderId: input.sourceProviderId }],
           sessionId: input.sessionId,
           topicId: input.topicId,
           userId: this.dependencies.userId,
         },
         {
-          workflowRunId: `onboarding-understanding-retry-${input.sessionId}-${input.providerId}-${revision}`,
+          workflowRunId: `onboarding-understanding-retry-${input.sessionId}-${input.sourceProviderId}-${revision}`,
         },
       );
     } catch (triggerError) {
       try {
-        await this.failProvider({ ...input, revision });
+        await this.failSourceProvider({ ...input, revision });
       } catch (compensationError) {
         console.error('[understanding:retryCompensation]', {
           errorName: compensationError instanceof Error ? compensationError.name : 'UnknownError',
@@ -433,14 +502,14 @@ export class UnderstandingService {
     return this.get(input.topicId);
   };
 
-  processProvider = async (input: ProviderOperationInput) => {
+  processSourceProvider = async (input: SourceProviderOperationInput) => {
     const session = await this.activeSession(input.topicId, input.sessionId);
-    const provider = this.dependencies.providers.get(input.providerId);
-    const state = session.sources[input.providerId];
-    if (!provider || !state) throw new UnderstandingResourceNotFoundError('session');
+    const sourceProvider = this.dependencies.sourceProviders.get(input.sourceProviderId);
+    const state = session.sources[input.sourceProviderId];
+    if (!sourceProvider || !state) throw new UnderstandingResourceNotFoundError('session');
     const stale = () => ({
       failedCount: 0,
-      providerId: input.providerId,
+      sourceProviderId: input.sourceProviderId,
       revision: input.revision,
       sourceCount: 0,
       status: 'stale' as const,
@@ -450,9 +519,9 @@ export class UnderstandingService {
     if (state.status === 'completed') {
       if (state.revision !== input.revision) return stale();
       const sourceFingerprint = getUnderstandingSourceFingerprint(session);
-      if (!sourceFingerprint) throw new UnderstandingProviderContextUnavailableError();
+      if (!sourceFingerprint) throw new UnderstandingSourceProviderContextUnavailableError();
       const stored = await this.dependencies.sourceStore().get({
-        providerId: input.providerId,
+        sourceProviderId: input.sourceProviderId,
         revision: input.revision,
         sessionId: input.sessionId,
         userId: this.dependencies.userId,
@@ -460,7 +529,7 @@ export class UnderstandingService {
       if (stored) {
         return {
           failedCount: stored.diagnostics.failedCount,
-          providerId: input.providerId,
+          sourceProviderId: input.sourceProviderId,
           revision: input.revision,
           sourceCount: stored.sourceCount,
           sourceFingerprint,
@@ -468,17 +537,17 @@ export class UnderstandingService {
           succeededCount: stored.diagnostics.succeededCount,
         };
       }
-      const expired = await this.dependencies.repository.expireProviderContexts({
-        providers: [{ providerId: input.providerId, revision: input.revision }],
+      const expired = await this.dependencies.repository.expireSourceProviderContexts({
+        sourceProviders: [{ sourceProviderId: input.sourceProviderId, revision: input.revision }],
         sessionId: input.sessionId,
         sourceFingerprint,
         topicId: input.topicId,
       });
-      const expiredState = expired.sources[input.providerId];
+      const expiredState = expired.sources[input.sourceProviderId];
       return expiredState?.revision === input.revision && expiredState.status === 'failed'
         ? {
             failedCount: expiredState.failedCount,
-            providerId: input.providerId,
+            sourceProviderId: input.sourceProviderId,
             revision: input.revision,
             sourceCount: 0,
             status: 'failed' as const,
@@ -489,10 +558,10 @@ export class UnderstandingService {
 
     if (state.status === 'pending') {
       if (state.revision + 1 !== input.revision) return stale();
-      const running = await this.dependencies.repository.markProviderRunning(
+      const running = await this.dependencies.repository.markSourceProviderRunning(
         input.topicId,
         input.sessionId,
-        input.providerId,
+        input.sourceProviderId,
       );
       if (running.revision !== input.revision) return stale();
     } else if (state.status !== 'running' || state.revision !== input.revision) {
@@ -501,48 +570,52 @@ export class UnderstandingService {
 
     let collected;
     try {
-      collected = await provider.collect({
+      collected = await sourceProvider.collect({
         connectorData: this.dependencies.connectorData,
         userId: this.dependencies.userId,
       });
     } catch (error) {
       if (!(error instanceof ConnectorDataError) || error.retryable) throw error;
-      return this.recordProviderFailure(input, 0);
+      return this.recordSourceProviderFailure(input, 0);
     }
 
     const context = collected.context.trim().slice(0, MAX_SOURCE_BRIEF_LENGTH);
-    const diagnostics = sanitizeProviderDiagnostics(input.providerId, collected.diagnostics);
+    const diagnostics = sanitizeSourceProviderDiagnostics(
+      input.sourceProviderId,
+      collected.diagnostics,
+    );
     const usable =
       Boolean(context) &&
       collected.sourceCount > 0 &&
       diagnostics.evidenceCount > 0 &&
       diagnostics.succeededCount > 0;
-    if (!usable) return this.recordProviderFailure(input, diagnostics.succeededCount, diagnostics);
+    if (!usable)
+      return this.recordSourceProviderFailure(input, diagnostics.succeededCount, diagnostics);
 
     const stored = {
       context,
       diagnostics,
-      providerId: input.providerId,
+      sourceProviderId: input.sourceProviderId,
       revision: input.revision,
       sessionId: input.sessionId,
       sourceCount: collected.sourceCount,
       userId: this.dependencies.userId,
     };
     await this.dependencies.sourceStore().put(stored);
-    const transition = await this.dependencies.repository.completeProvider({
+    const transition = await this.dependencies.repository.completeSourceProvider({
       errors: diagnostics.errors,
       failedCount: diagnostics.failedCount,
-      providerId: input.providerId,
+      sourceProviderId: input.sourceProviderId,
       revision: input.revision,
       sessionId: input.sessionId,
       succeededCount: diagnostics.succeededCount,
       topicId: input.topicId,
     });
     const sourceFingerprint = getUnderstandingSourceFingerprint(transition);
-    if (!sourceFingerprint) throw new UnderstandingProviderContextUnavailableError();
+    if (!sourceFingerprint) throw new UnderstandingSourceProviderContextUnavailableError();
     return {
       failedCount: diagnostics.failedCount,
-      providerId: input.providerId,
+      sourceProviderId: input.sourceProviderId,
       revision: input.revision,
       sourceCount: collected.sourceCount,
       sourceFingerprint,
@@ -551,19 +624,19 @@ export class UnderstandingService {
     };
   };
 
-  failProvider = async (input: ProviderOperationInput) => {
+  failSourceProvider = async (input: SourceProviderOperationInput) => {
     try {
-      return await this.dependencies.repository.failProvider({
+      return await this.dependencies.repository.failSourceProvider({
         errors: [
           canonicalCollectionError(
-            input.providerId,
+            input.sourceProviderId,
             'collection',
             'UNDERSTANDING_PROVIDER_COLLECTION_FAILED',
             true,
           ),
         ],
         failedCount: 1,
-        providerId: input.providerId,
+        sourceProviderId: input.sourceProviderId,
         revision: input.revision,
         sessionId: input.sessionId,
         succeededCount: 0,
@@ -608,21 +681,21 @@ export class UnderstandingService {
       .sort(([left], [right]) => left.localeCompare(right));
     const sourceStore = this.dependencies.sourceStore();
     const contexts = await Promise.all(
-      completed.map(([providerId, state]) =>
+      completed.map(([sourceProviderId, state]) =>
         sourceStore.get({
-          providerId,
+          sourceProviderId,
           revision: state.revision,
           sessionId,
           userId: this.dependencies.userId,
         }),
       ),
     );
-    const missing = completed.flatMap(([providerId, state], index) =>
-      contexts[index] ? [] : [{ providerId, revision: state.revision }],
+    const missing = completed.flatMap(([sourceProviderId, state], index) =>
+      contexts[index] ? [] : [{ sourceProviderId, revision: state.revision }],
     );
     if (missing.length > 0) {
-      await this.dependencies.repository.expireProviderContexts({
-        providers: missing,
+      await this.dependencies.repository.expireSourceProviderContexts({
+        sourceProviders: missing,
         sessionId,
         sourceFingerprint: expectedSourceFingerprint,
         topicId,
@@ -630,7 +703,7 @@ export class UnderstandingService {
       return { published: false as const, sourceFingerprint: expectedSourceFingerprint };
     }
 
-    const sourceContexts = contexts as StoredUnderstandingProviderContext[];
+    const sourceContexts = contexts as StoredUnderstandingSourceProviderContext[];
     const threadId = writingThreadId(sessionId, expectedSourceFingerprint, feedback.revision);
     const writerAgent = await this.dependencies.writerAgent();
     const prepared = await this.dependencies.repository.prepareWriting({
@@ -645,14 +718,14 @@ export class UnderstandingService {
       return { published: false as const, sourceFingerprint: expectedSourceFingerprint };
     }
 
-    const providers = sourceContexts.map(({ providerId }) => providerId);
+    const sourceProviderIds = sourceContexts.map(({ sourceProviderId }) => sourceProviderId);
     const diagnostics = sumDiagnostics(session, sourceContexts);
     const writerResult = await this.runWriter({
       contexts: sourceContexts,
       diagnostics,
       feedback: feedback.turns,
-      providers,
       responseLanguage,
+      sourceProviderIds,
       threadId,
       topicId,
       writerAgent,
@@ -663,7 +736,7 @@ export class UnderstandingService {
       feedbackRevision: prepared.feedbackRevision,
       generationRevision: prepared.generationRevision,
       kind: 'proposal',
-      providers,
+      sourceProviderIds,
       resultId: writerResult.assistantMessageId,
       sourceFingerprint: expectedSourceFingerprint,
     });
@@ -741,8 +814,8 @@ export class UnderstandingService {
     return session;
   };
 
-  private recordProviderFailure = async (
-    input: ProviderOperationInput,
+  private recordSourceProviderFailure = async (
+    input: SourceProviderOperationInput,
     succeededCount: number,
     diagnostics?: CollectionDiagnostics,
   ) => {
@@ -750,16 +823,16 @@ export class UnderstandingService {
       ? diagnostics.errors
       : [
           canonicalCollectionError(
-            input.providerId,
+            input.sourceProviderId,
             'collection',
             'UNDERSTANDING_PROVIDER_COLLECTION_FAILED',
             false,
           ),
         ];
-    await this.dependencies.repository.failProvider({
+    await this.dependencies.repository.failSourceProvider({
       errors,
       failedCount: Math.max(1, diagnostics?.failedCount ?? 1),
-      providerId: input.providerId,
+      sourceProviderId: input.sourceProviderId,
       revision: input.revision,
       sessionId: input.sessionId,
       succeededCount,
@@ -767,7 +840,7 @@ export class UnderstandingService {
     });
     return {
       failedCount: Math.max(1, diagnostics?.failedCount ?? 1),
-      providerId: input.providerId,
+      sourceProviderId: input.sourceProviderId,
       revision: input.revision,
       sourceCount: 0,
       status: 'failed' as const,
@@ -779,17 +852,17 @@ export class UnderstandingService {
     contexts,
     diagnostics,
     feedback,
-    providers,
     responseLanguage,
+    sourceProviderIds,
     threadId,
     topicId,
     writerAgent,
   }: {
-    contexts: StoredUnderstandingProviderContext[];
+    contexts: StoredUnderstandingSourceProviderContext[];
     diagnostics: CollectionDiagnostics;
     feedback: UnderstandingFeedbackTurn[];
-    providers: string[];
     responseLanguage: string;
+    sourceProviderIds: string[];
     threadId: string;
     topicId: string;
     writerAgent: { id: string; model: string; provider: string };
@@ -813,8 +886,8 @@ export class UnderstandingService {
               content: chainUnderstandingPersona({
                 diagnostics,
                 feedback,
-                providers,
                 responseLanguage,
+                sourceProviderIds,
               }),
               role: 'system',
             },
@@ -852,14 +925,14 @@ export class UnderstandingService {
 
 interface CreateUnderstandingServiceOptions {
   db: LobeChatDatabase;
-  providers?: readonly UnderstandingProvider[];
+  sourceProviders?: readonly UnderstandingSourceProvider[];
   userId: string;
   workspaceId?: string;
 }
 
 export const createUnderstandingService = async ({
   db,
-  providers,
+  sourceProviders,
   userId,
   workspaceId,
 }: CreateUnderstandingServiceOptions): Promise<UnderstandingService> => {
@@ -890,9 +963,9 @@ export const createUnderstandingService = async ({
       },
     },
     persona: new UserPersonaModel(db, userId),
-    providers: providers
-      ? new Map(providers.map((provider) => [provider.id, provider]))
-      : understandingProviderMap,
+    sourceProviders: sourceProviders
+      ? new Map(sourceProviders.map((sourceProvider) => [sourceProvider.id, sourceProvider]))
+      : understandingSourceProviderMap,
     repository: new OnboardingUnderstandingRepository(db, userId),
     sourceStore: () => new UnderstandingSourceStore(),
     topic: {

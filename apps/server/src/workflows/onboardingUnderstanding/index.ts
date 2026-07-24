@@ -5,16 +5,17 @@ import { workflowClient } from '@/libs/qstash';
 import {
   type ProcessCollectedUnderstandingPayload,
   ProcessCollectedUnderstandingPayloadSchema,
-  type ProcessUnderstandingProvidersPayload,
-  ProcessUnderstandingProvidersPayloadSchema,
+  type ProcessUnderstandingSourceProvidersPayload,
+  ProcessUnderstandingSourceProvidersPayloadSchema,
 } from './types';
 
 export type {
   ProcessCollectedUnderstandingPayload,
-  ProcessUnderstandingProvidersPayload,
+  ProcessUnderstandingSourceProvidersPayload,
 } from './types';
 
-const PROCESS_PROVIDERS_PATH = '/api/workflows/onboarding/understanding/process-providers';
+const PROCESS_SOURCE_PROVIDERS_PATH =
+  '/api/workflows/onboarding/understanding/process-source-providers';
 const PROCESS_COLLECTED_PATH = '/api/workflows/onboarding/understanding/process-collected';
 
 export class UnderstandingWorkflowUnavailableError extends Error {
@@ -35,15 +36,17 @@ export class OnboardingUnderstandingWorkflow {
     return baseUrl;
   }
 
-  static async triggerProviders(
-    input: ProcessUnderstandingProvidersPayload,
+  static async triggerSourceProviders(
+    input: ProcessUnderstandingSourceProvidersPayload,
     options?: { workflowRunId?: string },
   ) {
     const baseUrl = this.assertAvailable();
-    const parsed = ProcessUnderstandingProvidersPayloadSchema.parse(input);
+    const parsed = ProcessUnderstandingSourceProvidersPayloadSchema.parse(input);
     const payload = {
       ...parsed,
-      providers: parsed.providers.toSorted((left, right) => left.id.localeCompare(right.id)),
+      sourceProviders: parsed.sourceProviders.toSorted((left, right) =>
+        left.sourceProviderId.localeCompare(right.sourceProviderId),
+      ),
     };
     const traceHeaders = new Headers();
     injectActiveTraceHeaders(traceHeaders);
@@ -51,7 +54,7 @@ export class OnboardingUnderstandingWorkflow {
     return workflowClient.trigger({
       body: payload,
       headers: Object.fromEntries(traceHeaders.entries()),
-      url: new URL(PROCESS_PROVIDERS_PATH, baseUrl).toString(),
+      url: new URL(PROCESS_SOURCE_PROVIDERS_PATH, baseUrl).toString(),
       ...(options?.workflowRunId ? { workflowRunId: options.workflowRunId } : {}),
     });
   }

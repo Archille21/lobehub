@@ -2,7 +2,7 @@ import { ConnectorDataError } from '@lobechat/connector-data';
 import type { GmailMessage } from '@lobechat/connector-data/gmail';
 import { toGmailMessagesXml } from '@lobechat/connector-data/gmail';
 
-import type { UnderstandingProvider } from '../types';
+import type { UnderstandingSourceProvider } from '../types';
 
 const GMAIL_PROFILE_SEARCHES = [
   { operation: 'recent', query: 'newer_than:90d' },
@@ -17,6 +17,13 @@ const GMAIL_PROFILE_SEARCHES = [
 
 const MAX_CONTEXT_MESSAGES = 32;
 const MAX_CONTEXT_MESSAGES_PER_SENDER_DOMAIN = 6;
+const GMAIL_READ_SCOPES = new Set([
+  'gmail.modify',
+  'gmail.readonly',
+  'https://mail.google.com/',
+  'https://www.googleapis.com/auth/gmail.modify',
+  'https://www.googleapis.com/auth/gmail.readonly',
+]);
 
 const evidencePriority = ({ labels }: GmailMessage) => {
   const normalized = new Set(labels.map((label) => label.toUpperCase()));
@@ -73,8 +80,18 @@ const selectContextMessages = (messages: GmailMessage[]) => {
 
 export const GMAIL_PROFILE_QUERIES = GMAIL_PROFILE_SEARCHES.map(({ query }) => query);
 
-export const gmailUnderstandingProvider: UnderstandingProvider = {
+export const gmailUnderstandingSourceProvider: UnderstandingSourceProvider = {
   id: 'gmail',
+  isConnected: ({ connectorData }) => connectorData.hasGmailConnection(),
+  validate: async ({ connectorData }) => {
+    try {
+      const account = await (await connectorData.getGmailClient()).getAccount();
+      return account.scopes.some((scope) => GMAIL_READ_SCOPES.has(scope.toLowerCase()));
+    } catch (error) {
+      if (error instanceof ConnectorDataError && !error.retryable) return false;
+      throw error;
+    }
+  },
   collect: async ({ connectorData }) => {
     const client = await connectorData.getGmailClient();
     const settled = await Promise.allSettled(
@@ -90,7 +107,7 @@ export const gmailUnderstandingProvider: UnderstandingProvider = {
               code: 'GMAIL_SEARCH_FAILED',
               message: 'Gmail search category failed',
               operation: GMAIL_PROFILE_SEARCHES[index].operation,
-              provider: 'gmail',
+              sourceProviderId: 'gmail',
               retryable:
                 result.reason instanceof ConnectorDataError ? result.reason.retryable : true,
             },

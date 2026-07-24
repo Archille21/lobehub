@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type {
   OnboardingUnderstandingSession,
   OnboardingUnderstandingSessionStatus,
-  UnderstandingProviderState,
+  UnderstandingSourceProviderState,
 } from './understanding';
 import {
   OnboardingUnderstandingMessageMetadataSchema,
@@ -11,7 +11,7 @@ import {
   projectOnboardingUnderstandingSessionStatus,
 } from './understanding';
 
-const completedProvider: UnderstandingProviderState = {
+const completedProvider: UnderstandingSourceProviderState = {
   errors: [],
   failedCount: 0,
   revision: 1,
@@ -23,11 +23,11 @@ const collectionError = {
   code: 'COLLECTION_FAILED',
   message: 'Provider unavailable',
   operation: 'collection',
-  provider: 'github',
+  sourceProviderId: 'github',
   retryable: true,
 };
 
-const failedProvider: UnderstandingProviderState = {
+const failedProvider: UnderstandingSourceProviderState = {
   errors: [collectionError],
   failedCount: 1,
   revision: 1,
@@ -37,7 +37,7 @@ const failedProvider: UnderstandingProviderState = {
 
 const cases: Array<[string, OnboardingUnderstandingSession, OnboardingUnderstandingSessionStatus]> =
   [
-    ['no providers', { id: 'session', sources: {} }, 'pending'],
+    ['no sourceProviders', { id: 'session', sources: {} }, 'pending'],
     [
       'a provider is running',
       {
@@ -79,7 +79,11 @@ const cases: Array<[string, OnboardingUnderstandingSession, OnboardingUnderstand
       },
       'partial',
     ],
-    ['all providers failed', { id: 'session', sources: { github: failedProvider } }, 'failed'],
+    [
+      'all sourceProviders failed',
+      { id: 'session', sources: { github: failedProvider } },
+      'failed',
+    ],
     [
       'writing failed without a retained proposal',
       {
@@ -193,7 +197,7 @@ describe('onboarding Understanding revision schemas', () => {
       feedbackRevision: 2,
       generationRevision: 3,
       kind: 'proposal',
-      providers: ['github'],
+      sourceProviderIds: ['github'],
       resultId: 'message',
       sourceFingerprint: 'github@1',
     });
