@@ -14,6 +14,12 @@ const antdOverride = ({ token }: { prefixCls: string; token: Theme }) => css`
     }
   }
 
+  .${token.prefixCls}-image-preview-img {
+    width: auto !important;
+    min-width: 0 !important;
+    object-fit: contain;
+  }
+
   .${token.prefixCls}-modal-mask, .${token.prefixCls}-drawer-mask {
     background: ${rgba(token.colorBgLayout, 0.5)} !important;
     backdrop-filter: blur(2px);
