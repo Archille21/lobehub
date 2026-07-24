@@ -196,6 +196,7 @@ export interface VideoGenerationTaskMetadata {
   completionClaimedAt?: string;
   completionEventId?: string;
   precharge?: unknown;
+  previousGenerationId?: string;
   route?: VideoGenerationRoute;
   webhookToken?: string;
 }

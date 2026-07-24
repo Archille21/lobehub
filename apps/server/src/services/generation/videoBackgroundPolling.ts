@@ -33,6 +33,7 @@ interface BackgroundPollingParams {
   model: string;
   prechargeResult?: any;
   preserveTaskOnTimeout?: boolean;
+  previousGenerationId?: string;
   provider: string;
   route?: VideoGenerationRoute;
   userId: string;
@@ -55,6 +56,7 @@ export async function processBackgroundVideoPolling(
     model,
     prechargeResult,
     preserveTaskOnTimeout,
+    previousGenerationId,
     provider,
     route,
     userId,
@@ -104,8 +106,7 @@ export async function processBackgroundVideoPolling(
       height: processResult.height,
       interactionId: inferenceId,
       originalUrl: pollResult.videoUrl,
-      previousGenerationId: (batch?.config as { previousGenerationId?: string } | undefined)
-        ?.previousGenerationId,
+      previousGenerationId,
       thumbnailUrl: processResult.thumbnailKey,
       type: 'video',
       url: processResult.videoKey,

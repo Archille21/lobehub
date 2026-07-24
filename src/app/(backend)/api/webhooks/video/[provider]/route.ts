@@ -290,8 +290,7 @@ export const POST = async (req: Request, { params }: { params: Promise<{ provide
       height: processResult.height,
       interactionId: result.inferenceId,
       originalUrl: result.videoUrl,
-      previousGenerationId: (batch?.config as { previousGenerationId?: string } | undefined)
-        ?.previousGenerationId,
+      previousGenerationId: metadata?.previousGenerationId,
       thumbnailUrl: processResult.thumbnailKey,
       type: 'video',
       url: processResult.videoKey,

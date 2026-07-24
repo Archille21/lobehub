@@ -283,7 +283,7 @@ describe('videoRouter', () => {
     });
 
     it('should pass the previous interaction when editing a compatible video', async () => {
-      setupMocks();
+      const { mockInsert } = setupMocks();
       mockFindPreviousGeneration.mockResolvedValue({
         asset: { interactionId: 'interactions/source-1', type: 'video' },
         generationBatchId: 'source-batch',
@@ -315,6 +315,15 @@ describe('videoRouter', () => {
           previousInteractionId: 'interactions/source-1',
         }),
         expect.any(Object),
+      );
+
+      const values = mockInsert.mock.results[0].value.values;
+      expect(values.mock.calls[0][0].config).not.toHaveProperty('previousGenerationId');
+      expect(values).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({
+          metadata: expect.objectContaining({ previousGenerationId: 'source-generation' }),
+        }),
       );
     });
 

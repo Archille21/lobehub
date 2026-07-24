@@ -59,7 +59,7 @@ describe('videoBackgroundPolling', () => {
     query: {
       generationBatches: {
         findFirst: vi.fn().mockResolvedValue({
-          config: { previousGenerationId: 'gen-source' },
+          config: {},
           id: 'batch-123',
           prompt: 'test-prompt',
         }),
@@ -76,6 +76,7 @@ describe('videoBackgroundPolling', () => {
     inferenceId: 'inference-abc',
     model: 'test-model',
     prechargeResult: { credits: 10 },
+    previousGenerationId: 'gen-source',
     provider: 'test-provider',
     userId: 'user-xyz',
   };

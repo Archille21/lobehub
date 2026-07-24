@@ -294,7 +294,6 @@ export const videoRouter = router({
         const newBatch: NewGenerationBatch = {
           config: {
             ...configForDatabase,
-            ...(previousGenerationId ? { previousGenerationId } : {}),
           },
           generationTopicId,
           model,
@@ -323,6 +322,7 @@ export const videoRouter = router({
           .values({
             metadata: {
               ...(prechargeResult ? { precharge: prechargeResult } : {}),
+              ...(previousGenerationId ? { previousGenerationId } : {}),
               webhookToken,
             },
             status: AsyncTaskStatus.Pending,
@@ -375,6 +375,7 @@ export const videoRouter = router({
         const route = getVideoGenerationRoute(requestMetadata.routeAttempt);
         const taskMetadata: VideoGenerationTaskMetadata = {
           ...(prechargeResult ? { precharge: prechargeResult } : {}),
+          ...(previousGenerationId ? { previousGenerationId } : {}),
           ...(route ? { route } : {}),
           webhookToken,
         };
@@ -400,6 +401,7 @@ export const videoRouter = router({
                 model,
                 prechargeResult,
                 preserveTaskOnTimeout,
+                previousGenerationId,
                 provider,
                 route,
                 userId,
