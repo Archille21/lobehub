@@ -63,9 +63,11 @@ export const POST = async (req: Request, { params }: { params: Promise<{ provide
     const runtime = ModelRuntime.initializeWithProvider(provider, {
       apiKey: 'webhook-placeholder',
     });
+    const url = new URL(req.url);
     const webhookResult = await runtime.handleCreateVideoWebhook({
       body,
       headers: Object.fromEntries(req.headers.entries()),
+      model: url.searchParams.get('model') ?? undefined,
       rawBody,
       url: req.url,
     });
@@ -98,7 +100,6 @@ export const POST = async (req: Request, { params }: { params: Promise<{ provide
     }
 
     // Verify webhook token to prevent forged callbacks
-    const url = new URL(req.url);
     const token = url.searchParams.get('token');
     const metadata = asyncTask.metadata as VideoGenerationTaskMetadata | undefined;
     const expectedToken = metadata?.webhookToken;
@@ -188,7 +189,10 @@ export const POST = async (req: Request, { params }: { params: Promise<{ provide
         provider,
         asyncTask.workspaceId ?? undefined,
       );
-      const pollResult = await userRuntime.handlePollVideoStatus(webhookResult.inferenceId);
+      const pollResult = await userRuntime.handlePollVideoStatus(
+        webhookResult.inferenceId,
+        requestedModel,
+      );
 
       if (!pollResult) {
         throw new Error(`Provider ${provider} does not support video polling`);

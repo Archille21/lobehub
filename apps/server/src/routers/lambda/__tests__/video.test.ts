@@ -341,7 +341,10 @@ describe('videoRouter', () => {
       await expect(availabilityOptions!.getUserEmail!()).resolves.toBe('user@example.com');
       expect(mockFindUserById).toHaveBeenCalledWith(mockServerDB, mockCtx.userId);
       expect(mockCreateVideo).toHaveBeenCalledWith(
-        expect.objectContaining({ model: 'dreamina-seedance-2-0-260128' }),
+        expect.objectContaining({
+          callbackUrl: expect.stringContaining('model=dreamina-seedance-2-0-260128'),
+          model: 'dreamina-seedance-2-0-260128',
+        }),
         expect.any(Object),
       );
     });

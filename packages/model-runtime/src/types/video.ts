@@ -53,6 +53,7 @@ export type PollVideoStatusResult =
 export type HandleCreateVideoWebhookPayload = {
   body: unknown;
   headers?: Record<string, string>;
+  model?: string;
   rawBody?: string;
   url?: string;
 };

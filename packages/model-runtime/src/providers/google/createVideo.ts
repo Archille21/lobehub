@@ -123,7 +123,9 @@ async function createGoogleOmniVideo(
   const interaction = (await client.interactions.create({
     api_version: 'v1beta',
     background: true,
-    generation_config: { video_config: { task: resolvedTask } },
+    ...(previousInteractionId
+      ? {}
+      : { generation_config: { video_config: { task: resolvedTask } } }),
     input,
     model,
     ...(previousInteractionId ? { previous_interaction_id: previousInteractionId } : {}),

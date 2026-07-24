@@ -875,8 +875,8 @@ export const createRouterRuntime = ({
       );
     }
 
-    async handlePollVideoStatus(inferenceId: string) {
-      const resolvedRouters = await this.resolveRouters();
+    async handlePollVideoStatus(inferenceId: string, model?: string) {
+      const resolvedRouters = await this.resolveRouters(model);
       const matchedRouter = this._options.baseURL
         ? (resolvedRouters.find((router) => router.baseURLPattern?.test(this._options.baseURL!)) ??
           resolvedRouters.at(-1)!)
@@ -892,7 +892,7 @@ export const createRouterRuntime = ({
     }
 
     async handleCreateVideoWebhook(payload: HandleCreateVideoWebhookPayload) {
-      const model = (payload.body as any)?.model;
+      const model = payload.model ?? (payload.body as { model?: string } | undefined)?.model;
       const resolvedRouters = await this.resolveRouters(model);
       const routerOptions = this.normalizeRouterOptions(resolvedRouters[0]);
       const { runtime } = await this.createRuntimeFromOption(resolvedRouters[0], routerOptions[0]);

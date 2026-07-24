@@ -102,12 +102,11 @@ describe('createGoogleVideo', () => {
         previousInteractionId: 'interactions/source-123',
       });
 
-      expect(mockClient.interactions.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          generation_config: { video_config: { task: 'edit' } },
-          previous_interaction_id: 'interactions/source-123',
-        }),
-      );
+      const request = mockClient.interactions.create.mock.calls[0][0];
+      expect(request).toMatchObject({
+        previous_interaction_id: 'interactions/source-123',
+      });
+      expect(request).not.toHaveProperty('generation_config');
     });
 
     it('should select reference-to-video for multiple reference images', async () => {

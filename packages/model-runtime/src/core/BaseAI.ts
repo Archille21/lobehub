@@ -51,7 +51,7 @@ export interface LobeRuntimeAI {
     payload: HandleCreateVideoWebhookPayload,
   ) => Promise<HandleCreateVideoWebhookResult>;
 
-  handlePollVideoStatus?: (inferenceId: string) => Promise<PollVideoStatusResult>;
+  handlePollVideoStatus?: (inferenceId: string, model?: string) => Promise<PollVideoStatusResult>;
 
   models?: () => Promise<any>;
 

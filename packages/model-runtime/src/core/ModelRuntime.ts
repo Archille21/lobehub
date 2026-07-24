@@ -424,8 +424,8 @@ export class ModelRuntime {
     return this._runtime.handleCreateVideoWebhook?.(payload);
   }
 
-  async handlePollVideoStatus(inferenceId: string) {
-    return this._runtime.handlePollVideoStatus?.(inferenceId);
+  async handlePollVideoStatus(inferenceId: string, model?: string) {
+    return this._runtime.handlePollVideoStatus?.(inferenceId, model);
   }
 
   async models() {

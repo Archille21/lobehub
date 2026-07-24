@@ -1,3 +1,4 @@
+import { ASYNC_TASK_TIMEOUT } from '@lobechat/business-config/server';
 import {
   buildMappedBusinessModelFields,
   resolveBusinessModelMapping,
@@ -69,7 +70,7 @@ export async function processBackgroundVideoPolling(
     const generationModel = new GenerationModel(db, userId, workspaceId);
 
     const modelRuntime = await initModelRuntimeFromDB(db, userId, provider, workspaceId);
-    const pollResult = await pollUntilCompletion(modelRuntime, inferenceId);
+    const pollResult = await pollUntilCompletion(modelRuntime, inferenceId, model);
 
     if (!pollResult) {
       throw new Error('Polling completed but no video URL returned');
@@ -237,19 +238,20 @@ export async function processBackgroundVideoPolling(
 async function pollUntilCompletion(
   modelRuntime: any,
   inferenceId: string,
+  model: string,
 ): Promise<{
   headers?: Record<string, string>;
   usage?: { completionTokens: number; totalTokens: number };
   videoUrl: string;
 } | null> {
-  const maxRetries = 120;
   const pollingInterval = 5000;
+  const maxRetries = Math.ceil(ASYNC_TASK_TIMEOUT / pollingInterval);
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       log('Polling attempt %d/%d for task: %s', attempt + 1, maxRetries, inferenceId);
 
-      const result = await modelRuntime.handlePollVideoStatus(inferenceId);
+      const result = await modelRuntime.handlePollVideoStatus(inferenceId, model);
 
       if (result.status === 'success') {
         log('Video generation succeeded for task: %s', inferenceId);

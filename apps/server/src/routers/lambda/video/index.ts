@@ -331,12 +331,14 @@ export const videoRouter = router({
         const modelRuntime = await initModelRuntimeFromDB(serverDB, userId, provider, wsId);
 
         const callbackBaseUrl = process.env.WEBHOOK_PROXY_URL || appEnv.APP_URL;
-        const callbackUrl = `${callbackBaseUrl}/api/webhooks/video/${provider}?token=${webhookToken}`;
+        const callbackUrl = new URL(`/api/webhooks/video/${provider}`, callbackBaseUrl);
+        callbackUrl.searchParams.set('model', resolvedModelId);
+        callbackUrl.searchParams.set('token', webhookToken);
         log('Using callback URL: %s', callbackUrl);
 
         const response = await modelRuntime.createVideo(
           {
-            callbackUrl,
+            callbackUrl: callbackUrl.toString(),
             model: resolvedModelId,
             params: generationParams,
             previousInteractionId,
