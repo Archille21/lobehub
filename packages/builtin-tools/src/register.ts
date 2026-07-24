@@ -135,6 +135,7 @@ import {
 import {
   VideoGenerationInspectors,
   VideoGenerationManifest,
+  VideoGenerationPlaceholders,
   VideoGenerationRenders,
 } from '@lobechat/builtin-tool-video-generation/client';
 import {
@@ -339,6 +340,10 @@ export const registerBuiltinToolSurfaces = (): void => {
       listLocalFiles: LocalSystemListFilesPlaceholder as BuiltinPlaceholder,
       searchLocalFiles: LocalSystemSearchFilesPlaceholder as BuiltinPlaceholder,
     },
+    [VideoGenerationManifest.identifier]: VideoGenerationPlaceholders as Record<
+      string,
+      BuiltinPlaceholder
+    >,
     [WebBrowsingManifest.identifier]: WebBrowsingPlaceholders as Record<string, BuiltinPlaceholder>,
   });
 
