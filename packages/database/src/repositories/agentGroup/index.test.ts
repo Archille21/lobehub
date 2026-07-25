@@ -353,7 +353,7 @@ describe('AgentGroupRepository', () => {
       ]);
     });
 
-    describe('member agent demoted to private (LOBE-11772)', () => {
+    describe('member agent demoted to private', () => {
       const workspaceId = 'agent-group-demotion-ws';
 
       beforeEach(async () => {
