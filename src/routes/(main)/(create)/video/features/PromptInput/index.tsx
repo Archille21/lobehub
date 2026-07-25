@@ -2,7 +2,7 @@
 
 import { ModelIcon } from '@lobehub/icons';
 import { ActionIcon, Flexbox, InputNumber, SliderWithInput, Text } from '@lobehub/ui';
-import { Button, Switch, Tabs } from '@lobehub/ui/base-ui';
+import { Switch, Tabs } from '@lobehub/ui/base-ui';
 import { Divider } from 'antd';
 import { Clock3, Dices } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
@@ -35,12 +35,15 @@ import { authSelectors } from '@/store/user/slices/auth/selectors';
 import { useVideoStore } from '@/store/video';
 import {
   createVideoSelectors,
+  generationBatchSelectors,
   videoGenerationConfigSelectors,
   videoGenerationTopicSelectors,
 } from '@/store/video/selectors';
 import { useVideoGenerationConfigParam } from '@/store/video/slices/generationConfig/hooks';
+import type { VideoGenerationAsset } from '@/types/generation';
 import { generateUniqueSeeds } from '@/utils/number';
 
+import EditingVideoHeader from './EditingVideoHeader';
 import PromptTitle from './Title';
 import { useVideoReferenceUpload } from './useVideoReferenceUpload';
 
@@ -307,6 +310,15 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
   const createVideo = useVideoStore((s) => s.createVideo);
   const cancelEditingVideo = useVideoStore((s) => s.cancelEditingVideo);
   const editingGenerationId = useVideoStore(createVideoSelectors.editingGenerationId);
+  const editingBatch = useVideoStore((s) => {
+    if (!s.editingGenerationId) return undefined;
+
+    return generationBatchSelectors
+      .currentGenerationBatches(s)
+      .find((batch) =>
+        batch.generations.some((generation) => generation.id === s.editingGenerationId),
+      );
+  });
   const setModelAndProviderOnSelect = useVideoStore((s) => s.setModelAndProviderOnSelect);
   const activeGenerationTopicId = useVideoStore(
     videoGenerationTopicSelectors.activeGenerationTopicId,
@@ -439,6 +451,10 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
     [imageUrl, imageUrls],
   );
   const hasRefImages = framePreviewUrls.length > 0 || Boolean(endImageUrl);
+  const editingGeneration = editingBatch?.generations.find(
+    (generation) => generation.id === editingGenerationId,
+  );
+  const editingAsset = editingGeneration?.asset as VideoGenerationAsset | null | undefined;
   const displayVisibility = activeGenerationTopic
     ? activeGenerationTopic.visibility === 'private'
       ? 'private'
@@ -531,18 +547,15 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
           }
           header={
             editingGenerationId ? (
-              <Flexbox horizontal align={'center'} justify={'space-between'} padding={'8px 12px'}>
-                <Text fontSize={13} type={'secondary'}>
-                  {t('generation.editing.description')}
-                </Text>
-                <Button size={'small'} type={'text'} onClick={cancelEditingVideo}>
-                  {t('generation.actions.cancelEdit')}
-                </Button>
-              </Flexbox>
+              <EditingVideoHeader
+                coverUrl={editingAsset?.coverUrl || editingAsset?.thumbnailUrl}
+                prompt={editingBatch?.prompt}
+                onCancel={cancelEditingVideo}
+              />
             ) : undefined
           }
           inlineContent={
-            showInlineFrames ? (
+            !editingGenerationId && showInlineFrames ? (
               <InlineVideoFrames
                 endImageUrl={endImageUrl}
                 imageUrl={imageUrl}
@@ -573,28 +586,40 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
               style={canCreate ? undefined : { opacity: 0.5, pointerEvents: 'none' }}
             >
               <GenerationMediaModeSegment mode={'video'} />
-              <ModelSwitchPanel
-                ModelItemComponent={VideoModelItem}
-                enabledList={enabledVideoModelList}
-                model={currentModel ?? undefined}
-                openOnHover={false}
-                placement="topLeft"
-                pricingMode="video"
-                provider={currentProvider ?? undefined}
-                onModelChange={async ({ model, provider }) => {
-                  if (!canCreate) return;
-
-                  setModelAndProviderOnSelect(model, provider);
-                }}
-              >
+              {editingGenerationId ? (
                 <ActionIcon
+                  disabled
                   icon={<ModelIcon model={currentModel ?? ''} size={22} />}
+                  title={currentModel}
                   size={{
                     blockSize: 36,
                     size: 20,
                   }}
                 />
-              </ModelSwitchPanel>
+              ) : (
+                <ModelSwitchPanel
+                  ModelItemComponent={VideoModelItem}
+                  enabledList={enabledVideoModelList}
+                  model={currentModel ?? undefined}
+                  openOnHover={false}
+                  placement="topLeft"
+                  pricingMode="video"
+                  provider={currentProvider ?? undefined}
+                  onModelChange={async ({ model, provider }) => {
+                    if (!canCreate) return;
+
+                    setModelAndProviderOnSelect(model, provider);
+                  }}
+                >
+                  <ActionIcon
+                    icon={<ModelIcon model={currentModel ?? ''} size={22} />}
+                    size={{
+                      blockSize: 36,
+                      size: 20,
+                    }}
+                  />
+                </ModelSwitchPanel>
+              )}
               <ConfigAction
                 title={t('config.title', { defaultValue: 'Config' })}
                 content={
@@ -664,7 +689,11 @@ const PromptInput = ({ showTitle = false }: PromptInputProps) => {
             </Flexbox>
           }
           placeholder={
-            hasRefImages ? t('config.prompt.placeholderWithRef') : t('config.prompt.placeholder')
+            editingGenerationId
+              ? t('config.prompt.editPlaceholder')
+              : hasRefImages
+                ? t('config.prompt.placeholderWithRef')
+                : t('config.prompt.placeholder')
           }
           rightActions={
             <>

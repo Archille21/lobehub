@@ -89,17 +89,22 @@ describe('createGoogleVideo', () => {
       expect(result).toEqual({ inferenceId: 'interactions/omni-123' });
     });
 
-    it('should continue a Gemini Omni interaction for video editing', async () => {
+    it('should continue a Gemini Omni interaction with only the new edit instruction', async () => {
       mockClient.interactions.create.mockResolvedValueOnce({ id: 'interactions/edit-456' });
 
       await createGoogleVideo(mockClient as any, 'google', {
         model: 'gemini-omni-flash-preview',
-        params: { prompt: 'Make the camera move more slowly' },
+        params: {
+          imageUrl: 'https://example.com/stale-start-frame.jpg',
+          imageUrls: ['https://example.com/stale-reference.jpg'],
+          prompt: 'Make the camera move more slowly',
+        },
         previousInteractionId: 'interactions/source-123',
       });
 
       const request = mockClient.interactions.create.mock.calls[0][0];
       expect(request).toMatchObject({
+        input: 'Make the camera move more slowly',
         previous_interaction_id: 'interactions/source-123',
       });
       expect(request).not.toHaveProperty('generation_config');

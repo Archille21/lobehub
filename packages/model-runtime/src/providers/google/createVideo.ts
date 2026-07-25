@@ -117,8 +117,13 @@ async function createGoogleOmniVideo(
       : images.length === 1
         ? 'image_to_video'
         : 'text_to_video';
-  const input =
-    images.length === 0
+  /**
+   * Stateful continuation already restores the source media from `previous_interaction_id`.
+   * Re-sending persisted frame inputs can make Gemini reject the edit as conflicting media.
+   */
+  const input = previousInteractionId
+    ? prompt
+    : images.length === 0
       ? prompt
       : [
           ...(await Promise.all(images.map((url) => imageToOmniContent(url)))),

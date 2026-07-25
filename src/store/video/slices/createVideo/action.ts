@@ -8,10 +8,56 @@ import { type StoreSetter } from '@/store/types';
 
 import { type VideoStore } from '../../store';
 import { generationBatchSelectors } from '../generationBatch/selectors';
+import { getVideoModelAndDefaults } from '../generationConfig/action';
 import { videoGenerationConfigSelectors } from '../generationConfig/selectors';
 import { generationTopicSelectors } from '../generationTopic';
+import type { VideoEditingDraftSnapshot } from './initialState';
 
 type Setter = StoreSetter<VideoStore>;
+
+interface StartEditingVideoParams {
+  generationId: string;
+  model: string;
+  provider: string;
+  sourceParameters?: object;
+}
+
+const EDIT_INPUT_PARAMETER_KEYS = new Set([
+  'endImageUrl',
+  'imageUrl',
+  'imageUrls',
+  'prompt',
+  'task',
+]);
+
+const cloneEditingDraft = (store: VideoStore): VideoEditingDraftSnapshot => ({
+  model: store.model,
+  parameters: {
+    ...store.parameters,
+    ...(store.parameters.imageUrls ? { imageUrls: [...store.parameters.imageUrls] } : {}),
+  },
+  parametersSchema: store.parametersSchema,
+  provider: store.provider,
+  uploadingImagePreviews: [...store.uploadingImagePreviews],
+});
+
+const restoreEditingDraft = (state: VideoStore) => {
+  const snapshot = state.editingDraftSnapshot;
+
+  if (!snapshot) {
+    return { editingDraftSnapshot: undefined, editingGenerationId: undefined };
+  }
+
+  return {
+    editingDraftSnapshot: undefined,
+    editingGenerationId: undefined,
+    model: snapshot.model,
+    parameters: snapshot.parameters,
+    parametersSchema: snapshot.parametersSchema,
+    provider: snapshot.provider,
+    uploadingImagePreviews: snapshot.uploadingImagePreviews,
+  };
+};
 
 export const createCreateVideoSlice = (set: Setter, get: () => VideoStore, _api?: unknown) =>
   new CreateVideoActionImpl(set, get, _api);
@@ -106,12 +152,12 @@ export class CreateVideoActionImpl {
         await this.#get().refreshGenerationBatches();
       }
 
-      // 6. Clear the prompt input after successful video creation
+      // 6. Restore the original draft after an edit, or clear a regular generation prompt
       this.#set(
-        (state) => ({
-          editingGenerationId: undefined,
-          parameters: { ...state.parameters, prompt: '' },
-        }),
+        (state) =>
+          state.editingGenerationId
+            ? restoreEditingDraft(state)
+            : { parameters: { ...state.parameters, prompt: '' } },
         false,
         'createVideo/clearPrompt',
       );
@@ -134,7 +180,7 @@ export class CreateVideoActionImpl {
   };
 
   cancelEditingVideo = (): void => {
-    this.#set({ editingGenerationId: undefined }, false, 'cancelEditingVideo');
+    this.#set((state) => restoreEditingDraft(state), false, 'cancelEditingVideo');
   };
 
   recreateVideo = async (generationBatchId: string): Promise<void> => {
@@ -169,8 +215,37 @@ export class CreateVideoActionImpl {
     }
   };
 
-  startEditingVideo = (generationId: string): void => {
-    this.#set({ editingGenerationId: generationId }, false, `startEditingVideo/${generationId}`);
+  startEditingVideo = ({
+    generationId,
+    model,
+    provider,
+    sourceParameters,
+  }: StartEditingVideoParams): void => {
+    const store = this.#get();
+    const { defaultValues, parametersSchema } = getVideoModelAndDefaults(model, provider);
+    const parameters = { ...defaultValues };
+
+    for (const [key, value] of Object.entries(sourceParameters ?? {})) {
+      if (!(key in parametersSchema) || EDIT_INPUT_PARAMETER_KEYS.has(key) || value === undefined) {
+        continue;
+      }
+
+      Object.assign(parameters, { [key]: value });
+    }
+
+    this.#set(
+      {
+        editingDraftSnapshot: store.editingDraftSnapshot ?? cloneEditingDraft(store),
+        editingGenerationId: generationId,
+        model,
+        parameters: { ...parameters, prompt: '' },
+        parametersSchema,
+        provider,
+        uploadingImagePreviews: [],
+      },
+      false,
+      `startEditingVideo/${generationId}`,
+    );
   };
 }
 

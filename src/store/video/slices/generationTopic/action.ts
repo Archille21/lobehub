@@ -165,7 +165,11 @@ export class GenerationTopicActionImpl {
 
   openNewGenerationTopic = (): void => {
     this.#set(
-      { activeGenerationTopicId: null, editingGenerationId: undefined },
+      {
+        activeGenerationTopicId: null,
+        editingDraftSnapshot: undefined,
+        editingGenerationId: undefined,
+      },
       false,
       n('openNewGenerationTopic'),
     );
@@ -275,7 +279,11 @@ export class GenerationTopicActionImpl {
     if (this.#get().activeGenerationTopicId === topicId) return;
 
     this.#set(
-      { activeGenerationTopicId: topicId, editingGenerationId: undefined },
+      {
+        activeGenerationTopicId: topicId,
+        editingDraftSnapshot: undefined,
+        editingGenerationId: undefined,
+      },
       false,
       n('switchGenerationTopic'),
     );

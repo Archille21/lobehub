@@ -117,9 +117,13 @@ export const VideoGenerationBatchItem = memo<VideoGenerationBatchItemProps>(({ b
     if (!generation?.asset || !('interactionId' in generation.asset)) return;
     if (!generation.asset.interactionId) return;
 
-    handleReuseSettings();
-    startEditingVideo(generation.id);
-  }, [generation, handleReuseSettings, startEditingVideo]);
+    startEditingVideo({
+      generationId: generation.id,
+      model: batch.model,
+      provider: batch.provider,
+      sourceParameters: batch.config,
+    });
+  }, [batch.config, batch.model, batch.provider, generation, startEditingVideo]);
 
   const handleDeleteBatch = useCallback(async () => {
     if (!activeTopicId) return;
