@@ -6,10 +6,12 @@ import { SearchIcon } from 'lucide-react';
 import { type ReactNode } from 'react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Navigate } from 'react-router';
 
 import AsyncBoundary from '@/components/AsyncBoundary';
 import SkeletonList from '@/features/NavPanel/components/SkeletonList';
 import { useAiInfraStore } from '@/store/aiInfra/store';
+import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 
 import AddNew from './AddNew';
 import ProviderList from './List';
@@ -90,6 +92,7 @@ const ProviderMenu = ({
   mobile?: boolean;
   onProviderSelect?: (providerKey: string) => void;
 }) => {
+  const showProvider = useServerConfigStore(featureFlagsSelectors).showProvider;
   const [initAiProviderList, providerSearchKeyword, useFetchAiProviderList] = useAiInfraStore(
     (s) => [s.initAiProviderList, s.providerSearchKeyword, s.useFetchAiProviderList],
   );
@@ -98,6 +101,10 @@ const ProviderMenu = ({
   // instead of a permanent skeleton — `initAiProviderList` only flips on success
   //
   const { error, mutate } = useFetchAiProviderList();
+
+  // Guard after all hooks run (rules-of-hooks): block the list when the
+  // `provider_settings` flag is off, covering the mobile `/all` menu view.
+  if (!showProvider) return <Navigate replace to="/settings" />;
 
   // Search overrides everything (matches prior behavior); otherwise gate the
   // list on load/error via AsyncBoundary.

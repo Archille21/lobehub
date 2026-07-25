@@ -27,6 +27,7 @@ import type { ListItem } from '@/features/ModelSwitchPanel/types';
 import { menuKey } from '@/features/ModelSwitchPanel/utils';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
+import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 import type { EnabledProviderWithModels } from '@/types/index';
 
 import GenerationMultipleProvidersItem from './GenerationMultipleProvidersItem';
@@ -46,6 +47,7 @@ const GenerationListItemRenderer = memo<GenerationListItemRendererProps>(
     const { t } = useTranslation('components');
     const navigate = useWorkspaceAwareNavigate();
     const activeSlug = useActiveWorkspaceSlug();
+    const showProvider = useServerConfigStore(featureFlagsSelectors).showProvider;
     const [detailOpen, setDetailOpen] = useState(false);
 
     switch (item.type) {
@@ -82,23 +84,25 @@ const GenerationListItemRenderer = memo<GenerationListItemRendererProps>(
               provider={item.provider.id}
               source={item.provider.source}
             />
-            <ActionIcon
-              className="settings-icon"
-              icon={LucideBolt}
-              size="small"
-              title={t('ModelSwitchPanel.goToSettings')}
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const url = urlJoin('/settings/provider', item.provider.id || 'all');
-                if (e.ctrlKey || e.metaKey) {
-                  window.open(buildWorkspaceAwarePath(url, activeSlug), '_blank');
-                } else {
-                  navigate(url);
-                }
-                onClose();
-              }}
-            />
+            {showProvider && (
+              <ActionIcon
+                className="settings-icon"
+                icon={LucideBolt}
+                size="small"
+                title={t('ModelSwitchPanel.goToSettings')}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const url = urlJoin('/settings/provider', item.provider.id || 'all');
+                  if (e.ctrlKey || e.metaKey) {
+                    window.open(buildWorkspaceAwarePath(url, activeSlug), '_blank');
+                  } else {
+                    navigate(url);
+                  }
+                  onClose();
+                }}
+              />
+            )}
           </Flexbox>
         );
       }

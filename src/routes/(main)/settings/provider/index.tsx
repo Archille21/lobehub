@@ -2,21 +2,30 @@
 
 import { Flexbox } from '@lobehub/ui';
 import { memo } from 'react';
-import { Outlet, useParams } from 'react-router';
+import { Navigate, Outlet, useParams } from 'react-router';
 
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
+import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 
 import DesktopLayoutContainer from './_layout/Desktop/Container';
 import ProviderDetailPageComponent from './detail';
 import ProviderMenu from './ProviderMenu';
 
+// Guard: when the `provider_settings` feature flag is off (e.g. private/white-label
+// deployments), block the whole provider-settings area — including deep links such as
+// `/settings/provider/all` — not just the sidebar menu item.
+const useProviderSettingsEnabled = () => useServerConfigStore(featureFlagsSelectors).showProvider;
+
 // Layout component that wraps provider pages with navigation
 export const ProviderLayout = memo(() => {
   const navigate = useWorkspaceAwareNavigate();
+  const showProvider = useProviderSettingsEnabled();
 
   const handleProviderSelect = (providerKey: string) => {
     navigate(`/settings/provider/${providerKey}`);
   };
+
+  if (!showProvider) return <Navigate replace to="/settings" />;
 
   return (
     <Flexbox
@@ -40,10 +49,13 @@ ProviderLayout.displayName = 'ProviderLayout';
 export const ProviderDetailPage = memo(() => {
   const params = useParams<{ providerId: string }>();
   const navigate = useWorkspaceAwareNavigate();
+  const showProvider = useProviderSettingsEnabled();
 
   const handleProviderSelect = (providerKey: string) => {
     navigate(`/settings/provider/${providerKey}`);
   };
+
+  if (!showProvider) return <Navigate replace to="/settings" />;
 
   return (
     <ProviderDetailPageComponent
@@ -62,6 +74,9 @@ type ProviderPageType = {
 
 const ProviderPage = (props: ProviderPageType) => {
   const { mobile } = props;
+  const showProvider = useProviderSettingsEnabled();
+
+  if (!showProvider) return <Navigate replace to="/settings" />;
 
   // For mobile or when used via SettingsContent, use the old Page component
   // This is a fallback for non-router usage

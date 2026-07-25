@@ -1,5 +1,8 @@
+import { Navigate } from 'react-router';
+
 import Loading from '@/components/Loading/BrandTextLoading';
 import dynamic from '@/libs/next/dynamic';
+import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfig';
 
 const NewAPI = dynamic(() => import('./newapi'), {
   loading: () => <Loading debugId="Provider > NewAPI" />,
@@ -57,6 +60,12 @@ type ProviderDetailPageProps = {
 
 const ProviderDetailPage = (props: ProviderDetailPageProps) => {
   const { id, onProviderSelect } = props;
+  const showProvider = useServerConfigStore(featureFlagsSelectors).showProvider;
+
+  // Universal chokepoint: every provider-settings variant (desktop / workspace /
+  // mobile) renders this component, so blocking it here closes deep-link bypasses
+  // when the `provider_settings` flag is off.
+  if (!showProvider) return <Navigate replace to="/settings" />;
 
   switch (id) {
     case 'all': {
