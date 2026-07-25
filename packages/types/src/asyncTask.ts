@@ -192,9 +192,12 @@ export interface HourlyUserMemoryExtractionMetadata {
   startedAt: string;
 }
 
+export type VideoGenerationCompletionMode = 'polling' | 'webhook';
+
 export interface VideoGenerationTaskMetadata {
   completionClaimedAt?: string;
   completionEventId?: string;
+  completionMode?: VideoGenerationCompletionMode;
   precharge?: unknown;
   previousGenerationId?: string;
   route?: VideoGenerationRoute;

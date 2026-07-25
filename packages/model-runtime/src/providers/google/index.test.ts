@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOBE_ERROR_KEY } from '../../core/streams';
 import { AgentRuntimeErrorType } from '../../types/error';
 import * as debugStreamModule from '../../utils/debugStream';
+import { createVideoWithCompletionMode } from '../../utils/videoCompletionMode';
 import { LobeGoogleAI } from './index';
 
 const provider = 'google';
@@ -63,6 +64,76 @@ describe('LobeGoogleAI', () => {
         errorType: AgentRuntimeErrorType.ProviderBizError,
         provider: 'vertexai',
       });
+    });
+
+    it('should default Gemini Omni Flash to polling and omit its webhook config', async () => {
+      const createInteraction = vi
+        .spyOn(instance['client'].interactions, 'create')
+        .mockResolvedValue({ id: 'interactions/omni-polling' } as any);
+
+      await expect(
+        createVideoWithCompletionMode(instance, {
+          callbackUrl: 'https://example.com/webhook',
+          model: 'gemini-omni-flash-preview',
+          params: { prompt: 'A cinematic sunrise' },
+        }),
+      ).resolves.toEqual({
+        completionMode: 'polling',
+        inferenceId: 'interactions/omni-polling',
+      });
+      expect(createInteraction).toHaveBeenCalledWith(
+        expect.not.objectContaining({ webhook_config: expect.anything() }),
+      );
+    });
+
+    it('should use Gemini Omni Flash webhook mode when preferred', async () => {
+      const createInteraction = vi
+        .spyOn(instance['client'].interactions, 'create')
+        .mockResolvedValue({ id: 'interactions/omni-webhook' } as any);
+
+      await expect(
+        createVideoWithCompletionMode(
+          instance,
+          {
+            callbackUrl: 'https://example.com/webhook',
+            model: 'gemini-omni-flash-preview',
+            params: { prompt: 'A cinematic sunrise' },
+          },
+          { preferredCompletionMode: 'webhook' },
+        ),
+      ).resolves.toEqual({
+        completionMode: 'webhook',
+        inferenceId: 'interactions/omni-webhook',
+      });
+      expect(createInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          webhook_config: { uris: ['https://example.com/webhook'] },
+        }),
+      );
+    });
+
+    it('should keep Veo on polling when webhook mode is preferred', async () => {
+      const generateVideos = vi
+        .spyOn(instance['client'].models, 'generateVideos')
+        .mockResolvedValue({ name: 'operations/veo-1' } as any);
+
+      await expect(
+        createVideoWithCompletionMode(
+          instance,
+          {
+            callbackUrl: 'https://example.com/webhook',
+            model: 'veo-3.1-generate-preview',
+            params: { prompt: 'A cinematic sunrise' },
+          },
+          { preferredCompletionMode: 'webhook' },
+        ),
+      ).resolves.toEqual({
+        completionMode: 'polling',
+        inferenceId: 'operations/veo-1',
+      });
+      expect(generateVideos).toHaveBeenCalledWith(
+        expect.not.objectContaining({ callbackUrl: expect.anything() }),
+      );
     });
   });
 

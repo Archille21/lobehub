@@ -1223,6 +1223,7 @@ describe('createRouterRuntime', () => {
 
       class MockRuntime implements LobeRuntimeAI {
         createVideo = mockCreateVideo;
+        getVideoGenerationCapabilities = () => ({ completionModes: ['polling'] as const });
       }
 
       const Runtime = createRouterRuntime({
@@ -1241,7 +1242,7 @@ describe('createRouterRuntime', () => {
       const payload = { model: 'sora-1', params: { prompt: 'a cat' } } as any;
 
       const result = await runtime.createVideo(payload);
-      expect(result).toEqual({ inferenceId: 'job-1' });
+      expect(result).toEqual({ completionMode: 'polling', inferenceId: 'job-1' });
       expect(mockCreateVideo).toHaveBeenCalledWith(payload, undefined);
     });
 
@@ -1251,6 +1252,7 @@ describe('createRouterRuntime', () => {
 
       class MockRuntime implements LobeRuntimeAI {
         createVideo = mockCreateVideo;
+        getVideoGenerationCapabilities = () => ({ completionModes: ['polling'] as const });
       }
 
       const Runtime = createRouterRuntime({
@@ -1271,6 +1273,7 @@ describe('createRouterRuntime', () => {
       const metadata = { trigger: 'video' };
       const options = {
         metadata,
+        preferredCompletionMode: 'webhook',
         pricingContext: { plan: 'premium', scope: 'personal' },
       } as const;
 
@@ -1357,6 +1360,8 @@ describe('createRouterRuntime', () => {
           if (this.apiKey === 'key-1') throw new Error('channel unavailable');
           return { inferenceId: 'interaction-1' };
         });
+
+        getVideoGenerationCapabilities = () => ({ completionModes: ['polling'] as const });
 
         handlePollVideoStatus = vi.fn().mockImplementation(async () => ({
           status: 'success',

@@ -24,7 +24,7 @@ import type {
   CreateImageResponse,
   CreateVideoMethodOptions,
   CreateVideoPayload,
-  CreateVideoResponse,
+  CreateVideoResult,
   EmbeddingsOptions,
   EmbeddingsPayload,
   GenerateObjectOptions,
@@ -40,6 +40,7 @@ import { isNonRetryableRequestError } from '../../utils/isNonRetryableRequestErr
 import type { ModelIdMappingOptions } from '../../utils/modelIdMapping';
 import { postProcessModelList } from '../../utils/postProcessModelList';
 import { safeParseJSON } from '../../utils/safeParseJSON';
+import { createVideoWithCompletionMode } from '../../utils/videoCompletionMode';
 import type { LobeRuntimeAI } from '../BaseAI';
 import type {
   CreateImageOptions,
@@ -179,7 +180,7 @@ export interface CreateRouterRuntimeOptions<T extends Record<string, any> = any>
   createVideo?: (
     payload: CreateVideoPayload,
     options: CreateVideoOptions,
-  ) => Promise<CreateVideoResponse>;
+  ) => Promise<CreateVideoResult>;
   customClient?: CustomClientOptions<T>;
   debug?: {
     chatCompletion: () => boolean;
@@ -234,6 +235,7 @@ export const createRouterRuntime = ({
 }: CreateRouterRuntimeOptions) => {
   return class UniformRuntime implements LobeRuntimeAI {
     public _options: LobeClientOptions & Record<string, any>;
+    orchestratesVideoGenerationCompletion = true;
     private _routers: Routers;
     private _params: any;
     private _id: string;
@@ -871,7 +873,7 @@ export const createRouterRuntime = ({
     async createVideo(payload: CreateVideoPayload, options?: CreateVideoMethodOptions) {
       return this.runWithFallback(
         payload.model,
-        (runtime) => runtime.createVideo!(payload, options),
+        (runtime) => createVideoWithCompletionMode(runtime, payload, options),
         { metadata: options?.metadata },
       );
     }

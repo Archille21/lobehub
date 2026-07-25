@@ -3,7 +3,7 @@ import { GenerateVideosOperation } from '@google/genai';
 import { imageUrlToBase64 } from '@lobechat/utils';
 import debug from 'debug';
 
-import type { CreateVideoPayload, CreateVideoResponse } from '../../types/video';
+import type { CreateVideoPayload, CreateVideoResult } from '../../types/video';
 import { AgentRuntimeError } from '../../utils/createError';
 import { parseGoogleErrorMessage } from '../../utils/googleErrorParser';
 import { parseDataUri } from '../../utils/uriParser';
@@ -99,21 +99,24 @@ function extractOmniError(interaction: OmniInteraction): string {
 async function createGoogleOmniVideo(
   client: GoogleGenAI,
   payload: CreateVideoPayload,
-): Promise<CreateVideoResponse> {
+): Promise<CreateVideoResult> {
   const { callbackUrl, model, params, previousInteractionId } = payload;
-  const { aspectRatio, endImageUrl, imageUrl, imageUrls, prompt, task } = params;
+  const { aspectRatio, endImageUrl, imageUrl, imageUrls, prompt } = params;
   const images = [imageUrl, ...(imageUrls ?? []), endImageUrl].filter((url): url is string =>
     Boolean(url),
   );
-  const resolvedTask =
-    task ??
-    (previousInteractionId
-      ? 'edit'
-      : images.length > 1
-        ? 'reference_to_video'
-        : images.length === 1
-          ? 'image_to_video'
-          : 'text_to_video');
+
+  /**
+   * Infer the task from the actual request media. Persisted generation parameters and older
+   * clients can retain a stale `text_to_video` value after images are added, which Gemini rejects.
+   */
+  const resolvedTask = previousInteractionId
+    ? 'edit'
+    : images.length > 1
+      ? 'reference_to_video'
+      : images.length === 1
+        ? 'image_to_video'
+        : 'text_to_video';
   const input =
     images.length === 0
       ? prompt
@@ -148,18 +151,14 @@ async function createGoogleOmniVideo(
 
   if (!interaction.id) throw new Error('Gemini interaction response is missing an id');
 
-  return {
-    inferenceId: interaction.id,
-    pollingFallback: Boolean(callbackUrl),
-    useWebhook: Boolean(callbackUrl),
-  };
+  return { inferenceId: interaction.id };
 }
 
 export async function createGoogleVideo(
   client: GoogleGenAI,
   provider: string,
   payload: CreateVideoPayload,
-): Promise<CreateVideoResponse> {
+): Promise<CreateVideoResult> {
   try {
     const { model, params } = payload;
 

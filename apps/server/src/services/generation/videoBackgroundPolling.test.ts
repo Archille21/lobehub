@@ -257,22 +257,6 @@ describe('videoBackgroundPolling', () => {
   });
 
   describe('processBackgroundVideoPolling - error handling', () => {
-    it('should preserve a webhook-owned task when fallback polling times out', async () => {
-      mockModelRuntime.handlePollVideoStatus.mockResolvedValue({ status: 'processing' });
-
-      const pollPromise = processBackgroundVideoPolling(mockDb, {
-        ...mockParams,
-        preserveTaskOnTimeout: true,
-      });
-
-      await vi.runAllTimersAsync();
-      await pollPromise;
-
-      expect(AsyncTaskModel.claimVideoCompletion).not.toHaveBeenCalled();
-      expect(mockAsyncTaskModel.update).not.toHaveBeenCalled();
-      expect(chargeAfterGenerate).not.toHaveBeenCalled();
-    });
-
     it('should handle polling failure with error message', async () => {
       mockModelRuntime.handlePollVideoStatus.mockResolvedValue({
         status: 'failed',

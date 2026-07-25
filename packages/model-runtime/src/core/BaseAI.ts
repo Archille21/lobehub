@@ -12,7 +12,7 @@ import type {
   CreateImageResponse,
   CreateVideoMethodOptions,
   CreateVideoPayload,
-  CreateVideoResponse,
+  CreateVideoResult,
   Embeddings,
   EmbeddingsOptions,
   EmbeddingsPayload,
@@ -25,6 +25,7 @@ import type {
   PullModelParams,
   TextToSpeechOptions,
   TextToSpeechPayload,
+  VideoGenerationCapabilities,
   VideoPollingRoute,
 } from '../types';
 
@@ -39,7 +40,7 @@ export interface LobeRuntimeAI {
   createVideo?: (
     payload: CreateVideoPayload,
     options?: CreateVideoMethodOptions,
-  ) => Promise<CreateVideoResponse>;
+  ) => Promise<CreateVideoResult>;
 
   embeddings?: (payload: EmbeddingsPayload, options?: EmbeddingsOptions) => Promise<Embeddings[]>;
 
@@ -47,6 +48,8 @@ export interface LobeRuntimeAI {
     payload: GenerateObjectPayload,
     options?: GenerateObjectOptions,
   ) => Promise<any>;
+
+  getVideoGenerationCapabilities?: (model: string) => VideoGenerationCapabilities;
 
   handleCreateVideoWebhook?: (
     payload: HandleCreateVideoWebhookPayload,
@@ -59,6 +62,11 @@ export interface LobeRuntimeAI {
   ) => Promise<PollVideoStatusResult>;
 
   models?: () => Promise<any>;
+
+  /**
+   * Composite runtimes set this when they resolve completion mode inside their selected route.
+   */
+  orchestratesVideoGenerationCompletion?: boolean;
 
   // Model management related interface
   pullModel?: (params: PullModelParams, options?: ModelRequestOptions) => Promise<Response>;

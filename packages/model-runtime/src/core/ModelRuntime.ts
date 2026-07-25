@@ -30,10 +30,12 @@ import type {
 import type {
   CreateVideoMethodOptions,
   CreateVideoPayload,
+  CreateVideoResponse,
   HandleCreateVideoWebhookPayload,
   VideoPollingRoute,
 } from '../types/video';
 import { AgentRuntimeError } from '../utils/createError';
+import { createVideoWithCompletionMode } from '../utils/videoCompletionMode';
 import type { LobeRuntimeAI } from './BaseAI';
 
 const { logger: timing } = createTimingHelpers('lobe-server:chat:lobehub:timing');
@@ -414,11 +416,16 @@ export class ModelRuntime {
     return this._runtime.createImage?.(payload, finalOptions);
   }
 
-  async createVideo(payload: CreateVideoPayload, options?: CreateVideoMethodOptions) {
+  async createVideo(
+    payload: CreateVideoPayload,
+    options?: CreateVideoMethodOptions,
+  ): Promise<CreateVideoResponse | undefined> {
     const finalOptions = this._hooks?.beforeCreateVideo && !options ? {} : options;
     await this._hooks?.beforeCreateVideo?.(payload, finalOptions);
 
-    return this._runtime.createVideo?.(payload, finalOptions);
+    if (!this._runtime.createVideo) return;
+
+    return createVideoWithCompletionMode(this._runtime, payload, finalOptions);
   }
 
   async handleCreateVideoWebhook(payload: HandleCreateVideoWebhookPayload) {

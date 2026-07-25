@@ -86,11 +86,7 @@ describe('createGoogleVideo', () => {
           uris: ['https://app.example.com/api/webhooks/video/google?token=secret'],
         },
       });
-      expect(result).toEqual({
-        inferenceId: 'interactions/omni-123',
-        pollingFallback: true,
-        useWebhook: true,
-      });
+      expect(result).toEqual({ inferenceId: 'interactions/omni-123' });
     });
 
     it('should continue a Gemini Omni interaction for video editing', async () => {
@@ -107,6 +103,25 @@ describe('createGoogleVideo', () => {
         previous_interaction_id: 'interactions/source-123',
       });
       expect(request).not.toHaveProperty('generation_config');
+    });
+
+    it('should infer image-to-video when a stale text task is sent with media', async () => {
+      mockClient.interactions.create.mockResolvedValueOnce({ id: 'interactions/image-456' });
+
+      await createGoogleVideo(mockClient as any, 'google', {
+        model: 'gemini-omni-flash-preview',
+        params: {
+          imageUrls: ['https://example.com/reference.jpg'],
+          prompt: 'Animate this image',
+          task: 'text_to_video',
+        },
+      });
+
+      expect(mockClient.interactions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          generation_config: { video_config: { task: 'image_to_video' } },
+        }),
+      );
     });
 
     it('should preserve all frame inputs and select reference-to-video', async () => {

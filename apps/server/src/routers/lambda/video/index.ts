@@ -353,7 +353,7 @@ export const videoRouter = router({
       try {
         const modelRuntime = await initModelRuntimeFromDB(serverDB, userId, provider, wsId);
 
-        const callbackBaseUrl = process.env.WEBHOOK_PROXY_URL || appEnv.APP_URL;
+        const callbackBaseUrl = appEnv.WEBHOOK_PROXY_URL || appEnv.APP_URL;
         const callbackUrl = new URL(`/api/webhooks/video/${provider}`, callbackBaseUrl);
         callbackUrl.searchParams.set('model', resolvedModelId);
         callbackUrl.searchParams.set('token', webhookToken);
@@ -367,24 +367,26 @@ export const videoRouter = router({
             params: generationParams,
             previousInteractionId,
           },
-          { metadata: requestMetadata },
+          {
+            metadata: requestMetadata,
+            preferredCompletionMode: appEnv.VIDEO_GENERATION_PREFER_WEBHOOK ? 'webhook' : 'polling',
+          },
         );
 
-        log('Video task submitted successfully, inferenceId: %s', response?.inferenceId);
+        if (!response) throw new Error('Video generation is not supported by this runtime');
+
+        log('Video task submitted successfully, inferenceId: %s', response.inferenceId);
 
         const route = getVideoGenerationRoute(requestMetadata.routeAttempt);
         const taskMetadata: VideoGenerationTaskMetadata = {
+          completionMode: response.completionMode,
           ...(prechargeResult ? { precharge: prechargeResult } : {}),
           ...(previousGenerationId ? { previousGenerationId } : {}),
           ...(route ? { route } : {}),
           webhookToken,
         };
 
-        // Determine async strategy based on response:
-        // - useWebhook: provider registered a callback URL, wait for webhook
-        // - otherwise: use background polling to check status
-        const useWebhook = response && 'useWebhook' in response && response.useWebhook;
-        const schedulePolling = (inferenceId: string, preserveTaskOnTimeout = false) => {
+        const schedulePolling = (inferenceId: string) => {
           after(async () => {
             log('Background video polling scheduled for task: %s', asyncTaskId);
 
@@ -400,7 +402,6 @@ export const videoRouter = router({
                 inferenceId,
                 model,
                 prechargeResult,
-                preserveTaskOnTimeout,
                 previousGenerationId,
                 provider,
                 route,
@@ -415,21 +416,16 @@ export const videoRouter = router({
           });
         };
 
-        if (useWebhook) {
+        if (response.completionMode === 'webhook') {
           // Webhook-based provider (e.g. Volcengine): wait for callback
           log('Webhook-based provider detected, waiting for callback');
 
           await asyncTaskModel.update(asyncTaskId, {
-            inferenceId: response?.inferenceId,
+            inferenceId: response.inferenceId,
             metadata: taskMetadata,
             status: AsyncTaskStatus.Processing,
           });
-
-          if (response.pollingFallback) {
-            log('Scheduling polling fallback for webhook-based video task: %s', asyncTaskId);
-            schedulePolling(response.inferenceId, true);
-          }
-        } else if (response) {
+        } else {
           // Polling-based provider (e.g. OpenAI Sora): use background polling
           log('Polling-based provider detected (inferenceId only), scheduling background polling');
 
