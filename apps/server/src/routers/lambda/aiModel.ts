@@ -18,6 +18,7 @@ import { UserModel } from '@/database/models/user';
 import { AiInfraRepos } from '@/database/repositories/aiInfra';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { requireProviderSettings } from '@/routers/lambda/requireProviderSettings';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { type ProviderConfig } from '@/types/user/settings';
@@ -70,6 +71,7 @@ const aiModelProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) 
 
 export const aiModelRouter = router({
   batchToggleAiModels: aiModelProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_model:update'))
     .input(
       z.object({
@@ -82,6 +84,7 @@ export const aiModelRouter = router({
       return ctx.aiModelModel.batchToggleAiModels(input.id, input.models, input.enabled);
     }),
   batchUpdateAiModels: aiModelProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_model:update'))
     .input(
       z.object({
@@ -98,6 +101,7 @@ export const aiModelRouter = router({
   // so they are owner-only in workspace mode, matching the admin-only provider
   // settings UI. Per-caller upserts (toggle/update/order) stay member-accessible.
   clearModelsByProvider: aiModelProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_model:delete'))
     .use(requireWorkspaceRoleWhenScoped('owner'))
     .input(z.object({ providerId: z.string() }))
@@ -105,6 +109,7 @@ export const aiModelRouter = router({
       return ctx.aiModelModel.clearModelsByProvider(input.providerId);
     }),
   clearRemoteModels: aiModelProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_model:delete'))
     .use(requireWorkspaceRoleWhenScoped('owner'))
     .input(z.object({ providerId: z.string() }))
@@ -113,6 +118,7 @@ export const aiModelRouter = router({
     }),
 
   createAiModel: aiModelProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_model:create'))
     .input(CreateAiModelSchema)
     .mutation(async ({ input, ctx }) => {
@@ -157,6 +163,7 @@ export const aiModelRouter = router({
     }),
 
   removeAiModel: aiModelProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_model:delete'))
     .use(requireWorkspaceRoleWhenScoped('owner'))
     .input(z.object({ id: z.string(), providerId: z.string() }))
@@ -165,6 +172,7 @@ export const aiModelRouter = router({
     }),
 
   toggleModelEnabled: aiModelProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_model:update'))
     .input(ToggleAiModelEnableSchema)
     .mutation(async ({ input, ctx }) => {
@@ -172,6 +180,7 @@ export const aiModelRouter = router({
     }),
 
   updateAiModel: aiModelProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_model:update'))
     .input(
       z.object({
@@ -185,6 +194,7 @@ export const aiModelRouter = router({
     }),
 
   updateAiModelOrder: aiModelProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_model:update'))
     .input(
       z.object({

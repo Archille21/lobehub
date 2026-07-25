@@ -13,6 +13,7 @@ import { UserModel } from '@/database/models/user';
 import { AiInfraRepos } from '@/database/repositories/aiInfra';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
+import { requireProviderSettings } from '@/routers/lambda/requireProviderSettings';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
@@ -105,6 +106,7 @@ export const aiProviderRouter = router({
     }),
 
   createAiProvider: aiProviderProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_provider:create'))
     .input(CreateAiProviderSchema)
     .mutation(async ({ input, ctx }) => {
@@ -144,6 +146,7 @@ export const aiProviderRouter = router({
   // workspace-wide, so destructive/config writes are owner-only in workspace mode
   // (the workspace provider settings UI is likewise admin-only).
   removeAiProvider: aiProviderProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_provider:delete'))
     .use(requireWorkspaceRoleWhenScoped('owner'))
     .input(z.object({ id: z.string() }))
@@ -152,6 +155,7 @@ export const aiProviderRouter = router({
     }),
 
   toggleProviderEnabled: aiProviderProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_provider:update'))
     .input(
       z.object({
@@ -171,6 +175,7 @@ export const aiProviderRouter = router({
     }),
 
   updateAiProvider: aiProviderProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_provider:update'))
     .use(requireWorkspaceRoleWhenScoped('owner'))
     .input(
@@ -184,6 +189,7 @@ export const aiProviderRouter = router({
     }),
 
   updateAiProviderConfig: aiProviderProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_provider:update'))
     .use(requireWorkspaceRoleWhenScoped('owner'))
     .input(
@@ -202,6 +208,7 @@ export const aiProviderRouter = router({
     }),
 
   updateAiProviderOrder: aiProviderProcedure
+    .use(requireProviderSettings)
     .use(withScopedPermission('ai_provider:update'))
     .input(
       z.object({
