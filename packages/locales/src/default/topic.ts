@@ -46,6 +46,7 @@ export default {
   'actions.import': 'Import Topics',
   'actions.openInNewTab': 'Open in New Tab',
   'actions.openInNewWindow': 'Open in a new window',
+  'actions.openInBrowser': 'Open in Browser',
   'actions.removeAll': 'Delete All Topics',
   'actions.removeAllOwn': 'Delete My Topics',
   'actions.removeAllWorkspace': 'Delete All Topics',

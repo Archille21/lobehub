@@ -34,6 +34,7 @@
   "actions.import": "استيراد المحادثة",
   "actions.markCompleted": "وضع علامة كمكتمل",
   "actions.moveToAgent": "نقل إلى مساعد آخر",
+  "actions.openInBrowser": "فتح في المتصفح",
   "actions.openInNewTab": "افتح في علامة تبويب جديدة",
   "actions.openInNewWindow": "فتح في نافذة جديدة",
   "actions.removeAll": "حذف جميع المواضيع",

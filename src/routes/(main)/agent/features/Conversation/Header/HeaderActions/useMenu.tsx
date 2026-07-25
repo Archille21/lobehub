@@ -1,5 +1,6 @@
 'use client';
 
+import { AGENT_CHAT_TOPIC_URL } from '@lobechat/const';
 import type { DropdownItem } from '@lobehub/ui';
 import { Block, Flexbox, Icon, Text } from '@lobehub/ui';
 import { confirmModal, type ModalInstance } from '@lobehub/ui/base-ui';
@@ -20,6 +21,7 @@ import { useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useParams } from 'react-router';
 
+import { useActiveWorkspaceSlug } from '@/business/client/hooks/useActiveWorkspaceSlug';
 import { useAuthorInfo } from '@/business/client/hooks/useAuthorInfo';
 import { openRenameModal } from '@/components/RenameModal';
 import { DOCUMENT_HISTORY_QUERY_LIST_LIMIT } from '@/const/documentHistory';
@@ -27,11 +29,14 @@ import { isDesktop } from '@/const/version';
 import { confirmRemoveTopic } from '@/features/DeleteTopicConfirm';
 import { openDocumentCompareModal } from '@/features/PageEditor/History/CompareModal';
 import { formatHistoryAbsoluteTime } from '@/features/PageEditor/History/formatHistoryDate';
+import { buildWorkspaceAwarePath } from '@/features/Workspace/workspaceAwarePath';
+import { useAppOrigin } from '@/hooks/useAppOrigin';
 import type {
   DocumentHistoryListItem,
   DocumentHistorySaveSource,
 } from '@/server/routers/lambda/_schema/documentHistory';
 import { documentService } from '@/services/document';
+import { electronSystemService } from '@/services/electron/system';
 import { useChatStore } from '@/store/chat';
 import { topicSelectors } from '@/store/chat/selectors';
 import { useDocumentStore } from '@/store/document';
@@ -69,6 +74,8 @@ export const useMenu = (): { menuHeader?: ReactNode; menuItems: DropdownItem[] }
   const { t } = useTranslation(['chat', 'topic', 'common', 'file']);
   const { message } = App.useApp();
   const { pathname } = useLocation();
+  const activeWorkspaceSlug = useActiveWorkspaceSlug();
+  const appOrigin = useAppOrigin();
 
   const [wideScreen, toggleWideScreen] = useGlobalStore((s) => [
     systemStatusSelectors.wideScreen(s),
@@ -264,6 +271,19 @@ export const useMenu = (): { menuHeader?: ReactNode; menuItems: DropdownItem[] }
       if (isDesktop && activeAgentId && !pathname.startsWith('/popup')) {
         items.push({
           icon: <Icon icon={ExternalLink} />,
+          key: 'openInBrowser',
+          label: t('actions.openInBrowser', { ns: 'topic' }),
+          onClick: () => {
+            const url = `${appOrigin}${buildWorkspaceAwarePath(
+              AGENT_CHAT_TOPIC_URL(activeAgentId, topicId),
+              activeWorkspaceSlug,
+            )}`;
+            void electronSystemService.openExternalLink(url);
+          },
+        });
+
+        items.push({
+          icon: <Icon icon={ExternalLink} />,
           key: 'openInPopupWindow',
           label: t('inPopup.title', { ns: 'topic' }),
           onClick: () => {
@@ -335,6 +355,8 @@ export const useMenu = (): { menuHeader?: ReactNode; menuItems: DropdownItem[] }
     topicTitle,
     isFavorite,
     activeAgentId,
+    activeWorkspaceSlug,
+    appOrigin,
     pathname,
     workingDirectory,
     wideScreen,

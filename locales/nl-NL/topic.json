@@ -34,6 +34,7 @@
   "actions.import": "Gesprek importeren",
   "actions.markCompleted": "Markeren als voltooid",
   "actions.moveToAgent": "Verplaatsen naar een andere assistent",
+  "actions.openInBrowser": "Openen in browser",
   "actions.openInNewTab": "Openen in nieuw tabblad",
   "actions.openInNewWindow": "Openen in een nieuw venster",
   "actions.removeAll": "Alle onderwerpen verwijderen",

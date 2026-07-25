@@ -34,6 +34,7 @@
   "actions.import": "대화 가져오기",
   "actions.markCompleted": "완료로 표시",
   "actions.moveToAgent": "다른 어시스턴트로 이동",
+  "actions.openInBrowser": "브라우저에서 열기",
   "actions.openInNewTab": "새 탭에서 열기",
   "actions.openInNewWindow": "새 창에서 열기",
   "actions.removeAll": "모든 주제 삭제",

@@ -34,6 +34,7 @@
   "actions.import": "Importar conversación",
   "actions.markCompleted": "Marcar como completada",
   "actions.moveToAgent": "Mover a otro asistente",
+  "actions.openInBrowser": "Abrir en el navegador",
   "actions.openInNewTab": "Abrir en una nueva pestaña",
   "actions.openInNewWindow": "Abrir en una nueva ventana",
   "actions.removeAll": "Eliminar todos los temas",

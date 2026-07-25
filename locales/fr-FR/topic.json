@@ -34,6 +34,7 @@
   "actions.import": "Importer une conversation",
   "actions.markCompleted": "Marquer comme terminé",
   "actions.moveToAgent": "Déplacer vers un autre assistant",
+  "actions.openInBrowser": "Ouvrir dans le navigateur",
   "actions.openInNewTab": "Ouvrir dans un nouvel onglet",
   "actions.openInNewWindow": "Ouvrir dans une nouvelle fenêtre",
   "actions.removeAll": "Supprimer tous les sujets",

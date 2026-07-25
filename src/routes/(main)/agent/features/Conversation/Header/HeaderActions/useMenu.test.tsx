@@ -16,6 +16,11 @@ const autoRenameTopicTitleMock = vi.hoisted(() => vi.fn());
 const removeTopicMock = vi.hoisted(() => vi.fn());
 const updateTopicTitleMock = vi.hoisted(() => vi.fn());
 const useLocationMock = vi.hoisted(() => vi.fn());
+const openExternalLinkMock = vi.hoisted(() => vi.fn());
+
+vi.mock('@/business/client/hooks/useActiveWorkspaceSlug', () => ({
+  useActiveWorkspaceSlug: () => 'acme',
+}));
 
 vi.mock('@/business/client/hooks/useAuthorInfo', () => ({
   useAuthorInfo: () => ({ fullName: 'Miao Miao' }),
@@ -23,6 +28,14 @@ vi.mock('@/business/client/hooks/useAuthorInfo', () => ({
 
 vi.mock('@/components/RenameModal', () => ({
   openRenameModal: vi.fn(),
+}));
+
+vi.mock('@/hooks/useAppOrigin', () => ({
+  useAppOrigin: () => 'https://app.example.com',
+}));
+
+vi.mock('@/services/electron/system', () => ({
+  electronSystemService: { openExternalLink: openExternalLinkMock },
 }));
 
 vi.mock('@/const/version', () => ({
@@ -106,6 +119,29 @@ const isActionItem = (
 } => !!item && typeof item === 'object' && 'key' in item;
 
 describe('Conversation header action menu', () => {
+  it('opens the active topic in the system browser with its workspace-aware URL', () => {
+    useLocationMock.mockReturnValue({ pathname: '/agent/agent-1' });
+
+    const { result } = renderHook(() => useMenu());
+    const browserItem = result.current.menuItems.find(
+      (item) => isActionItem(item) && item.key === 'openInBrowser',
+    );
+
+    expect(browserItem).toBeDefined();
+    if (!isActionItem(browserItem)) {
+      throw new Error('Expected browser menu item to be a clickable action item');
+    }
+    expect(browserItem.label).toBe('topic:actions.openInBrowser');
+
+    act(() => {
+      browserItem.onClick?.();
+    });
+
+    expect(openExternalLinkMock).toHaveBeenCalledWith(
+      'https://app.example.com/acme/agent/agent-1/topic-1',
+    );
+  });
+
   it('includes the desktop popup-window action for the active topic', () => {
     useLocationMock.mockReturnValue({ pathname: '/agent/agent-1' });
 

@@ -34,6 +34,7 @@
   "actions.import": "Nhập cuộc trò chuyện",
   "actions.markCompleted": "Đánh dấu hoàn thành",
   "actions.moveToAgent": "Chuyển đến trợ lý khác",
+  "actions.openInBrowser": "Mở trong trình duyệt",
   "actions.openInNewTab": "Mở trong tab mới",
   "actions.openInNewWindow": "Mở trong cửa sổ mới",
   "actions.removeAll": "Xóa tất cả chủ đề",

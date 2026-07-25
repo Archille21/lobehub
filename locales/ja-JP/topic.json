@@ -34,6 +34,7 @@
   "actions.import": "会話をインポート",
   "actions.markCompleted": "完了としてマーク",
   "actions.moveToAgent": "別のアシスタントに移動",
+  "actions.openInBrowser": "ブラウザで開く",
   "actions.openInNewTab": "新しいタブで開く",
   "actions.openInNewWindow": "新しいウィンドウで開く",
   "actions.removeAll": "すべてのトピックを削除",
