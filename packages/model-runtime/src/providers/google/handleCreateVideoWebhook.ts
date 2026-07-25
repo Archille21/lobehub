@@ -54,7 +54,8 @@ export async function handleGoogleVideoWebhook(
   if (!inferenceId) throw new Error('Missing interaction id in Google webhook body');
 
   switch (body.type) {
-    case 'interaction.completed': {
+    case 'interaction.completed':
+    case 'video.generated': {
       return { inferenceId, status: 'completed' };
     }
 

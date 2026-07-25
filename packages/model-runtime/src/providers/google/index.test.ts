@@ -86,10 +86,10 @@ describe('LobeGoogleAI', () => {
       );
     });
 
-    it('should keep Gemini Omni Flash on polling when webhook mode is preferred', async () => {
+    it('should use a dynamic webhook for Gemini Omni Flash when webhook mode is preferred', async () => {
       const createInteraction = vi
         .spyOn(instance['client'].interactions, 'create')
-        .mockResolvedValue({ id: 'interactions/omni-polling-fallback' } as any);
+        .mockResolvedValue({ id: 'interactions/omni-webhook' } as any);
 
       await expect(
         createVideoWithCompletionMode(
@@ -102,11 +102,15 @@ describe('LobeGoogleAI', () => {
           { preferredCompletionMode: 'webhook' },
         ),
       ).resolves.toEqual({
-        completionMode: 'polling',
-        inferenceId: 'interactions/omni-polling-fallback',
+        completionMode: 'webhook',
+        inferenceId: 'interactions/omni-webhook',
       });
       expect(createInteraction).toHaveBeenCalledWith(
-        expect.not.objectContaining({ webhook_config: expect.anything() }),
+        expect.objectContaining({
+          webhook_config: {
+            uris: ['https://example.com/webhook'],
+          },
+        }),
       );
     });
 

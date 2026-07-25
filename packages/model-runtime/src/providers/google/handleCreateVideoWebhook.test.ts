@@ -48,6 +48,23 @@ describe('handleGoogleVideoWebhook', () => {
     });
   });
 
+  it('should normalize a video generated event as completed', async () => {
+    const result = await handleGoogleVideoWebhook(
+      createPayload({
+        data: {
+          id: 'interactions/omni-video-123',
+          output_file_uri: 'https://example.com/video.mp4',
+        },
+        type: 'video.generated',
+      }),
+    );
+
+    expect(result).toEqual({
+      inferenceId: 'interactions/omni-video-123',
+      status: 'completed',
+    });
+  });
+
   it('should normalize an interaction failure event', async () => {
     const result = await handleGoogleVideoWebhook(
       createPayload({
