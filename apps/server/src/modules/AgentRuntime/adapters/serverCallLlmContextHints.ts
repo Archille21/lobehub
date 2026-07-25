@@ -33,7 +33,7 @@ export interface ServerCallLlmContextHints {
   modelDisplayName?: string;
   modelKnowledgeCutoff?: string;
   preserveThinkingForPayload?: boolean;
-  resolvedExtendParams?: ModelExtendParams;
+  resolvedExtendParams?: ModelExtendParams & { enabledSearch?: boolean };
   shouldReplayAssistantReasoning: boolean;
 }
 
@@ -102,6 +102,11 @@ export const resolveServerCallLlmContextHints = async ({
     modelExtendParams = readExtendParams(canonicalModelCard);
   }
 
+  const modelSupportsBuiltinSearch =
+    modelCard?.abilities?.search ??
+    (provider === ModelProvider.LobeHub ? canonicalModelCard?.abilities?.search : false) ??
+    false;
+
   const modelSupportsPreserveThinkingFromCard =
     Array.isArray(modelExtendParams) && modelExtendParams.includes('preserveThinking');
   // Kimi K2.7+ Code has preserved thinking always active and cannot opt out.
@@ -144,11 +149,16 @@ export const resolveServerCallLlmContextHints = async ({
       : undefined;
 
   const resolvedExtendParams = agentConfig?.chatConfig
-    ? applyModelExtendParams({
-        chatConfig: agentConfig.chatConfig,
-        extendParams: modelExtendParams as ExtendParamsType[] | undefined,
-        model,
-      })
+    ? {
+        ...applyModelExtendParams({
+          chatConfig: agentConfig.chatConfig,
+          extendParams: modelExtendParams as ExtendParamsType[] | undefined,
+          model,
+        }),
+        ...(agentConfig.chatConfig.searchMode !== 'off' &&
+          agentConfig.chatConfig.useModelBuiltinSearch === true &&
+          modelSupportsBuiltinSearch && { enabledSearch: true }),
+      }
     : undefined;
 
   const messagesForContext = shouldReplayAssistantReasoning

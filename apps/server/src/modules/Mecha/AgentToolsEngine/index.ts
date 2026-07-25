@@ -208,6 +208,11 @@ export const createServerAgentToolsEngine = (
 
   const searchMode = agentConfig.chatConfig?.searchMode ?? 'auto';
   const isSearchEnabled = searchMode !== 'off';
+  const useModelBuiltinSearch =
+    isSearchEnabled &&
+    agentConfig.chatConfig?.useModelBuiltinSearch === true &&
+    modelAbilities?.search === true;
+  const useApplicationBuiltinSearch = isSearchEnabled && !useModelBuiltinSearch;
   const imageGenerationEnabled =
     context.isModelSupportToolUse(model, provider) && !modelAbilities?.imageOutput;
   // Tool mode: explicit `toolMode` wins; otherwise derive from `enableAgentMode`
@@ -240,7 +245,7 @@ export const createServerAgentToolsEngine = (
     [ImageGenerationManifest.identifier]: imageGenerationEnabled,
     [KnowledgeBaseManifest.identifier]: hasEnabledKnowledgeBases,
     [MemoryManifest.identifier]: globalMemoryEnabled,
-    [WebBrowsingManifest.identifier]: isSearchEnabled,
+    [WebBrowsingManifest.identifier]: useApplicationBuiltinSearch,
   };
 
   // Custom mode: the tool set is EXACTLY the agent's declared plugins — no
@@ -295,7 +300,7 @@ export const createServerAgentToolsEngine = (
     // degrades denied targets to `none` (→ not deviceCapable) and the
     // physical walls drop it for `canUseDevice=false` turns.
     [RemoteDeviceManifest.identifier]: deviceCapable && hasDeviceProxy && !deviceLocked,
-    [WebBrowsingManifest.identifier]: isSearchEnabled,
+    [WebBrowsingManifest.identifier]: useApplicationBuiltinSearch,
   };
 
   const excludedIdentifiers = new Set(disabledPluginIds);

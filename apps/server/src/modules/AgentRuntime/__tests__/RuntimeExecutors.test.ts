@@ -46,6 +46,11 @@ const mockBuiltinModels = vi.hoisted(() => [
     providerId: 'google',
     settings: { extendParams: ['preserveThinking'] },
   },
+  {
+    abilities: { functionCall: true, search: true, video: false, vision: true },
+    id: 'grok-4.5',
+    providerId: 'supergrok',
+  },
 ]);
 
 // Mock dependencies
@@ -364,6 +369,40 @@ describe('RuntimeExecutors', { timeout: 60_000 }, () => {
         'user-123',
         'openai',
         'ws-1',
+      );
+    });
+
+    it('enables provider builtin search for supported models in the server runtime', async () => {
+      const mockChat = vi.fn().mockImplementation(async (_payload: any, options: any) => {
+        await options?.callback?.onText?.('done');
+        return new Response('done');
+      });
+      vi.mocked(initModelRuntimeFromDB).mockResolvedValueOnce({ chat: mockChat } as any);
+      const executors = createRuntimeExecutors({
+        ...ctx,
+        agentConfig: {
+          chatConfig: { searchMode: 'auto', useModelBuiltinSearch: true },
+          plugins: [],
+          systemRole: 'test',
+        },
+      });
+
+      await executors.call_llm!(
+        {
+          payload: {
+            messages: [{ content: 'Search X', role: 'user' }],
+            model: 'grok-4.5',
+            provider: 'supergrok',
+            tools: [],
+          },
+          type: 'call_llm',
+        },
+        createMockState(),
+      );
+
+      expect(mockChat).toHaveBeenCalledWith(
+        expect.objectContaining({ enabledSearch: true }),
+        expect.anything(),
       );
     });
 

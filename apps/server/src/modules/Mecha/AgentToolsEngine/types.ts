@@ -79,6 +79,7 @@ export interface ServerCreateAgentToolsEngineParams {
        */
       enableAgentMode?: boolean;
       searchMode?: 'off' | 'on' | 'auto';
+      useModelBuiltinSearch?: boolean;
       /**
        * Overrides the `enableAgentMode` derivation. `custom` = the toolset is
        * exactly the agent's declared plugins (focused builtin sub-agents).

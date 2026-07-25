@@ -256,6 +256,48 @@ describe('createServerAgentToolsEngine', () => {
     expect(result.enabledToolIds).not.toContain(WebBrowsingManifest.identifier);
   });
 
+  it('should disable WebBrowsing when provider builtin search is selected', () => {
+    const context = createMockContext();
+    const engine = createServerAgentToolsEngine(context, {
+      agentConfig: {
+        plugins: [WebBrowsingManifest.identifier],
+        chatConfig: { searchMode: 'auto', useModelBuiltinSearch: true },
+      },
+      model: 'grok-4.5',
+      modelAbilities: { functionCall: true, search: true },
+      provider: 'supergrok',
+    });
+
+    const result = engine.generateToolsDetailed({
+      toolIds: [WebBrowsingManifest.identifier],
+      model: 'grok-4.5',
+      provider: 'supergrok',
+    });
+
+    expect(result.enabledToolIds).not.toContain(WebBrowsingManifest.identifier);
+  });
+
+  it('should fall back to WebBrowsing when the model lacks builtin search', () => {
+    const context = createMockContext();
+    const engine = createServerAgentToolsEngine(context, {
+      agentConfig: {
+        plugins: [WebBrowsingManifest.identifier],
+        chatConfig: { searchMode: 'auto', useModelBuiltinSearch: true },
+      },
+      model: 'gpt-4',
+      modelAbilities: { functionCall: true, search: false },
+      provider: 'openai',
+    });
+
+    const result = engine.generateToolsDetailed({
+      toolIds: [WebBrowsingManifest.identifier],
+      model: 'gpt-4',
+      provider: 'openai',
+    });
+
+    expect(result.enabledToolIds).toContain(WebBrowsingManifest.identifier);
+  });
+
   it('should enable ImageGeneration in chat mode when model lacks native image output', () => {
     const context = createMockContext();
     const engine = createServerAgentToolsEngine(context, {
