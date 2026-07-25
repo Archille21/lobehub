@@ -13,7 +13,6 @@ import { UserModel } from '@/database/models/user';
 import { AiInfraRepos } from '@/database/repositories/aiInfra';
 import { router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
-import { requireProviderSettings } from '@/routers/lambda/requireProviderSettings';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
@@ -24,6 +23,8 @@ import {
   UpdateAiProviderSchema,
 } from '@/types/aiProvider';
 import { type ProviderConfig } from '@/types/user/settings';
+
+import { requireProviderSettings } from './requireProviderSettings';
 
 const aiProviderProcedure = wsCompatProcedure.use(serverDatabase).use(async (opts) => {
   const { ctx } = opts;
