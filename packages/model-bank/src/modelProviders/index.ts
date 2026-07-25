@@ -240,6 +240,11 @@ export const isProviderDisableBrowserRequest = (id: string) => {
   return !!provider;
 };
 
+export const isProviderHasBuiltinSearch = (id: string) =>
+  DEFAULT_MODEL_PROVIDER_LIST.some(
+    (provider) => provider.id === id && !!provider.settings?.searchMode,
+  );
+
 export const isProviderOAuthDeviceFlow = (id?: string) =>
   DEFAULT_MODEL_PROVIDER_LIST.some(
     (provider) => provider.id === id && provider.settings?.authType === 'oauthDeviceFlow',

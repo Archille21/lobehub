@@ -9,6 +9,7 @@ import {
 } from '@lobechat/model-runtime';
 import type { UIChatMessage } from '@lobechat/types';
 import { type ExtendParamsType, ModelProvider } from 'model-bank';
+import { isProviderHasBuiltinSearch } from 'model-bank/modelProviders';
 
 import { AiModelModel } from '@/database/models/aiModel';
 
@@ -106,6 +107,7 @@ export const resolveServerCallLlmContextHints = async ({
     modelCard?.abilities?.search ??
     (provider === ModelProvider.LobeHub ? canonicalModelCard?.abilities?.search : false) ??
     false;
+  const supportsBuiltinSearch = isProviderHasBuiltinSearch(provider) || modelSupportsBuiltinSearch;
 
   const modelSupportsPreserveThinkingFromCard =
     Array.isArray(modelExtendParams) && modelExtendParams.includes('preserveThinking');
@@ -157,7 +159,7 @@ export const resolveServerCallLlmContextHints = async ({
         }),
         ...(agentConfig.chatConfig.searchMode !== 'off' &&
           agentConfig.chatConfig.useModelBuiltinSearch === true &&
-          modelSupportsBuiltinSearch && { enabledSearch: true }),
+          supportsBuiltinSearch && { enabledSearch: true }),
       }
     : undefined;
 

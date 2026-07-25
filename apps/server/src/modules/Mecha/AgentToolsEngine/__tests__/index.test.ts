@@ -277,6 +277,26 @@ describe('createServerAgentToolsEngine', () => {
     expect(result.enabledToolIds).not.toContain(WebBrowsingManifest.identifier);
   });
 
+  it('should disable WebBrowsing for unbundled models when the provider supports builtin search', () => {
+    const context = createMockContext();
+    const engine = createServerAgentToolsEngine(context, {
+      agentConfig: {
+        plugins: [WebBrowsingManifest.identifier],
+        chatConfig: { searchMode: 'auto', useModelBuiltinSearch: true },
+      },
+      model: 'vendor/unbundled-model',
+      provider: 'openrouter',
+    });
+
+    const result = engine.generateToolsDetailed({
+      toolIds: [WebBrowsingManifest.identifier],
+      model: 'vendor/unbundled-model',
+      provider: 'openrouter',
+    });
+
+    expect(result.enabledToolIds).not.toContain(WebBrowsingManifest.identifier);
+  });
+
   it('should fall back to WebBrowsing when the model lacks builtin search', () => {
     const context = createMockContext();
     const engine = createServerAgentToolsEngine(context, {

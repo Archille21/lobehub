@@ -33,6 +33,7 @@ import {
   type RuntimePlatform,
 } from '@lobechat/types';
 import debug from 'debug';
+import { isProviderHasBuiltinSearch } from 'model-bank/modelProviders';
 
 import {
   executionTargetToRuntimeMode,
@@ -211,7 +212,7 @@ export const createServerAgentToolsEngine = (
   const useModelBuiltinSearch =
     isSearchEnabled &&
     agentConfig.chatConfig?.useModelBuiltinSearch === true &&
-    modelAbilities?.search === true;
+    (isProviderHasBuiltinSearch(provider) || modelAbilities?.search === true);
   const useApplicationBuiltinSearch = isSearchEnabled && !useModelBuiltinSearch;
   const imageGenerationEnabled =
     context.isModelSupportToolUse(model, provider) && !modelAbilities?.imageOutput;

@@ -406,6 +406,40 @@ describe('RuntimeExecutors', { timeout: 60_000 }, () => {
       );
     });
 
+    it('enables provider builtin search for unbundled OpenRouter models', async () => {
+      const mockChat = vi.fn().mockImplementation(async (_payload: any, options: any) => {
+        await options?.callback?.onText?.('done');
+        return new Response('done');
+      });
+      vi.mocked(initModelRuntimeFromDB).mockResolvedValueOnce({ chat: mockChat } as any);
+      const executors = createRuntimeExecutors({
+        ...ctx,
+        agentConfig: {
+          chatConfig: { searchMode: 'auto', useModelBuiltinSearch: true },
+          plugins: [],
+          systemRole: 'test',
+        },
+      });
+
+      await executors.call_llm!(
+        {
+          payload: {
+            messages: [{ content: 'Search the web', role: 'user' }],
+            model: 'vendor/unbundled-model',
+            provider: 'openrouter',
+            tools: [],
+          },
+          type: 'call_llm',
+        },
+        createMockState(),
+      );
+
+      expect(mockChat).toHaveBeenCalledWith(
+        expect.objectContaining({ enabledSearch: true }),
+        expect.anything(),
+      );
+    });
+
     it('should restrict context tools to allowedToolNames', async () => {
       const toolNameResolver = new ToolNameResolver();
       const readToolName = toolNameResolver.generate('workspace', 'read', 'builtin');

@@ -4,6 +4,7 @@ import { type ModelProviderCard } from '../types';
 import {
   DEFAULT_MODEL_PROVIDER_LIST,
   isProviderDisableBrowserRequest,
+  isProviderHasBuiltinSearch,
   isProviderOAuthDeviceFlow,
 } from './index';
 
@@ -25,6 +26,7 @@ describe('model provider predicates', () => {
       createProvider({ id: 'root-disabled', disableBrowserRequest: true }),
       createProvider({ id: 'settings-disabled', settings: { disableBrowserRequest: true } }),
       createProvider({ id: 'oauth-provider', settings: { authType: 'oauthDeviceFlow' } }),
+      createProvider({ id: 'search-provider', settings: { searchMode: 'params' } }),
       createProvider({ id: 'enabled-provider' }),
     );
   });
@@ -48,6 +50,12 @@ describe('model provider predicates', () => {
 
   it('returns false for unknown provider id', () => {
     expect(isProviderDisableBrowserRequest('not-exists')).toBe(false);
+  });
+
+  it('detects providers with builtin search', () => {
+    expect(isProviderHasBuiltinSearch('search-provider')).toBe(true);
+    expect(isProviderHasBuiltinSearch('enabled-provider')).toBe(false);
+    expect(isProviderHasBuiltinSearch('not-exists')).toBe(false);
   });
 
   it('detects OAuth device flow providers', () => {
