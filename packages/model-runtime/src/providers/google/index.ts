@@ -331,8 +331,17 @@ export class LobeGoogleAI implements LobeRuntimeAI {
   getVideoGenerationCapabilities(model: string): VideoGenerationCapabilities {
     const requestModel = resolveMappedModelId(model, this.modelIdMappingOptions);
 
+    /**
+     * The Gemini Omni preview accepts dynamic webhook configuration but does not reliably deliver
+     * terminal events. Advertising webhook support would leave completed tasks stuck forever
+     * because the caller intentionally runs exactly one completion strategy.
+     */
+    if (isGeminiOmniVideoModel(requestModel)) {
+      return { completionModes: ['polling'] };
+    }
+
     return {
-      completionModes: isGeminiOmniVideoModel(requestModel) ? ['polling', 'webhook'] : ['polling'],
+      completionModes: ['polling'],
     };
   }
 
