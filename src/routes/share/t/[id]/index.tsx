@@ -1,5 +1,6 @@
 'use client';
 
+import { DEFAULT_INBOX_TITLE } from '@lobechat/const';
 import { memo } from 'react';
 import { useParams } from 'react-router';
 import useSWR from 'swr';
@@ -24,7 +25,7 @@ const ShareTopicPage = memo(() => {
 
   const isInboxAgent = !data.groupId && data.agentMeta?.slug === 'inbox';
   const agentOrGroupTitle =
-    data.groupMeta?.title || (isInboxAgent ? 'Lobe AI' : data.agentMeta?.title);
+    data.groupMeta?.title || (isInboxAgent ? DEFAULT_INBOX_TITLE : data.agentMeta?.title);
 
   return (
     <SharedMessageList
