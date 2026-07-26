@@ -25,7 +25,11 @@ describe('applyBrandStrings', () => {
   });
 
   it('is only enabled when the deployment renamed the assistant', () => {
-    expect(isBrandPostProcessorEnabled).toBe(DEFAULT_INBOX_TITLE !== 'Lobe AI');
+    // Cast away the literal type: under a given branding config tsc knows the
+    // outcome of this comparison, but the assertion must hold for both.
+    const renamed = (DEFAULT_INBOX_TITLE as string) !== 'Lobe AI';
+
+    expect(isBrandPostProcessorEnabled).toBe(renamed);
   });
 });
 

@@ -13,7 +13,7 @@ export interface ParsedLobeLink {
   kind: LobeLinkKind;
 }
 
-const stripWww = (host: string) => host.replace(/^www\./, '');
+export const stripWww = (host: string) => host.replace(/^www\./, '');
 
 /** npmjs.com/package/<name> → `<name>` (handles scoped packages and versions). */
 const npmPackageName = (segments: string[]): string | undefined => {
