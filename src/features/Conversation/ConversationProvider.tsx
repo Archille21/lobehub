@@ -53,6 +53,10 @@ export interface ConversationProviderProps {
    */
   hooks?: ConversationHooks;
   /**
+   * Parsed messages cached by the parent store for synchronous remount reuse.
+   */
+  initialDisplayMessages?: UIChatMessage[];
+  /**
    * External messages to sync into the store
    * When provided, these messages will be used as the source of truth
    */
@@ -90,6 +94,7 @@ export const ConversationProvider = memo<ConversationProviderProps>(
     context,
     hooks = {},
     hasInitMessages,
+    initialDisplayMessages,
     messages,
     onMessagesChange,
     operationState,
@@ -107,8 +112,16 @@ export const ConversationProvider = memo<ConversationProviderProps>(
 
     return (
       <Provider
-        createStore={() => createStore({ context, hooks, initialMessages: messages, skipFetch })}
         key={contextKey}
+        createStore={() =>
+          createStore({
+            context,
+            hooks,
+            initialDisplayMessages,
+            initialMessages: messages,
+            skipFetch,
+          })
+        }
       >
         <StoreUpdater
           actionsBar={actionsBar}

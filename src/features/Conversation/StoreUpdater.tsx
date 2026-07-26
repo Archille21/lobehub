@@ -59,7 +59,7 @@ const StoreUpdater = memo<StoreUpdaterProps>(
   }) => {
     const storeApi = useConversationStoreApi();
     const useStoreUpdater = createStoreUpdater(storeApi);
-    const prevMessagesRef = useRef<UIChatMessage[] | undefined>(undefined);
+    const prevMessagesRef = useRef<UIChatMessage[] | undefined>(messages);
     const contextKey = messageMapKey(context);
 
     useStoreUpdater('actionsBar', actionsBar);
@@ -106,6 +106,8 @@ const StoreUpdater = memo<StoreUpdaterProps>(
         const newCount = messages.length;
         const isSameReference = prevMessages === messages;
         const storeMessages = storeApi.getState().dbMessages;
+
+        if (isSameReference && storeMessages === messages) return;
 
         log(
           '[StoreUpdater] messages effect | contextKey=%s | prevCount=%d | newCount=%d | sameRef=%s | storeCount=%d | messageIds=%o',

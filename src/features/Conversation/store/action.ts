@@ -40,6 +40,12 @@ export interface CreateStoreParams {
   context: ConversationContext;
   hooks?: ConversationHooks;
   /**
+   * Parsed display messages already cached by the parent ChatStore. Reusing
+   * them avoids rebuilding the entire conversation-flow tree synchronously
+   * whenever a desktop tab switches back to an initialized conversation.
+   */
+  initialDisplayMessages?: UIChatMessage[];
+  /**
    * Messages to seed the freshly-created store with, already known by the parent
    * (ConversationArea reads them from ChatStore's `dbMessagesMap`). Seeding at
    * creation — rather than waiting for StoreUpdater's post-mount effect — is what
@@ -61,7 +67,7 @@ type CreateStore = (
 ) => StateCreator<Store, [['zustand/devtools', never]]>;
 
 export const createStoreAction: CreateStore =
-  ({ context, hooks = {}, initialMessages, skipFetch }) =>
+  ({ context, hooks = {}, initialDisplayMessages, initialMessages, skipFetch }) =>
   (...params) => ({
     ...initialState,
     context,
@@ -73,7 +79,7 @@ export const createStoreAction: CreateStore =
     ...(initialMessages
       ? {
           dbMessages: initialMessages,
-          displayMessages: parse(initialMessages).flatList,
+          displayMessages: initialDisplayMessages ?? parse(initialMessages).flatList,
           messagesInit: true,
         }
       : {}),

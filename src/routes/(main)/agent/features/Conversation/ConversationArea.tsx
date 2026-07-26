@@ -68,6 +68,7 @@ const Conversation = memo(() => {
   );
   const replaceMessages = useChatStore((s) => s.replaceMessages);
   const messages = useChatStore((s) => s.dbMessagesMap[chatKey]);
+  const displayMessages = useChatStore((s) => s.messagesMap[chatKey]);
 
   log('contextKey %s: %o', chatKey, messages);
 
@@ -116,6 +117,7 @@ const Conversation = memo(() => {
       context={context}
       hasInitMessages={!!messages}
       hooks={hooks}
+      initialDisplayMessages={displayMessages}
       messages={messages}
       operationState={operationState}
       onMessagesChange={(messages, ctx) => {

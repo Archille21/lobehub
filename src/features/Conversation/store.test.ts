@@ -1,3 +1,4 @@
+import type { UIChatMessage } from '@lobechat/types';
 import { act } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -147,6 +148,35 @@ describe('ConversationStore', () => {
       expect(state.hooks).toBe(hooks);
       expect(state.hooks.onBeforeSendMessage).toBeDefined();
       expect(state.hooks.onAfterSendMessage).toBeDefined();
+    });
+
+    it('should reuse cached display messages when seeding an initialized conversation', () => {
+      const context: ConversationContext = {
+        agentId: 'session-1',
+        threadId: null,
+        topicId: 'topic-1',
+      };
+      const initialMessages = [
+        {
+          content: 'raw message',
+          createdAt: 1,
+          id: 'message-1',
+          role: 'assistant',
+          updatedAt: 1,
+        },
+      ] as UIChatMessage[];
+      const initialDisplayMessages = [
+        {
+          ...initialMessages[0],
+          content: 'already parsed',
+        },
+      ] as UIChatMessage[];
+
+      const store = createStore({ context, initialDisplayMessages, initialMessages });
+
+      expect(store.getState().dbMessages).toBe(initialMessages);
+      expect(store.getState().displayMessages).toBe(initialDisplayMessages);
+      expect(store.getState().messagesInit).toBe(true);
     });
 
     it('should create store with thread context', () => {
