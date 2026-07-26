@@ -151,9 +151,21 @@ export const resolveServerCallLlmContextHints = async ({
       })
     : undefined;
 
+  // Drop the in-flight assistant message — the placeholder (content `'...'`)
+  // created for the response we are about to generate. The client transport
+  // does the same (ClientContextBuilder), and without it every server-side
+  // payload ends with an assistant message, i.e. reads as a prefill the model
+  // should continue. Most OpenAI-compatible endpoints tolerate that; some
+  // reject it outright (AIHubMix's Claude route: "This model does not support
+  // assistant message prefill. The conversation must end with a user message").
+  const assistantMessageId = (llmPayload as { assistantMessageId?: string }).assistantMessageId;
+  const payloadMessages = (llmPayload.messages as UIChatMessage[]).filter(
+    (message) => !assistantMessageId || message.id !== assistantMessageId,
+  );
+
   const messagesForContext = shouldReplayAssistantReasoning
-    ? (llmPayload.messages as UIChatMessage[])
-    : stripAssistantReasoningForReplay(llmPayload.messages as UIChatMessage[]);
+    ? payloadMessages
+    : stripAssistantReasoningForReplay(payloadMessages);
 
   const findModelInfo = (targetModel: string, targetProvider: string) =>
     builtinModels.find((item) => item.id === targetModel && item.providerId === targetProvider) ??
