@@ -2,6 +2,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { isNonRetryableRequestError } from '../../utils/isNonRetryableRequestError';
+import { ContextExceededPreFlightError } from '../../utils/resolveSafeMaxTokens';
 import {
   createAnthropicCompatibleRuntime,
   createDefaultAnthropicClient,
@@ -255,5 +257,94 @@ describe('createAnthropicCompatibleRuntime', () => {
       expect.objectContaining({ requestModel: 'upstream-model' }),
     );
     expect(result).toEqual({ ok: true });
+  });
+});
+
+describe('anthropicCompatibleFactory pre-flight context errors', () => {
+  const preFlightError = () =>
+    new ContextExceededPreFlightError({
+      ctx: 1_048_576,
+      minOutputTokens: 1024,
+      model: 'deepseek-v4-pro',
+      promptTokens: 1_054_972,
+    });
+
+  const createRuntimeThrowing = (
+    error: Error,
+    handleError?: (error: any) => { errorType: string } | undefined,
+  ) => {
+    const Runtime = createAnthropicCompatibleRuntime({
+      chatCompletion: {
+        handleError,
+        handlePayload: () => {
+          throw error;
+        },
+      },
+      customClient: {
+        createClient: () =>
+          ({
+            baseURL: 'https://api.deepseek.com/anthropic',
+            messages: { create: vi.fn() },
+          }) as unknown as Anthropic,
+      },
+      provider: 'deepseek',
+    });
+
+    return new Runtime({ apiKey: 'test-key' });
+  };
+
+  it('should surface ContextExceededPreFlightError as ExceededContextWindow with diagnostics', async () => {
+    const runtime = createRuntimeThrowing(preFlightError());
+
+    const error = await runtime
+      .chat({ messages: [{ content: 'hi', role: 'user' }], model: 'deepseek-v4-pro' } as any)
+      .catch((e) => e);
+
+    expect(error).toMatchObject({
+      errorType: 'ExceededContextWindow',
+      provider: 'deepseek',
+    });
+    expect(error.errorType).not.toBe('ProviderBizError');
+    expect(error.error).toEqual({
+      ctx: 1_048_576,
+      minOutputTokens: 1024,
+      model: 'deepseek-v4-pro',
+      promptTokens: 1_054_972,
+      shortBy: 6396,
+      suggestions: ['fork_topic', 'switch_to_larger_ctx_model'],
+      type: 'context_exceeded_pre_flight',
+    });
+  });
+
+  it('should take precedence over a provider-specific handleError', async () => {
+    const handleError = vi.fn(() => ({ errorType: 'ProviderBizError' }));
+    const runtime = createRuntimeThrowing(preFlightError(), handleError);
+
+    const error = await runtime
+      .chat({ messages: [{ content: 'hi', role: 'user' }], model: 'deepseek-v4-pro' } as any)
+      .catch((e) => e);
+
+    expect(error.errorType).toBe('ExceededContextWindow');
+    expect(handleError).not.toHaveBeenCalled();
+  });
+
+  it('should stop the router from retrying the request on other channels', async () => {
+    const runtime = createRuntimeThrowing(preFlightError());
+
+    const error = await runtime
+      .chat({ messages: [{ content: 'hi', role: 'user' }], model: 'deepseek-v4-pro' } as any)
+      .catch((e) => e);
+
+    expect(isNonRetryableRequestError(error)).toBe(true);
+  });
+
+  it('should keep classifying unrelated provider errors as biz errors', async () => {
+    const runtime = createRuntimeThrowing(new Error('something else went wrong'));
+
+    const error = await runtime
+      .chat({ messages: [{ content: 'hi', role: 'user' }], model: 'deepseek-v4-pro' } as any)
+      .catch((e) => e);
+
+    expect(error.errorType).toBe('ProviderBizError');
   });
 });

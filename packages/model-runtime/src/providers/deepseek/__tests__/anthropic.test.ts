@@ -217,3 +217,35 @@ describe('LobeDeepSeekAnthropicAI handlePayload', () => {
     expect(serialized).toContain(validEmoji);
   });
 });
+
+// Regression for the production incident where a ~5 MB attachment pushed the
+// prompt past deepseek-v4-pro's 1M window: the pre-flight error was downgraded
+// to ProviderBizError, so the client showed a generic "request hiccup" instead
+// of the context-window UI and the router kept retrying other channels.
+describe('LobeDeepSeekAnthropicAI context pre-flight', () => {
+  it('should reject an over-window prompt as ExceededContextWindow', async () => {
+    const instance = new LobeDeepSeekAnthropicAI({ apiKey: 'test' });
+    const messagesCreate = vi
+      .spyOn((instance as any).client.messages, 'create')
+      .mockResolvedValue(new ReadableStream() as any);
+
+    // ~10M chars — unambiguously over the 1,048,576-token window.
+    const huge = 'lorem ipsum dolor '.repeat(560_000);
+
+    const error = await instance
+      .chat({ messages: [{ content: huge, role: 'user' }], model: 'deepseek-v4-pro' })
+      .catch((e) => e);
+
+    expect(error).toMatchObject({
+      error: expect.objectContaining({
+        ctx: 1_048_576,
+        model: 'deepseek-v4-pro',
+        type: 'context_exceeded_pre_flight',
+      }),
+      errorType: 'ExceededContextWindow',
+      provider: 'deepseek',
+    });
+    // Nothing should reach upstream — the whole point of the pre-flight check.
+    expect(messagesCreate).not.toHaveBeenCalled();
+  });
+});

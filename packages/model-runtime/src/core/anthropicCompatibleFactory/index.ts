@@ -27,6 +27,7 @@ import { getModelPricing } from '../../utils/getModelPricing';
 import type { ModelIdMappingOptions } from '../../utils/modelIdMapping';
 import { resolveMappedModelId } from '../../utils/modelIdMapping';
 import { MODEL_LIST_CONFIGS, processModelList } from '../../utils/modelParse';
+import { ContextExceededPreFlightError } from '../../utils/resolveSafeMaxTokens';
 import { StreamingResponse } from '../../utils/response';
 import type { LobeRuntimeAI } from '../BaseAI';
 import {
@@ -726,6 +727,23 @@ export const createAnthropicCompatibleRuntime = <T extends Record<string, any> =
       let desensitizedEndpoint = this.baseURL;
       if (this.baseURL !== DEFAULT_BASE_URL) {
         desensitizedEndpoint = desensitizeUrl(this.baseURL);
+      }
+
+      // Keep pre-flight context-window failures structured, mirroring
+      // `openaiCompatibleFactory`. Without this branch the error falls through to
+      // the generic string classifier, which cannot match the pre-flight message
+      // and downgrades it to a `ProviderBizError` — that hides the dedicated
+      // "exceeded context window" UI and stops the router from treating the
+      // request as non-retryable, so it keeps burning fallback channels.
+      if (error instanceof ContextExceededPreFlightError) {
+        log('pre-flight context exceeded: %s', error.message);
+        return AgentRuntimeError.chat({
+          endpoint: desensitizedEndpoint,
+          error: error.toPayload(),
+          errorType: AgentRuntimeErrorType.ExceededContextWindow,
+          message: error.message,
+          provider: this.id,
+        });
       }
 
       if (chatCompletion?.handleError) {
