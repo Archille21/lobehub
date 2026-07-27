@@ -1,9 +1,11 @@
-import type { SkillItem, SkillListItem } from '@lobechat/types';
+import { INBOX_SESSION_ID } from '@lobechat/const';
+import type { AgentPluginEntry, SkillItem, SkillListItem } from '@lobechat/types';
+import { getPluginMode, upsertPluginMode } from '@lobechat/types';
 import { merge } from '@lobechat/utils';
 import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 
 import type { NewAgentSkill } from '../schemas';
-import { agentSkills } from '../schemas';
+import { agents, agentSkills } from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
 
@@ -52,14 +54,47 @@ export class AgentSkillModel {
   private scopeWhere = () =>
     buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, agentSkills);
 
+  // Workspace skills are shared, so initialize every agent in the workspace,
+  // including private agents owned by other members.
+  private agentScopeWhere = () =>
+    buildWorkspaceWhere(
+      { userId: this.userId, workspaceId: this.workspaceId },
+      { userId: agents.userId, workspaceId: agents.workspaceId },
+    );
+
   // ========== Create ==========
 
   create = async (data: Omit<NewAgentSkill, 'userId' | 'workspaceId'>): Promise<SkillItem> => {
-    const [result] = await this.db
-      .insert(agentSkills)
-      .values(buildWorkspacePayload({ userId: this.userId, workspaceId: this.workspaceId }, data))
-      .returning(skillItemColumns);
-    return result;
+    return this.db.transaction(async (trx) => {
+      const [result] = await trx
+        .insert(agentSkills)
+        .values(buildWorkspacePayload({ userId: this.userId, workspaceId: this.workspaceId }, data))
+        .returning(skillItemColumns);
+
+      const scopedAgents = await trx
+        .select({ id: agents.id, plugins: agents.plugins, slug: agents.slug })
+        .from(agents)
+        .where(this.agentScopeWhere());
+
+      for (const agent of scopedAgents) {
+        const plugins = agent.plugins as AgentPluginEntry[] | null;
+        const defaultMode = agent.slug === INBOX_SESSION_ID ? 'auto' : 'disabled';
+        if (getPluginMode(plugins ?? undefined, data.identifier) === defaultMode) continue;
+
+        await trx
+          .update(agents)
+          .set({
+            plugins: upsertPluginMode(
+              plugins ?? undefined,
+              data.identifier,
+              defaultMode,
+            ) as string[],
+          })
+          .where(and(eq(agents.id, agent.id), this.agentScopeWhere()));
+      }
+
+      return result;
+    });
   };
 
   // ========== Read ==========

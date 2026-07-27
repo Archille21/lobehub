@@ -1,10 +1,11 @@
 // @vitest-environment node
-import type { SkillManifest } from '@lobechat/types';
+import type { AgentPluginEntry, SkillManifest } from '@lobechat/types';
+import { getPluginMode } from '@lobechat/types';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../core/getTestDB';
-import { agentSkills, users } from '../../schemas';
+import { agents, agentSkills, users } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
 import { AgentSkillModel } from '../agentSkill';
 
@@ -45,6 +46,61 @@ describe('AgentSkillModel', () => {
 
       expect(skill).toMatchObject(params);
       expect(skill.id).toBeDefined();
+    });
+
+    it('defaults a new skill to auto for inbox and disabled for every other agent', async () => {
+      await serverDB.insert(agents).values([
+        {
+          id: 'skill-default-inbox',
+          plugins: ['existing-inbox-plugin'],
+          slug: 'inbox',
+          userId,
+          virtual: true,
+        },
+        {
+          id: 'skill-default-agent',
+          plugins: ['existing-agent-plugin'],
+          slug: 'custom-agent',
+          userId,
+        },
+        {
+          id: 'skill-default-virtual-agent',
+          slug: 'virtual-agent',
+          userId,
+          virtual: true,
+        },
+      ]);
+
+      await agentSkillModel.create({
+        content: '# New custom skill',
+        description: 'A newly added custom skill',
+        identifier: 'new-custom-skill',
+        manifest: createManifest(),
+        name: 'New Custom Skill',
+        source: 'user',
+      });
+
+      const configuredAgents = await serverDB.query.agents.findMany({
+        where: eq(agents.userId, userId),
+      });
+      const pluginsByAgentId = new Map(
+        configuredAgents.map((agent) => [agent.id, agent.plugins as AgentPluginEntry[] | null]),
+      );
+
+      expect(
+        getPluginMode(pluginsByAgentId.get('skill-default-inbox') ?? undefined, 'new-custom-skill'),
+      ).toBe('auto');
+      expect(
+        getPluginMode(pluginsByAgentId.get('skill-default-agent') ?? undefined, 'new-custom-skill'),
+      ).toBe('disabled');
+      expect(
+        getPluginMode(
+          pluginsByAgentId.get('skill-default-virtual-agent') ?? undefined,
+          'new-custom-skill',
+        ),
+      ).toBe('disabled');
+      expect(pluginsByAgentId.get('skill-default-inbox')).toContain('existing-inbox-plugin');
+      expect(pluginsByAgentId.get('skill-default-agent')).toContain('existing-agent-plugin');
     });
   });
 
