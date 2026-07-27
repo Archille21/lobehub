@@ -25,8 +25,10 @@ import {
 } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
 import { AgentModel } from '../agent';
+import { AgentSkillModel } from '../agentSkill';
 
 const serverDB: LobeChatDatabase = await getTestDB();
+const isServerDB = process.env.TEST_SERVER_DB === '1';
 
 const userId = 'agent-model-test-user-id';
 const userId2 = 'agent-model-test-user-id-2';
@@ -796,6 +798,25 @@ describe('AgentModel', () => {
   });
 
   describe('update', () => {
+    it('keeps scoped custom skills disabled when a full plugins array omits them', async () => {
+      await serverDB.insert(agentSkills).values({
+        description: 'Update path skill',
+        identifier: 'update-path-skill',
+        manifest: { description: 'Update path skill', name: 'Update Path Skill' },
+        name: 'Update Path Skill',
+        source: 'user',
+        userId,
+      });
+      const agent = await agentModel.create({ title: 'Update Path Agent' });
+
+      await agentModel.update(agent.id, { plugins: ['caller-plugin'] as unknown as string[] });
+
+      const updated = await serverDB.query.agents.findFirst({ where: eq(agents.id, agent.id) });
+      const plugins = updated?.plugins as AgentPluginEntry[] | undefined;
+      expect(getPluginMode(plugins, 'caller-plugin')).toBe('pinned');
+      expect(getPluginMode(plugins, 'update-path-skill')).toBe('disabled');
+    });
+
     it('should update agent fields and set updatedAt', async () => {
       const agent = await serverDB
         .insert(agents)
@@ -1146,6 +1167,135 @@ describe('AgentModel', () => {
   });
 
   describe('updateConfig', () => {
+    it('preserves a committed skill default when a stale full plugins array is written later', async () => {
+      const [agent] = await serverDB
+        .insert(agents)
+        .values({ plugins: ['original-plugin'], userId })
+        .returning();
+      await new AgentSkillModel(serverDB, userId).create({
+        description: 'Committed config skill',
+        identifier: 'committed-config-skill',
+        manifest: { description: 'Committed config skill', name: 'Committed Config Skill' },
+        name: 'Committed Config Skill',
+        source: 'user',
+      });
+
+      await agentModel.updateConfig(agent.id, { plugins: ['stale-caller-plugin'] });
+
+      const updated = await serverDB.query.agents.findFirst({ where: eq(agents.id, agent.id) });
+      const plugins = updated?.plugins as AgentPluginEntry[] | undefined;
+      expect(getPluginMode(plugins, 'stale-caller-plugin')).toBe('pinned');
+      expect(getPluginMode(plugins, 'committed-config-skill')).toBe('disabled');
+    });
+
+    it('preserves an explicit auto selection for a custom skill', async () => {
+      await serverDB.insert(agentSkills).values({
+        description: 'Explicit auto skill',
+        identifier: 'explicit-auto-skill',
+        manifest: { description: 'Explicit auto skill', name: 'Explicit Auto Skill' },
+        name: 'Explicit Auto Skill',
+        source: 'user',
+        userId,
+      });
+      const agent = await agentModel.create({ title: 'Explicit Auto Agent' });
+
+      await agentModel.updateConfig(agent.id, {
+        plugins: [{ identifier: 'explicit-auto-skill', mode: 'auto' }] as unknown as string[],
+      });
+
+      const updated = await serverDB.query.agents.findFirst({ where: eq(agents.id, agent.id) });
+      expect(
+        getPluginMode(updated?.plugins as AgentPluginEntry[] | undefined, 'explicit-auto-skill'),
+      ).toBe('auto');
+    });
+
+    it('does not default scoped custom skills to disabled for inbox records', async () => {
+      await serverDB.insert(agentSkills).values({
+        description: 'Inbox config skill',
+        identifier: 'inbox-config-skill',
+        manifest: { description: 'Inbox config skill', name: 'Inbox Config Skill' },
+        name: 'Inbox Config Skill',
+        source: 'user',
+        userId,
+      });
+      const [inbox, historicalInbox] = await serverDB
+        .insert(agents)
+        .values([
+          { slug: INBOX_SESSION_ID, userId },
+          { slug: 'historical-inbox-agent', userId },
+        ])
+        .returning();
+      const [inboxSession] = await serverDB
+        .insert(sessions)
+        .values({ slug: INBOX_SESSION_ID, userId })
+        .returning();
+      await serverDB
+        .insert(agentsToSessions)
+        .values({ agentId: historicalInbox.id, sessionId: inboxSession.id, userId });
+
+      await agentModel.updateConfig(inbox.id, { plugins: ['inbox-plugin'] });
+      await agentModel.updateConfig(historicalInbox.id, { plugins: ['historical-inbox-plugin'] });
+
+      const updated = await serverDB.query.agents.findMany({
+        where: (agent, { inArray }) => inArray(agent.id, [inbox.id, historicalInbox.id]),
+      });
+      for (const agent of updated) {
+        expect(
+          getPluginMode(agent.plugins as AgentPluginEntry[] | undefined, 'inbox-config-skill'),
+        ).toBe('auto');
+      }
+    });
+
+    it.skipIf(!isServerDB)(
+      'preserves a disabled entry when a skill commits before a queued full-array plugin write',
+      async () => {
+        const [agent] = await serverDB
+          .insert(agents)
+          .values({ plugins: ['original-plugin'], userId })
+          .returning();
+        const skillModel = new AgentSkillModel(serverDB, userId);
+
+        let signalScopeLocked!: () => void;
+        let releaseScopeLock!: () => void;
+        const scopeLocked = new Promise<void>((resolve) => {
+          signalScopeLocked = resolve;
+        });
+        const holdScopeLock = new Promise<void>((resolve) => {
+          releaseScopeLock = resolve;
+        });
+        const blocker = serverDB.transaction(async (trx) => {
+          await trx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
+          signalScopeLocked();
+          await holdScopeLock;
+        });
+
+        await scopeLocked;
+        const skillCreation = skillModel.create({
+          description: 'Concurrent config skill',
+          identifier: 'concurrent-config-skill',
+          manifest: { description: 'Concurrent config skill', name: 'Concurrent Config Skill' },
+          name: 'Concurrent Config Skill',
+          source: 'user',
+        });
+        // Queue skill creation first; updateConfig then waits on the same scope
+        // lock and must merge the newly committed identifier before writing.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const configUpdate = agentModel.updateConfig(agent.id, { plugins: ['updated-plugin'] });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        releaseScopeLock();
+        await Promise.all([blocker, skillCreation, configUpdate]);
+
+        const updated = await serverDB.query.agents.findFirst({
+          where: eq(agents.id, agent.id),
+        });
+        const plugins = updated?.plugins as AgentPluginEntry[] | undefined;
+
+        expect(getPluginMode(plugins, 'updated-plugin')).toBe('pinned');
+        expect(getPluginMode(plugins, 'concurrent-config-skill')).toBe('disabled');
+      },
+    );
+
     it('should update agent config and set updatedAt', async () => {
       const agent = await serverDB
         .insert(agents)

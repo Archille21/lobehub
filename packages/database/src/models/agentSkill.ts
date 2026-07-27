@@ -30,10 +30,10 @@ export const lockAgentSkillScope = async (trx: Transaction, scope: AgentSkillSco
 };
 
 export const getScopedAgentSkillIdentifiers = async (
-  trx: Transaction,
+  executor: LobeChatDatabase,
   scope: AgentSkillScope,
 ): Promise<string[]> => {
-  const rows = await trx
+  const rows = await executor
     .select({ identifier: agentSkills.identifier })
     .from(agentSkills)
     .where(buildWorkspaceWhere(scope, agentSkills));
@@ -57,6 +57,25 @@ export const appendDisabledAgentSkillDefaults = (
   }
 
   return next;
+};
+
+export const isInboxAgentRecord = async (executor: LobeChatDatabase, agentId: string) => {
+  const [agent] = await executor
+    .select({ slug: agents.slug })
+    .from(agents)
+    .where(eq(agents.id, agentId))
+    .limit(1);
+
+  if (agent?.slug === INBOX_SESSION_ID) return true;
+
+  const [inboxSession] = await executor
+    .select({ agentId: agentsToSessions.agentId })
+    .from(agentsToSessions)
+    .innerJoin(sessions, eq(sessions.id, agentsToSessions.sessionId))
+    .where(and(eq(agentsToSessions.agentId, agentId), eq(sessions.slug, INBOX_SESSION_ID)))
+    .limit(1);
+
+  return !!inboxSession;
 };
 
 const skillItemColumns = {

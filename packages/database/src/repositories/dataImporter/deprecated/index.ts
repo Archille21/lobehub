@@ -1,8 +1,13 @@
-import type { ImporterEntryData } from '@lobechat/types';
+import type { AgentPluginEntry, ImporterEntryData } from '@lobechat/types';
 import { and, inArray, sql } from 'drizzle-orm';
 
 import { sanitizeUTF8 } from '@/utils/sanitizeUTF8';
 
+import {
+  appendDisabledAgentSkillDefaults,
+  getScopedAgentSkillIdentifiers,
+  lockAgentSkillScope,
+} from '../../../models/agentSkill';
 import {
   agents,
   agentsToSessions,
@@ -139,6 +144,10 @@ export class DeprecatedDataImporterRepos {
 
         // Only insert agent when new sessions are needed
         if (shouldInsertSessionAgents.length > 0) {
+          const scope = { userId: this.userId, workspaceId: this.workspaceId };
+          await lockAgentSkillScope(trx, scope);
+          const skillIdentifiers = await getScopedAgentSkillIdentifiers(trx, scope);
+
           const agentMapArray = await trx
             .insert(agents)
             .values(
@@ -151,7 +160,10 @@ export class DeprecatedDataImporterRepos {
                 // rollout, not the JSONB column's compile-time annotation).
                 // Legacy import payloads only ever contain bare strings
                 // anyway.
-                plugins: config.plugins as unknown as string[] | undefined,
+                plugins: appendDisabledAgentSkillDefaults(
+                  config.plugins as AgentPluginEntry[] | undefined,
+                  skillIdentifiers,
+                ) as string[] | undefined,
                 ...meta,
                 userId: this.userId,
                 workspaceId: this.workspaceId ?? null,

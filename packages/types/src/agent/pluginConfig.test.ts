@@ -137,14 +137,20 @@ describe('upsertPluginMode', () => {
     ]);
   });
 
-  it('removes the entry (legacy string or object) when set to auto, instead of persisting it', () => {
-    expect(upsertPluginMode(['a', 'b'], 'a', 'auto')).toEqual(['b']);
+  it('persists auto explicitly so full-array writes retain user intent', () => {
+    expect(upsertPluginMode(['a', 'b'], 'a', 'auto')).toEqual([
+      { identifier: 'a', mode: 'auto' },
+      'b',
+    ]);
     expect(
       upsertPluginMode([{ identifier: 'a', mode: 'disabled' as const }, 'b'], 'a', 'auto'),
-    ).toEqual(['b']);
+    ).toEqual([{ identifier: 'a', mode: 'auto' }, 'b']);
   });
 
-  it('is a no-op when setting auto on an identifier that is already absent', () => {
-    expect(upsertPluginMode(['a'], 'not-there', 'auto')).toEqual(['a']);
+  it('appends an explicit auto entry when the identifier is absent', () => {
+    expect(upsertPluginMode(['a'], 'not-there', 'auto')).toEqual([
+      'a',
+      { identifier: 'not-there', mode: 'auto' },
+    ]);
   });
 });
