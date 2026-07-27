@@ -1,6 +1,6 @@
 import { BUILTIN_AGENT_SLUGS, getAgentPersistConfig } from '@lobechat/builtin-agents';
 import { INBOX_SESSION_ID, isHeterogeneousAgentModelId } from '@lobechat/const';
-import type { AgentRankItem, LobeAgentAgencyConfig } from '@lobechat/types';
+import type { AgentPluginEntry, AgentRankItem, LobeAgentAgencyConfig } from '@lobechat/types';
 import {
   DEFAULT_WORKSPACE_AGENT_SELECTION_POLICIES,
   pruneWorkingDirByDeviceDeletes,
@@ -55,6 +55,11 @@ import type { LobeChatDatabase } from '../type';
 import { genEndDateWhere, genRangeWhere, genStartDateWhere, genWhere } from '../utils/genWhere';
 import { normalizeInboxAgentMeta } from '../utils/inboxAgent';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
+import {
+  appendDisabledAgentSkillDefaults,
+  getScopedAgentSkillIdentifiers,
+  lockAgentSkillScope,
+} from './agentSkill';
 import {
   hasForeignTopicComments,
   syncTopicCommentsOnTopicTransfer,
@@ -917,19 +922,26 @@ export class AgentModel {
     await this.assertWorkspaceDeviceBinding(this.workspaceId ?? null, agencyConfig);
     await this.assertFixedExecutionTarget(this.workspaceId ?? null, agencyConfig);
 
-    const [result] = await this.db
-      .insert(agents)
-      .values([
-        buildWorkspacePayload(
-          { userId: this.userId, workspaceId: this.workspaceId },
-          {
+    const [result] = await this.db.transaction(async (trx) => {
+      const scope = { userId: this.userId, workspaceId: this.workspaceId };
+      await lockAgentSkillScope(trx, scope);
+      const skillIdentifiers = await getScopedAgentSkillIdentifiers(trx, scope);
+
+      return trx
+        .insert(agents)
+        .values([
+          buildWorkspacePayload(scope, {
             ...config,
             agencyConfig,
             model: typeof config.model === 'string' ? config.model : null,
-          },
-        ),
-      ])
-      .returning();
+            plugins: appendDisabledAgentSkillDefaults(
+              config.plugins as AgentPluginEntry[] | null | undefined,
+              skillIdentifiers,
+            ) as string[] | undefined,
+          }),
+        ])
+        .returning();
+    });
 
     return result;
   };
@@ -953,20 +965,27 @@ export class AgentModel {
       ]),
     );
 
-    return this.db
-      .insert(agents)
-      .values(
-        normalizedConfigs.map((config) =>
-          buildWorkspacePayload(
-            { userId: this.userId, workspaceId: this.workspaceId },
-            {
+    return this.db.transaction(async (trx) => {
+      const scope = { userId: this.userId, workspaceId: this.workspaceId };
+      await lockAgentSkillScope(trx, scope);
+      const skillIdentifiers = await getScopedAgentSkillIdentifiers(trx, scope);
+
+      return trx
+        .insert(agents)
+        .values(
+          normalizedConfigs.map((config) =>
+            buildWorkspacePayload(scope, {
               ...config,
               model: typeof config.model === 'string' ? config.model : null,
-            },
+              plugins: appendDisabledAgentSkillDefaults(
+                config.plugins as AgentPluginEntry[] | null | undefined,
+                skillIdentifiers,
+              ) as string[] | undefined,
+            }),
           ),
-        ),
-      )
-      .returning();
+        )
+        .returning();
+    });
   };
 
   update = async (agentId: string, data: Partial<AgentItem>) => {
@@ -1296,20 +1315,24 @@ export class AgentModel {
    * Returns the new agent ID.
    */
   duplicate = async (agentId: string, newTitle?: string): Promise<{ agentId: string } | null> => {
-    // Get the source agent
-    const sourceAgent = await this.db.query.agents.findFirst({
-      where: and(eq(agents.id, agentId), this.ownership()),
-    });
+    return this.db.transaction(async (trx) => {
+      const scope = { userId: this.userId, workspaceId: this.workspaceId };
+      await lockAgentSkillScope(trx, scope);
 
-    if (!sourceAgent) return null;
+      // Get the source agent
+      const sourceAgent = await trx.query.agents.findFirst({
+        where: and(eq(agents.id, agentId), this.ownership()),
+      });
 
-    // Create new agent with explicit include fields
-    const [newAgent] = await this.db
-      .insert(agents)
-      .values(
-        buildWorkspacePayload(
-          { userId: this.userId, workspaceId: this.workspaceId },
-          {
+      if (!sourceAgent) return null;
+
+      const skillIdentifiers = await getScopedAgentSkillIdentifiers(trx, scope);
+
+      // Create new agent with explicit include fields
+      const [newAgent] = await trx
+        .insert(agents)
+        .values(
+          buildWorkspacePayload(scope, {
             avatar: sourceAgent.avatar,
             backgroundColor: sourceAgent.backgroundColor,
             chatConfig: sourceAgent.chatConfig,
@@ -1321,7 +1344,10 @@ export class AgentModel {
             params: sourceAgent.params,
             pinned: sourceAgent.pinned,
             // Config
-            plugins: sourceAgent.plugins,
+            plugins: appendDisabledAgentSkillDefaults(
+              sourceAgent.plugins as AgentPluginEntry[] | null,
+              skillIdentifiers,
+            ) as string[] | undefined,
             provider: sourceAgent.provider,
 
             // Session group
@@ -1332,12 +1358,12 @@ export class AgentModel {
             // Metadata
             title: newTitle || (sourceAgent.title ? `${sourceAgent.title} (Copy)` : 'Copy'),
             tts: sourceAgent.tts,
-          },
-        ),
-      )
-      .returning();
+          }),
+        )
+        .returning();
 
-    return { agentId: newAgent.id };
+      return { agentId: newAgent.id };
+    });
   };
 
   /**
@@ -1396,22 +1422,28 @@ export class AgentModel {
     // partitioned { target, where } once 0109 has flipped the index in every
     // environment. Payload still carries workspaceId so workspace-scoped
     // builtin agents land in the right workspace.
-    const result = await this.db
-      .insert(agents)
-      .values(
-        buildWorkspacePayload(
-          { userId: this.userId, workspaceId: this.workspaceId },
-          {
+    const result = await this.db.transaction(async (trx) => {
+      const scope = { userId: this.userId, workspaceId: this.workspaceId };
+      await lockAgentSkillScope(trx, scope);
+      const skillIdentifiers =
+        slug === INBOX_SESSION_ID ? [] : await getScopedAgentSkillIdentifiers(trx, scope);
+
+      return trx
+        .insert(agents)
+        .values(
+          buildWorkspacePayload(scope, {
             agencyConfig: this.withWorkspaceSelectionPolicyDefaults(undefined),
             model: persistConfig.model,
+            plugins: appendDisabledAgentSkillDefaults(undefined, skillIdentifiers) as
+              string[] | undefined,
             provider: persistConfig.provider,
             slug: persistConfig.slug,
             virtual: true,
-          },
-        ),
-      )
-      .onConflictDoNothing()
-      .returning();
+          }),
+        )
+        .onConflictDoNothing()
+        .returning();
+    });
 
     if (result[0]) return normalizeInboxAgentMeta(result[0], { slug: result[0].slug });
 

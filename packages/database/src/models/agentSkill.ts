@@ -1,13 +1,63 @@
 import { INBOX_SESSION_ID } from '@lobechat/const';
 import type { AgentPluginEntry, SkillItem, SkillListItem } from '@lobechat/types';
-import { getPluginMode, upsertPluginMode } from '@lobechat/types';
+import { parsePluginEntry } from '@lobechat/types';
 import { merge } from '@lobechat/utils';
-import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNull, ne, notExists, or, sql } from 'drizzle-orm';
 
 import type { NewAgentSkill } from '../schemas';
-import { agents, agentSkills } from '../schemas';
-import type { LobeChatDatabase } from '../type';
+import { agents, agentSkills, agentsToSessions, sessions, users, workspaces } from '../schemas';
+import type { LobeChatDatabase, Transaction } from '../type';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
+
+interface AgentSkillScope {
+  userId: string;
+  workspaceId?: string;
+}
+
+// Agent and skill creation take the same parent-row lock so overlapping
+// transactions cannot each miss the other's still-uncommitted row.
+export const lockAgentSkillScope = async (trx: Transaction, scope: AgentSkillScope) => {
+  if (scope.workspaceId) {
+    await trx
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.id, scope.workspaceId))
+      .for('update');
+    return;
+  }
+
+  await trx.select({ id: users.id }).from(users).where(eq(users.id, scope.userId)).for('update');
+};
+
+export const getScopedAgentSkillIdentifiers = async (
+  trx: Transaction,
+  scope: AgentSkillScope,
+): Promise<string[]> => {
+  const rows = await trx
+    .select({ identifier: agentSkills.identifier })
+    .from(agentSkills)
+    .where(buildWorkspaceWhere(scope, agentSkills));
+
+  return rows.map(({ identifier }) => identifier);
+};
+
+export const appendDisabledAgentSkillDefaults = (
+  plugins: AgentPluginEntry[] | null | undefined,
+  skillIdentifiers: string[],
+): AgentPluginEntry[] | undefined => {
+  if (skillIdentifiers.length === 0) return plugins ?? undefined;
+
+  const next = plugins ? [...plugins] : [];
+  const configuredIdentifiers = new Set(next.map((entry) => parsePluginEntry(entry).identifier));
+
+  for (const identifier of skillIdentifiers) {
+    if (configuredIdentifiers.has(identifier)) continue;
+    next.push({ identifier, mode: 'disabled' });
+    configuredIdentifiers.add(identifier);
+  }
+
+  return next;
+};
 
 const skillItemColumns = {
   content: agentSkills.content,
@@ -66,32 +116,46 @@ export class AgentSkillModel {
 
   create = async (data: Omit<NewAgentSkill, 'userId' | 'workspaceId'>): Promise<SkillItem> => {
     return this.db.transaction(async (trx) => {
+      await lockAgentSkillScope(trx, { userId: this.userId, workspaceId: this.workspaceId });
+
       const [result] = await trx
         .insert(agentSkills)
         .values(buildWorkspacePayload({ userId: this.userId, workspaceId: this.workspaceId }, data))
         .returning(skillItemColumns);
 
-      const scopedAgents = await trx
-        .select({ id: agents.id, plugins: agents.plugins, slug: agents.slug })
-        .from(agents)
-        .where(this.agentScopeWhere());
-
-      for (const agent of scopedAgents) {
-        const plugins = agent.plugins as AgentPluginEntry[] | null;
-        const defaultMode = agent.slug === INBOX_SESSION_ID ? 'auto' : 'disabled';
-        if (getPluginMode(plugins ?? undefined, data.identifier) === defaultMode) continue;
-
-        await trx
-          .update(agents)
-          .set({
-            plugins: upsertPluginMode(
-              plugins ?? undefined,
-              data.identifier,
-              defaultMode,
-            ) as string[],
-          })
-          .where(and(eq(agents.id, agent.id), this.agentScopeWhere()));
-      }
+      // Keep inbox on the implicit `auto` default. For every other existing agent,
+      // atomically append a disabled entry only when the identifier is absent.
+      // This is one set-based UPDATE, so concurrent skill imports retain each
+      // other's entries and existing user-selected modes are left untouched.
+      await trx.execute(sql`
+        update ${agents}
+        set ${sql.identifier('plugins')} =
+          coalesce(${agents.plugins}, '[]'::jsonb)
+          || jsonb_build_array(
+            jsonb_build_object('identifier', (${data.identifier})::text, 'mode', 'disabled')
+          )
+        where ${and(
+          this.agentScopeWhere(),
+          or(isNull(agents.slug), ne(agents.slug, INBOX_SESSION_ID)),
+          // Historical inbox agents may only be identifiable through their
+          // linked session, before getBuiltinAgent backfills agents.slug.
+          notExists(
+            trx
+              .select({ agentId: agentsToSessions.agentId })
+              .from(agentsToSessions)
+              .innerJoin(sessions, eq(sessions.id, agentsToSessions.sessionId))
+              .where(
+                and(eq(agentsToSessions.agentId, agents.id), eq(sessions.slug, INBOX_SESSION_ID)),
+              ),
+          ),
+          sql`not exists (
+              select 1
+              from jsonb_array_elements(coalesce(${agents.plugins}, '[]'::jsonb)) as plugin(entry)
+              where plugin.entry #>> '{}' = ${data.identifier}
+                 or plugin.entry ->> 'identifier' = ${data.identifier}
+            )`,
+        )}
+      `);
 
       return result;
     });

@@ -5,8 +5,9 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../core/getTestDB';
-import { agents, agentSkills, users } from '../../schemas';
+import { agents, agentSkills, agentsToSessions, sessions, users, workspaces } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
+import { AgentModel } from '../agent';
 import { AgentSkillModel } from '../agentSkill';
 
 const serverDB: LobeChatDatabase = await getTestDB();
@@ -69,6 +70,12 @@ describe('AgentSkillModel', () => {
           userId,
           virtual: true,
         },
+        {
+          id: 'skill-default-explicit-agent',
+          plugins: [{ identifier: 'new-custom-skill', mode: 'pinned' }] as unknown as string[],
+          slug: 'explicit-agent',
+          userId,
+        },
       ]);
 
       await agentSkillModel.create({
@@ -99,8 +106,175 @@ describe('AgentSkillModel', () => {
           'new-custom-skill',
         ),
       ).toBe('disabled');
-      expect(pluginsByAgentId.get('skill-default-inbox')).toContain('existing-inbox-plugin');
+      expect(
+        getPluginMode(
+          pluginsByAgentId.get('skill-default-explicit-agent') ?? undefined,
+          'new-custom-skill',
+        ),
+      ).toBe('pinned');
+      expect(pluginsByAgentId.get('skill-default-inbox')).toEqual(['existing-inbox-plugin']);
       expect(pluginsByAgentId.get('skill-default-agent')).toContain('existing-agent-plugin');
+    });
+
+    it('keeps a legacy session-linked inbox on the implicit auto default', async () => {
+      await serverDB.insert(agents).values({
+        id: 'legacy-inbox-agent',
+        plugins: ['existing-inbox-plugin'],
+        slug: null,
+        userId,
+      });
+      await serverDB.insert(sessions).values({ id: 'legacy-inbox-session', slug: 'inbox', userId });
+      await serverDB.insert(agentsToSessions).values({
+        agentId: 'legacy-inbox-agent',
+        sessionId: 'legacy-inbox-session',
+        userId,
+      });
+
+      await agentSkillModel.create({
+        description: 'A newly added custom skill',
+        identifier: 'legacy-inbox-custom-skill',
+        manifest: createManifest(),
+        name: 'Legacy Inbox Custom Skill',
+        source: 'user',
+      });
+
+      const inbox = await serverDB.query.agents.findFirst({
+        where: eq(agents.id, 'legacy-inbox-agent'),
+      });
+      expect(inbox?.plugins).toEqual(['existing-inbox-plugin']);
+      expect(
+        getPluginMode(
+          inbox?.plugins as AgentPluginEntry[] | undefined,
+          'legacy-inbox-custom-skill',
+        ),
+      ).toBe('auto');
+    });
+
+    it('initializes a large agent set without dropping any agent', async () => {
+      const agentCount = 100;
+      await serverDB.insert(agents).values(
+        Array.from({ length: agentCount }, (_, index) => ({
+          id: `large-agent-set-${index}`,
+          slug: `large-agent-${index}`,
+          userId,
+        })),
+      );
+
+      await agentSkillModel.create({
+        description: 'A skill shared with many agents',
+        identifier: 'large-agent-set-skill',
+        manifest: createManifest(),
+        name: 'Large Agent Set Skill',
+        source: 'user',
+      });
+
+      const configuredAgents = await serverDB.query.agents.findMany({
+        where: eq(agents.userId, userId),
+      });
+      expect(configuredAgents).toHaveLength(agentCount);
+      expect(
+        configuredAgents.every(
+          ({ plugins }) =>
+            getPluginMode(plugins as AgentPluginEntry[] | undefined, 'large-agent-set-skill') ===
+            'disabled',
+        ),
+      ).toBe(true);
+    });
+
+    it('initializes every non-inbox agent in a shared workspace', async () => {
+      const workspaceMemberId = 'agent-skill-workspace-member';
+      await serverDB.insert(users).values({ id: workspaceMemberId });
+      const [workspace] = await serverDB
+        .insert(workspaces)
+        .values({
+          name: 'Agent Skill Workspace',
+          primaryOwnerId: userId,
+          slug: 'agent-skill-workspace',
+        })
+        .returning();
+      await serverDB.insert(agents).values([
+        {
+          id: 'workspace-owner-agent',
+          userId,
+          visibility: 'private',
+          workspaceId: workspace.id,
+        },
+        {
+          id: 'workspace-member-agent',
+          userId: workspaceMemberId,
+          visibility: 'private',
+          workspaceId: workspace.id,
+        },
+      ]);
+
+      const workspaceSkillModel = new AgentSkillModel(serverDB, userId, workspace.id);
+      await workspaceSkillModel.create({
+        description: 'A workspace custom skill',
+        identifier: 'workspace-shared-skill',
+        manifest: createManifest(),
+        name: 'Workspace Shared Skill',
+        source: 'user',
+      });
+
+      const workspaceAgents = await serverDB.query.agents.findMany({
+        where: eq(agents.workspaceId, workspace.id),
+      });
+      expect(workspaceAgents).toHaveLength(2);
+      expect(
+        workspaceAgents.every(
+          ({ plugins }) =>
+            getPluginMode(plugins as AgentPluginEntry[] | undefined, 'workspace-shared-skill') ===
+            'disabled',
+        ),
+      ).toBe(true);
+    });
+
+    it('preserves both entries when two skills are created concurrently', async () => {
+      await serverDB.insert(agents).values({ id: 'concurrent-skill-agent', userId });
+
+      await Promise.all([
+        agentSkillModel.create({
+          description: 'Concurrent skill A',
+          identifier: 'concurrent-skill-a',
+          manifest: createManifest(),
+          name: 'Concurrent Skill A',
+          source: 'user',
+        }),
+        agentSkillModel.create({
+          description: 'Concurrent skill B',
+          identifier: 'concurrent-skill-b',
+          manifest: createManifest(),
+          name: 'Concurrent Skill B',
+          source: 'user',
+        }),
+      ]);
+
+      const agent = await serverDB.query.agents.findFirst({
+        where: eq(agents.id, 'concurrent-skill-agent'),
+      });
+      const plugins = agent?.plugins as AgentPluginEntry[] | undefined;
+
+      expect(getPluginMode(plugins, 'concurrent-skill-a')).toBe('disabled');
+      expect(getPluginMode(plugins, 'concurrent-skill-b')).toBe('disabled');
+    });
+
+    it('defaults to disabled when a skill and regular agent are created concurrently', async () => {
+      const concurrentAgentModel = new AgentModel(serverDB, userId);
+
+      const [, agent] = await Promise.all([
+        agentSkillModel.create({
+          description: 'Skill created alongside an agent',
+          identifier: 'skill-created-with-agent',
+          manifest: createManifest(),
+          name: 'Skill Created With Agent',
+          source: 'user',
+        }),
+        concurrentAgentModel.create({ title: 'Agent Created With Skill' }),
+      ]);
+
+      expect(
+        getPluginMode(agent.plugins as AgentPluginEntry[] | undefined, 'skill-created-with-agent'),
+      ).toBe('disabled');
     });
   });
 

@@ -1,5 +1,7 @@
 // @vitest-environment node
 import { DEFAULT_INBOX_AVATAR, DEFAULT_INBOX_TITLE, INBOX_SESSION_ID } from '@lobechat/const';
+import type { AgentPluginEntry } from '@lobechat/types';
+import { getPluginMode } from '@lobechat/types';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -8,6 +10,7 @@ import type { NewAgent } from '../../schemas';
 import {
   agents,
   agentsFiles,
+  agentSkills,
   agentsKnowledgeBases,
   agentsToSessions,
   devices,
@@ -1344,6 +1347,59 @@ describe('AgentModel', () => {
   });
 
   describe('create', () => {
+    it('defaults existing custom skills to disabled without overriding explicit plugin modes', async () => {
+      await serverDB.insert(agentSkills).values([
+        {
+          description: 'Existing custom skill',
+          identifier: 'existing-custom-skill',
+          manifest: { description: 'Existing custom skill', name: 'Existing Custom Skill' },
+          name: 'Existing Custom Skill',
+          source: 'user',
+          userId,
+        },
+        {
+          description: 'Explicit custom skill',
+          identifier: 'explicit-custom-skill',
+          manifest: { description: 'Explicit custom skill', name: 'Explicit Custom Skill' },
+          name: 'Explicit Custom Skill',
+          source: 'user',
+          userId,
+        },
+      ]);
+
+      const result = await agentModel.create({
+        plugins: ['explicit-custom-skill'],
+        title: 'Agent Created After Skills',
+      });
+      const plugins = result.plugins as AgentPluginEntry[] | undefined;
+
+      expect(getPluginMode(plugins, 'existing-custom-skill')).toBe('disabled');
+      expect(getPluginMode(plugins, 'explicit-custom-skill')).toBe('pinned');
+    });
+
+    it('defaults workspace skills to disabled for agents created by another workspace member', async () => {
+      const [workspace] = await serverDB
+        .insert(workspaces)
+        .values({ name: 'skill-defaults', primaryOwnerId: userId, slug: 'skill-defaults' })
+        .returning();
+      await serverDB.insert(agentSkills).values({
+        description: 'Workspace custom skill',
+        identifier: 'workspace-custom-skill',
+        manifest: { description: 'Workspace custom skill', name: 'Workspace Custom Skill' },
+        name: 'Workspace Custom Skill',
+        source: 'user',
+        userId,
+        workspaceId: workspace.id,
+      });
+
+      const workspaceMemberAgentModel = new AgentModel(serverDB, userId2, workspace.id);
+      const result = await workspaceMemberAgentModel.create({ title: 'Workspace Member Agent' });
+
+      expect(
+        getPluginMode(result.plugins as AgentPluginEntry[] | undefined, 'workspace-custom-skill'),
+      ).toBe('disabled');
+    });
+
     it('should persist explicit selection policy defaults only for workspace agents', async () => {
       const [workspace] = await serverDB
         .insert(workspaces)
@@ -1511,6 +1567,33 @@ describe('AgentModel', () => {
   });
 
   describe('batchCreate', () => {
+    it('defaults existing custom skills to disabled for every created agent', async () => {
+      await serverDB.insert(agentSkills).values({
+        description: 'Existing batch custom skill',
+        identifier: 'existing-batch-custom-skill',
+        manifest: { description: 'Existing batch custom skill', name: 'Batch Custom Skill' },
+        name: 'Batch Custom Skill',
+        source: 'user',
+        userId,
+      });
+
+      const created = await agentModel.batchCreate([
+        { title: 'Batch Agent A' },
+        { plugins: ['already-pinned-plugin'], title: 'Batch Agent B' },
+      ]);
+
+      expect(created).toHaveLength(2);
+      for (const agent of created) {
+        expect(
+          getPluginMode(
+            agent.plugins as AgentPluginEntry[] | undefined,
+            'existing-batch-custom-skill',
+          ),
+        ).toBe('disabled');
+      }
+      expect(created[1].plugins).toContain('already-pinned-plugin');
+    });
+
     it('should drop reserved builtin slugs in a batch', async () => {
       const created = await agentModel.batchCreate([
         { slug: 'inbox', title: 'Squatter A' },
