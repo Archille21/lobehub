@@ -1,10 +1,13 @@
 // @vitest-environment node
+import type { AgentPluginEntry } from '@lobechat/types';
+import { getPluginMode } from '@lobechat/types';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../core/getTestDB';
 import type { NewInstalledPlugin } from '../../schemas';
-import { userInstalledPlugins, users } from '../../schemas';
+import { agents, userInstalledPlugins, users } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
+import { AgentSkillModel } from '../agentSkill';
 import { PluginModel } from '../plugin';
 
 const serverDB: LobeChatDatabase = await getTestDB();
@@ -56,6 +59,72 @@ describe('PluginModel', () => {
 
       const result = await serverDB.select().from(userInstalledPlugins);
       expect(result).toHaveLength(0);
+    });
+
+    it('removes stale agent policies before the identifier is reused by a custom skill', async () => {
+      const identifier = 'reused-plugin-identifier';
+      const originalUpdatedAt = new Date('2024-01-02T03:04:05.000Z');
+      await serverDB.insert(userInstalledPlugins).values({
+        identifier,
+        manifest: { name: 'Plugin to remove' },
+        type: 'plugin',
+        userId,
+      } as unknown as NewInstalledPlugin);
+      await serverDB.insert(agents).values([
+        {
+          id: 'plugin-policy-object-agent',
+          plugins: [{ identifier, mode: 'auto' }, 'kept-plugin'] as unknown as string[],
+          updatedAt: originalUpdatedAt,
+          userId,
+        },
+        {
+          id: 'plugin-policy-string-agent',
+          plugins: [
+            identifier,
+            { identifier: 'kept-disabled', mode: 'disabled' },
+          ] as unknown as string[],
+          userId,
+        },
+        {
+          id: 'other-user-plugin-policy-agent',
+          plugins: [{ identifier, mode: 'auto' }] as unknown as string[],
+          userId: '456',
+        },
+      ]);
+
+      await pluginModel.delete(identifier);
+
+      const policiesAfterDelete = await serverDB.query.agents.findMany();
+      const policiesByAgentId = new Map(policiesAfterDelete.map((agent) => [agent.id, agent]));
+      expect(policiesByAgentId.get('plugin-policy-object-agent')?.plugins).toEqual(['kept-plugin']);
+      expect(policiesByAgentId.get('plugin-policy-object-agent')?.updatedAt).toEqual(
+        originalUpdatedAt,
+      );
+      expect(policiesByAgentId.get('plugin-policy-string-agent')?.plugins).toEqual([
+        { identifier: 'kept-disabled', mode: 'disabled' },
+      ]);
+      expect(policiesByAgentId.get('other-user-plugin-policy-agent')?.plugins).toEqual([
+        { identifier, mode: 'auto' },
+      ]);
+
+      const agentSkillModel = new AgentSkillModel(serverDB, userId);
+      await agentSkillModel.create({
+        description: 'Skill reusing a removed plugin identifier',
+        identifier,
+        manifest: { description: 'Reused identifier skill', name: 'Reused Identifier Skill' },
+        name: 'Reused Identifier Skill',
+        source: 'user',
+      });
+
+      const policiesAfterReuse = await serverDB.query.agents.findMany({
+        where: (table, { eq }) => eq(table.userId, userId),
+      });
+      expect(
+        policiesAfterReuse.every(
+          ({ plugins }) =>
+            getPluginMode(plugins as AgentPluginEntry[] | undefined, identifier) === 'disabled',
+        ),
+      ).toBe(true);
     });
   });
 
