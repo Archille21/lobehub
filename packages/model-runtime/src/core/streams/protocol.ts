@@ -1,4 +1,10 @@
-import type { ChatCitationItem, ModelPerformance, ModelUsage } from '@lobechat/types';
+import type {
+  ChatCitationItem,
+  ModelPerformance,
+  ModelReasoningResponseItem,
+  ModelSignatureScope,
+  ModelUsage,
+} from '@lobechat/types';
 import type { Pricing } from 'model-bank';
 
 import { parseToolCalls } from '../../helpers';
@@ -15,6 +21,7 @@ export type ChatPayloadForTransformStream = {
   pricing?: Pricing;
   pricingOptions?: ComputeChatCostOptions;
   provider?: string;
+  signatureScope?: ModelSignatureScope;
 };
 
 /**
@@ -438,6 +445,7 @@ export function createCallbacksTransformer(
   let aggregatedText = '';
   let aggregatedThinking: string | undefined = undefined;
   let reasoningSignature: string | undefined;
+  const reasoningResponseItems: ModelReasoningResponseItem[] = [];
   let usage: ModelUsage | undefined;
   let speed: ModelPerformance | undefined;
   let grounding: any;
@@ -462,9 +470,10 @@ export function createCallbacksTransformer(
         toolsCalling,
         usage,
       };
-      if (aggregatedThinking || reasoningSignature) {
+      if (aggregatedThinking) {
         data.reasoning = {
           content: aggregatedThinking,
+          responseItems: reasoningResponseItems.length > 0 ? reasoningResponseItems : undefined,
           signature: reasoningSignature,
         };
       }
@@ -527,7 +536,11 @@ export function createCallbacksTransformer(
           }
 
           case 'reasoning_signature': {
-            reasoningSignature = data;
+            if (typeof data === 'string') {
+              reasoningSignature = data;
+            } else {
+              reasoningResponseItems.push(data as ModelReasoningResponseItem);
+            }
             break;
           }
 

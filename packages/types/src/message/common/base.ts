@@ -84,6 +84,29 @@ export interface MessageContentPartImage {
 
 export type MessageContentPart = MessageContentPartText | MessageContentPartImage;
 
+/** Provenance required before opaque provider state may be replayed. */
+export interface ModelSignatureScope {
+  apiType?: string;
+  channelId?: string;
+  model: string;
+  provider: string;
+  routerId?: string;
+}
+
+/** Original OpenAI Responses reasoning item paired with its generation scope. */
+export interface ModelReasoningResponseItem {
+  item: {
+    content?: Array<Record<string, unknown>>;
+    encrypted_content?: string | null;
+    id: string;
+    status?: 'in_progress' | 'completed' | 'incomplete';
+    summary: Array<{ text: string; type: 'summary_text' }>;
+    type: 'reasoning';
+    [key: string]: unknown;
+  };
+  signatureScope: ModelSignatureScope;
+}
+
 export interface ModelReasoning {
   /**
    * Reasoning content, can be plain string or serialized JSON array of MessageContentPart[]
@@ -94,13 +117,37 @@ export interface ModelReasoning {
    * Flag indicating if content is multimodal (serialized MessageContentPart[])
    */
   isMultimodal?: boolean;
+  responseItems?: ModelReasoningResponseItem[];
   signature?: string;
   tempDisplayContent?: MessageContentPart[];
 }
+
+export const ModelSignatureScopeSchema = z.object({
+  apiType: z.string().optional(),
+  channelId: z.string().optional(),
+  model: z.string(),
+  provider: z.string(),
+  routerId: z.string().optional(),
+});
+
+export const ModelReasoningResponseItemSchema = z.object({
+  item: z
+    .object({
+      content: z.array(z.record(z.string(), z.unknown())).optional(),
+      encrypted_content: z.string().nullish(),
+      id: z.string(),
+      status: z.enum(['in_progress', 'completed', 'incomplete']).optional(),
+      summary: z.array(z.object({ text: z.string(), type: z.literal('summary_text') })),
+      type: z.literal('reasoning'),
+    })
+    .passthrough(),
+  signatureScope: ModelSignatureScopeSchema,
+});
 
 export const ModelReasoningSchema = z.object({
   content: z.string().optional(),
   duration: z.number().optional(),
   isMultimodal: z.boolean().optional(),
+  responseItems: z.array(ModelReasoningResponseItemSchema).optional(),
   signature: z.string().optional(),
 });

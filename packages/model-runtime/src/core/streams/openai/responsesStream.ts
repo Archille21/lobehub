@@ -146,9 +146,12 @@ const transformOpenAIStream = (
       }
 
       case 'response.output_item.done': {
-        if (chunk.item.type === 'reasoning' && chunk.item.encrypted_content) {
+        if (chunk.item.type === 'reasoning' && payload?.signatureScope) {
           return {
-            data: chunk.item.encrypted_content,
+            data: {
+              item: chunk.item,
+              signatureScope: payload.signatureScope,
+            },
             id: chunk.item.id,
             type: 'reasoning_signature',
           };

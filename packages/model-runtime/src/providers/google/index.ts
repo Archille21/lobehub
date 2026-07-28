@@ -32,6 +32,7 @@ import { parseGoogleErrorMessage } from '../../utils/googleErrorParser';
 import type { ModelIdMappingOptions } from '../../utils/modelIdMapping';
 import { withMappedModelId } from '../../utils/modelIdMapping';
 import { StreamingResponse } from '../../utils/response';
+import { createModelSignatureScope, getRuntimeSignatureScope } from '../../utils/signatureScope';
 import { createGoogleImage } from './createImage';
 import { createGoogleVideo, pollGoogleVideoOperation } from './createVideo';
 import { createGoogleGenerateObject, createGoogleGenerateObjectWithTools } from './generateObject';
@@ -148,6 +149,11 @@ export class LobeGoogleAI implements LobeRuntimeAI {
       const { model, thinkingBudget, thinkingLevel, imageAspectRatio, imageResolution } = payload;
       const requestPayload = withMappedModelId(payload, this.modelIdMappingOptions);
       const requestModel = requestPayload.model;
+      const signatureScope = createModelSignatureScope(
+        this.provider,
+        model,
+        getRuntimeSignatureScope(this),
+      );
       const shouldOmitDeprecatedGenerationParams =
         shouldOmitDeprecatedGoogleGenerationParams(requestModel);
 
@@ -159,7 +165,10 @@ export class LobeGoogleAI implements LobeRuntimeAI {
         thinkingLevel,
       }) as unknown as ThinkingConfig;
 
-      const contents = await buildGoogleMessages(payload.messages, { model: requestModel });
+      const contents = await buildGoogleMessages(payload.messages, {
+        model: requestModel,
+        signatureScope,
+      });
       if (shouldOmitDeprecatedGenerationParams) {
         // Gemini 3.6 Flash, 3.5 Flash-Lite, and later models reject assistant prefills.
         while (contents.at(-1)?.role === 'model') contents.pop();
@@ -265,7 +274,7 @@ export class LobeGoogleAI implements LobeRuntimeAI {
       const stream = GoogleGenerativeAIStream(prod, {
         callbacks: options?.callback,
         inputStartAt,
-        payload: { model, pricing, provider: this.provider },
+        payload: { model, pricing, provider: this.provider, signatureScope },
       });
 
       // Respond with the stream
@@ -356,7 +365,14 @@ export class LobeGoogleAI implements LobeRuntimeAI {
    */
   async generateObject(payload: GenerateObjectPayload, options?: GenerateObjectOptions) {
     // Convert OpenAI messages to Google format
-    const contents = await buildGoogleMessages(payload.messages, { model: payload.model });
+    const contents = await buildGoogleMessages(payload.messages, {
+      model: payload.model,
+      signatureScope: createModelSignatureScope(
+        this.provider,
+        payload.model,
+        getRuntimeSignatureScope(this),
+      ),
+    });
     const pricing = await getModelPricing(payload.model, this.provider, options?.pricingContext);
     const requestPayload = withMappedModelId(payload, this.modelIdMappingOptions);
 

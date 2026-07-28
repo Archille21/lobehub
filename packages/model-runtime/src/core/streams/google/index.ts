@@ -2,6 +2,7 @@ import type { GenerateContentResponse, Part } from '@google/genai';
 import type { GroundingSearch } from '@lobechat/types';
 
 import type { ChatStreamCallbacks } from '../../../types';
+import { serializeScopedSignature } from '../../../utils/signatureScope';
 import { nanoid } from '../../../utils/uuid';
 import { convertGoogleAIUsage } from '../../usageConverters/google-ai';
 import type {
@@ -149,7 +150,11 @@ const transformGoogleGenerativeAIStream = (
           },
           id: value.id || generateToolCallId(index, value.name),
           index,
-          thoughtSignature: value.thoughtSignature,
+          thoughtSignature: value.thoughtSignature
+            ? payload?.signatureScope
+              ? serializeScopedSignature(value.thoughtSignature, payload.signatureScope)
+              : value.thoughtSignature
+            : undefined,
           type: 'function',
         })),
         id: context.id,

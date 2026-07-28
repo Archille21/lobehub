@@ -1,11 +1,18 @@
+import type { ModelSignatureScope } from '@lobechat/types';
 import { imageUrlToBase64, videoUrlToBase64 } from '@lobechat/utils';
 import { Buffer } from 'buffer.js';
 import type OpenAI from 'openai';
 import { toFile } from 'openai';
 
 import { disableStreamModels, systemToUserModels } from '../../providers/openai/modelId';
-import type { ChatStreamPayload, OpenAIChatMessage, UserMessageContentPart } from '../../types';
+import type {
+  ChatStreamPayload,
+  MessageToolCall,
+  OpenAIChatMessage,
+  UserMessageContentPart,
+} from '../../types';
 import { isDeepSeekThinkingEligibleModel } from '../../utils/modelParse';
+import { isSameModelSignatureScope, resolveScopedSignature } from '../../utils/signatureScope';
 import { parseDataUri } from '../../utils/uriParser';
 
 export type ExtendedChatCompletionContentPart = {
@@ -20,6 +27,7 @@ type ConvertMessageContentOptions = {
   forceVideoBase64?: boolean;
   model?: string;
   provider?: string;
+  signatureScope?: ModelSignatureScope;
   strictToolPairing?: boolean;
 };
 
@@ -159,7 +167,19 @@ export const convertOpenAIMessages = async (
 
       // Add optional fields if they exist
       if (msg.name !== undefined) result.name = msg.name;
-      if (msg.tool_calls !== undefined) result.tool_calls = msg.tool_calls;
+      if (msg.tool_calls !== undefined) {
+        result.tool_calls = msg.tool_calls.map((toolCall: MessageToolCall) => {
+          if (!toolCall.thoughtSignature) return toolCall;
+
+          const { thoughtSignature, ...rest } = toolCall;
+          const resolvedSignature = resolveScopedSignature(
+            thoughtSignature,
+            options?.signatureScope,
+          );
+
+          return resolvedSignature ? { ...rest, thoughtSignature: resolvedSignature } : rest;
+        });
+      }
       if (msg.tool_call_id !== undefined) result.tool_call_id = msg.tool_call_id;
       if (msg.function_call !== undefined) result.function_call = msg.function_call;
 
@@ -224,16 +244,30 @@ export const convertOpenAIResponseInputs = async (
   const inputGroups = await Promise.all(
     messages.map(async (message) => {
       const items: OpenAI.Responses.ResponseInputItem[] = [];
-      const sourceProvider = message.provider;
       const reasoning = message.reasoning;
-      const encryptedContent =
-        sourceProvider && sourceProvider === options?.provider ? reasoning?.signature : undefined;
+      const responseItems = reasoning?.responseItems;
+      const targetSignatureScope = options?.signatureScope;
+      const replayableResponseItems =
+        responseItems?.length &&
+        targetSignatureScope &&
+        responseItems.every(({ signatureScope }) =>
+          isSameModelSignatureScope(signatureScope, targetSignatureScope),
+        )
+          ? responseItems
+          : undefined;
 
-      // Preserve encrypted reasoning state for stateless Responses API requests.
-      if (reasoning?.content || encryptedContent) {
+      // Responses reasoning items are opaque provider state and must be replayed unchanged.
+      if (replayableResponseItems) {
+        items.push(
+          ...replayableResponseItems.map(
+            ({ item }) => item as OpenAI.Responses.ResponseReasoningItem,
+          ),
+        );
+      } else if (reasoning?.content) {
+        // Legacy scalar signatures have no route/channel provenance, so retain only
+        // their visible summary instead of risking replay to a foreign endpoint.
         items.push({
-          encrypted_content: encryptedContent,
-          summary: reasoning?.content ? [{ text: reasoning.content, type: 'summary_text' }] : [],
+          summary: [{ text: reasoning.content, type: 'summary_text' }],
           type: 'reasoning',
         } as OpenAI.Responses.ResponseReasoningItem);
       }

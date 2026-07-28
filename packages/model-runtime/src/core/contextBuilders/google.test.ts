@@ -3,6 +3,7 @@ import * as imageToBase64Module from '@lobechat/utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChatCompletionTool, OpenAIChatMessage, UserMessageContentPart } from '../../types';
+import { serializeScopedSignature } from '../../utils/signatureScope';
 import { isPublicExternalUrl, parseDataUri, validateExternalUrl } from '../../utils/uriParser';
 import {
   buildGoogleMessage,
@@ -802,8 +803,15 @@ describe('google contextBuilders', () => {
         ]);
       });
 
-      it('should NOT add magic signature when thoughtSignature already exists', async () => {
+      it('should unwrap a thoughtSignature from the same channel', async () => {
         const existingSignature = 'existing_signature_from_model';
+        const signatureScope = {
+          apiType: 'google',
+          channelId: 'google-a',
+          model: 'gemini-3.0-pro',
+          provider: 'lobehub',
+          routerId: 'gemini',
+        };
         const messages: OpenAIChatMessage[] = [
           {
             content: '杭州天气如何',
@@ -819,7 +827,7 @@ describe('google contextBuilders', () => {
                   name: 'lobe-web-browsing____search',
                 },
                 id: 'call_001',
-                thoughtSignature: existingSignature,
+                thoughtSignature: serializeScopedSignature(existingSignature, signatureScope),
                 type: 'function',
               },
             ],
@@ -832,7 +840,10 @@ describe('google contextBuilders', () => {
           },
         ];
 
-        const contents = await buildGoogleMessages(messages);
+        const contents = await buildGoogleMessages(messages, {
+          model: 'gemini-3.0-pro',
+          signatureScope,
+        });
 
         expect(contents).toEqual([
           {
@@ -846,7 +857,6 @@ describe('google contextBuilders', () => {
                   args: { query: '杭州天气', searchEngines: ['google'] },
                   name: 'lobe-web-browsing____search',
                 },
-                // Should keep existing thoughtSignature, not add magic signature
                 thoughtSignature: existingSignature,
               },
             ],
@@ -864,6 +874,41 @@ describe('google contextBuilders', () => {
             role: 'user',
           },
         ]);
+      });
+
+      it('should replace a foreign-channel thoughtSignature with the magic signature', async () => {
+        const sourceScope = {
+          apiType: 'vertexai',
+          channelId: 'vertex-a',
+          model: 'gemini-3.0-pro',
+          provider: 'lobehub',
+          routerId: 'gemini',
+        };
+        const messages: OpenAIChatMessage[] = [
+          {
+            content: '',
+            role: 'assistant',
+            tool_calls: [
+              {
+                function: { arguments: '{}', name: 'search' },
+                id: 'call_001',
+                thoughtSignature: serializeScopedSignature('vertex-signature', sourceScope),
+                type: 'function',
+              },
+            ],
+          },
+        ];
+
+        const contents = await buildGoogleMessages(messages, {
+          model: 'gemini-3.0-pro',
+          signatureScope: {
+            ...sourceScope,
+            apiType: 'google',
+            channelId: 'google-a',
+          },
+        });
+
+        expect(contents[0].parts?.[0].thoughtSignature).toBe(GEMINI_MAGIC_THOUGHT_SIGNATURE);
       });
 
       it('should add magic signature to all function calls in multi-turn scenario', async () => {

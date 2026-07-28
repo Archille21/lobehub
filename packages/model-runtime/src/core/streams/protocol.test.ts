@@ -743,6 +743,67 @@ describe('createCallbacksTransformer', () => {
     );
   });
 
+  it('should discard reasoning state when the stream only contains a signature', async () => {
+    const onCompletion = vi.fn();
+    const transformer = createCallbacksTransformer({ onCompletion });
+
+    await processChunks(transformer, [
+      'event: reasoning_signature\n',
+      'data: "encrypted-signature"\n\n',
+    ]);
+
+    expect(onCompletion.mock.calls[0][0].reasoning).toBeUndefined();
+  });
+
+  it('should preserve multiple scoped Responses reasoning items', async () => {
+    const onCompletion = vi.fn();
+    const transformer = createCallbacksTransformer({ onCompletion });
+    const signatureScope = {
+      channelId: 'chatgpt-account-1',
+      model: 'gpt-5.6-sol',
+      provider: 'chatgpt',
+    };
+    const responseItems = [
+      {
+        item: {
+          encrypted_content: 'encrypted-1',
+          id: 'reasoning-1',
+          summary: [{ text: 'First', type: 'summary_text' }],
+          type: 'reasoning',
+        },
+        signatureScope,
+      },
+      {
+        item: {
+          encrypted_content: 'encrypted-2',
+          id: 'reasoning-2',
+          summary: [{ text: 'Second', type: 'summary_text' }],
+          type: 'reasoning',
+        },
+        signatureScope,
+      },
+    ];
+
+    await processChunks(transformer, [
+      'event: reasoning\n',
+      'data: "First\\nSecond"\n\n',
+      ...responseItems.flatMap((item) => [
+        'event: reasoning_signature\n',
+        `data: ${JSON.stringify(item)}\n\n`,
+      ]),
+    ]);
+
+    expect(onCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reasoning: {
+          content: 'First\nSecond',
+          responseItems,
+          signature: undefined,
+        },
+      }),
+    );
+  });
+
   it('should handle base64_image chunks and call onBase64Image callback', async () => {
     const receivedCalls: Array<{
       image: { id: string; data: string };

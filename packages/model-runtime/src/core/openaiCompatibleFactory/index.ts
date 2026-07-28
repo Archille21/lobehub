@@ -61,6 +61,11 @@ import {
   ContextExceededPreFlightError,
 } from '../../utils/resolveSafeMaxTokens';
 import { StreamingResponse } from '../../utils/response';
+import {
+  createModelSignatureScope,
+  getRuntimeSignatureScope,
+  type ModelSignatureScopeBase,
+} from '../../utils/signatureScope';
 import type { LobeRuntimeAI } from '../BaseAI';
 import { normalizeToolsParameters } from '../contextBuilders/normalizeToolSchema';
 import { convertOpenAIMessages, convertOpenAIResponseInputs } from '../contextBuilders/openai';
@@ -344,6 +349,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
     private id: string;
     private logPrefix: string;
     private modelIdMappingOptions: ModelIdMappingOptions = {};
+    private directSignatureScope?: ModelSignatureScopeBase;
 
     baseURL!: string;
     protected _options: ConstructorOptions<T>;
@@ -375,7 +381,23 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       this.baseURL = baseURL || this.client.baseURL;
 
       this.id = options.id || provider;
+      /**
+       * ChatGPT encrypted reasoning is also account-bound. Treat the subscription
+       * account as a direct-provider channel when RouterRuntime did not supply one.
+       */
+      this.directSignatureScope =
+        typeof inputOptions.chatgptAccountId === 'string'
+          ? { channelId: inputOptions.chatgptAccountId, provider: this.id }
+          : undefined;
       this.logPrefix = `lobe-model-runtime:${this.id}`;
+    }
+
+    private getSignatureScope(model: string) {
+      return createModelSignatureScope(
+        this.id,
+        model,
+        getRuntimeSignatureScope(this) ?? this.directSignatureScope,
+      );
     }
 
     protected getMappedModelId(model: string) {
@@ -657,10 +679,12 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           this.baseURL = targetBaseURL;
         }
 
+        const signatureScope = this.getSignatureScope(payload.model);
         const messages = await convertOpenAIMessages(postPayload.messages, {
           forceImageBase64: chatCompletion?.forceImageBase64,
           forceVideoBase64: chatCompletion?.forceVideoBase64,
           model: postPayload.model,
+          signatureScope,
         });
         const includeUsageRequested = Boolean(postPayload.stream && !chatCompletion?.excludeUsage);
 
@@ -675,6 +699,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
             model: payload.model,
             pricing: await getModelPricing(payload.model, this.id, options?.pricingContext),
             provider: this.id,
+            signatureScope,
           },
         };
 
@@ -1416,6 +1441,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       log('handleResponseAPIMode called with model: %s', payload.model);
 
       const inputStartAt = Date.now();
+      const signatureScope = this.getSignatureScope(usageModel);
 
       const { messages, reasoning_effort, tools, reasoning, responseMode, max_tokens, ...res } =
         responses?.handlePayload
@@ -1432,6 +1458,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         forceImageBase64: chatCompletion?.forceImageBase64,
         forceVideoBase64: chatCompletion?.forceVideoBase64,
         provider: this.id,
+        signatureScope,
         strictToolPairing: true,
       });
 
@@ -1496,6 +1523,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           model: usageModel,
           pricing: await getModelPricing(usageModel, this.id, options?.pricingContext),
           provider: this.id,
+          signatureScope,
         },
       };
 
@@ -1584,6 +1612,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           forceImageBase64: chatCompletion?.forceImageBase64,
           forceVideoBase64: chatCompletion?.forceVideoBase64,
           provider: this.id,
+          signatureScope: this.getSignatureScope(payload.model),
           strictToolPairing: true,
         });
 

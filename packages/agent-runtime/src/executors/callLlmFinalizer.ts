@@ -92,9 +92,12 @@ const buildFinalReasoning = (output: CallLlmCollectedOutput): ModelReasoning | u
   }
 
   if (output.reasoning) {
+    const content = output.thinkingContent || output.reasoning.content;
+    if (!content) return undefined;
+
     return {
       ...output.reasoning,
-      content: output.thinkingContent || output.reasoning.content,
+      content,
     };
   }
 

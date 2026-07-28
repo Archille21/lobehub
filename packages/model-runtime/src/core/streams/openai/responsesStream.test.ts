@@ -709,7 +709,12 @@ describe('OpenAIResponsesStream', () => {
     expect(chunks).toMatchSnapshot();
   });
 
-  it('should emit encrypted reasoning content as a reasoning signature', async () => {
+  it('should emit the complete scoped reasoning item', async () => {
+    const signatureScope = {
+      channelId: 'account-1',
+      model: 'gpt-5.6-sol',
+      provider: 'chatgpt',
+    };
     const mockOpenAIStream = createReadableStream([
       {
         type: 'response.created',
@@ -730,11 +735,15 @@ describe('OpenAIResponsesStream', () => {
       },
     ]);
 
-    const protocolStream = OpenAIResponsesStream(mockOpenAIStream);
+    const protocolStream = OpenAIResponsesStream(mockOpenAIStream, {
+      payload: { model: 'gpt-5.6-sol', provider: 'chatgpt', signatureScope },
+    });
     const chunks = await readStreamChunk(protocolStream);
 
     expect(chunks.some((chunk) => chunk.includes('event: reasoning_signature'))).toBe(true);
     expect(chunks.some((chunk) => chunk.includes('encrypted-reasoning-content'))).toBe(true);
+    expect(chunks.some((chunk) => chunk.includes('"signatureScope"'))).toBe(true);
+    expect(chunks.some((chunk) => chunk.includes('"id":"reasoning_item"'))).toBe(true);
   });
 
   it('should handle response.completed with usage', async () => {

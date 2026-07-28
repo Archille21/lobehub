@@ -3,6 +3,7 @@ import type OpenAI from 'openai';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { OpenAIChatMessage } from '../../types';
+import { serializeScopedSignature } from '../../utils/signatureScope';
 import { parseDataUri } from '../../utils/uriParser';
 import {
   convertImageUrlToFile,
@@ -196,6 +197,38 @@ describe('convertOpenAIMessages', () => {
     const result = await convertOpenAIMessages(messages);
 
     expect(result).toEqual(messages);
+  });
+
+  it('should only unwrap tool thought signatures for the matching scope', async () => {
+    const sourceScope = {
+      apiType: 'openai',
+      channelId: 'openrouter-a',
+      model: 'google/gemini-3.5-pro',
+      provider: 'lobehub',
+      routerId: 'openrouter',
+    };
+    const messages = [
+      {
+        content: '',
+        role: 'assistant',
+        tool_calls: [
+          {
+            function: { arguments: '{}', name: 'search' },
+            id: 'call-1',
+            thoughtSignature: serializeScopedSignature('gemini-signature', sourceScope),
+            type: 'function',
+          },
+        ],
+      },
+    ] as unknown as OpenAI.ChatCompletionMessageParam[];
+
+    const matching = await convertOpenAIMessages(messages, { signatureScope: sourceScope });
+    const mismatched = await convertOpenAIMessages(messages, {
+      signatureScope: { ...sourceScope, channelId: 'openrouter-b' },
+    });
+
+    expect((matching[0] as any).tool_calls[0].thoughtSignature).toBe('gemini-signature');
+    expect((mismatched[0] as any).tool_calls[0].thoughtSignature).toBeUndefined();
   });
 
   it('should convert array content messages', async () => {
@@ -920,48 +953,100 @@ describe('convertOpenAIResponseInputs', () => {
     ]);
   });
 
-  it('should replay encrypted reasoning from a persisted message for the same provider', async () => {
+  it('should replay multiple Responses reasoning items for the same signature scope', async () => {
+    const signatureScope = {
+      channelId: 'account-1',
+      model: 'gpt-5.6-sol',
+      provider: 'chatgpt',
+    };
     const messages: OpenAIChatMessage[] = [
       {
         content: 'hello',
         model: 'gpt-5.6-sol',
         provider: 'chatgpt',
         reasoning: {
-          content: 'reasoning content',
-          signature: 'encrypted-reasoning-content',
+          content: 'first\nsecond',
+          responseItems: [
+            {
+              item: {
+                encrypted_content: 'encrypted-1',
+                id: 'reasoning-1',
+                summary: [{ text: 'first', type: 'summary_text' }],
+                type: 'reasoning',
+              },
+              signatureScope,
+            },
+            {
+              item: {
+                encrypted_content: 'encrypted-2',
+                id: 'reasoning-2',
+                summary: [{ text: 'second', type: 'summary_text' }],
+                type: 'reasoning',
+              },
+              signatureScope,
+            },
+          ],
         },
         role: 'assistant',
       },
     ];
 
-    const result = await convertOpenAIResponseInputs(messages, { provider: 'chatgpt' });
+    const result = await convertOpenAIResponseInputs(messages, { signatureScope });
 
     expect(result).toEqual([
       {
-        encrypted_content: 'encrypted-reasoning-content',
-        summary: [{ text: 'reasoning content', type: 'summary_text' }],
+        encrypted_content: 'encrypted-1',
+        id: 'reasoning-1',
+        summary: [{ text: 'first', type: 'summary_text' }],
+        type: 'reasoning',
+      },
+      {
+        encrypted_content: 'encrypted-2',
+        id: 'reasoning-2',
+        summary: [{ text: 'second', type: 'summary_text' }],
         type: 'reasoning',
       },
       { content: 'hello', role: 'assistant' },
     ]);
   });
 
-  it('should preserve encrypted reasoning content without a visible summary', async () => {
+  it('should not replay scoped or legacy encrypted reasoning to another channel', async () => {
+    const sourceScope = {
+      apiType: 'openai',
+      channelId: 'channel-a',
+      model: 'gpt-5.6-sol',
+      provider: 'lobehub',
+      routerId: 'openai',
+    };
     const messages: OpenAIChatMessage[] = [
       {
         content: 'hello',
-        provider: 'chatgpt',
-        reasoning: { signature: 'encrypted-reasoning-content' },
+        reasoning: {
+          content: 'reasoning content',
+          responseItems: [
+            {
+              item: {
+                encrypted_content: 'encrypted-reasoning-content',
+                id: 'reasoning-1',
+                summary: [{ text: 'reasoning content', type: 'summary_text' }],
+                type: 'reasoning',
+              },
+              signatureScope: sourceScope,
+            },
+          ],
+          signature: 'legacy-unscoped-signature',
+        },
         role: 'assistant',
       },
     ];
 
-    const result = await convertOpenAIResponseInputs(messages, { provider: 'chatgpt' });
+    const result = await convertOpenAIResponseInputs(messages, {
+      signatureScope: { ...sourceScope, channelId: 'channel-b' },
+    });
 
     expect(result).toEqual([
       {
-        encrypted_content: 'encrypted-reasoning-content',
-        summary: [],
+        summary: [{ text: 'reasoning content', type: 'summary_text' }],
         type: 'reasoning',
       },
       { content: 'hello', role: 'assistant' },

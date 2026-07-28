@@ -172,7 +172,7 @@ describe('callLlmFinalizer', () => {
     expect(publishedEvents.some(([event]) => event.type === 'visible_output_end')).toBe(false);
   });
 
-  it('tags replayable reasoning with its source model and provider', async () => {
+  it('does not persist signature-only reasoning in replay state', async () => {
     const result = await finalizeCallLlmTurn({
       assistantMessageId: 'assistant-1',
       events: [],
@@ -190,7 +190,7 @@ describe('callLlmFinalizer', () => {
     expect(result.newState.messages.at(-1)).toMatchObject({
       model: 'gpt-5',
       provider: 'chatgpt',
-      reasoning: { signature: 'encrypted-reasoning' },
+      reasoning: undefined,
     });
   });
 

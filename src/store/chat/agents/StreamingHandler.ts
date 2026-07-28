@@ -533,11 +533,11 @@ export class StreamingHandler {
       };
     } else if (this.thinkingContent) {
       finalReasoning = {
+        ...finishData.reasoning,
         content: this.thinkingContent,
         duration: finalDuration,
-        signature: reasoningSignature,
       };
-    } else if (finishData.reasoning?.content || reasoningSignature) {
+    } else if (finishData.reasoning?.content) {
       finalReasoning = {
         ...finishData.reasoning,
         duration: finalDuration,

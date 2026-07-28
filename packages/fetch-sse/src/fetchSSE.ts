@@ -7,6 +7,7 @@ import type {
   MessageToolCall,
   ModelPerformance,
   ModelReasoning,
+  ModelReasoningResponseItem,
   ModelUsage,
   ResponseAnimation,
   ResponseAnimationStyle,
@@ -282,6 +283,7 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
 
   let thinking = '';
   let thinkingSignature: string | undefined;
+  const reasoningResponseItems: ModelReasoningResponseItem[] = [];
 
   const thinkingController = createSmoothMessage({
     onTextUpdate: (delta, text) => {
@@ -432,7 +434,11 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
         }
 
         case 'reasoning_signature': {
-          thinkingSignature = data;
+          if (typeof data === 'string') {
+            thinkingSignature = data;
+          } else {
+            reasoningResponseItems.push(data as ModelReasoningResponseItem);
+          }
           break;
         }
 
@@ -548,10 +554,13 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
         grounding,
         images: images.length > 0 ? images : undefined,
         observationId,
-        reasoning:
-          thinking || thinkingSignature
-            ? { content: thinking || undefined, signature: thinkingSignature }
-            : undefined,
+        reasoning: thinking
+          ? {
+              content: thinking,
+              responseItems: reasoningResponseItems.length > 0 ? reasoningResponseItems : undefined,
+              signature: thinkingSignature,
+            }
+          : undefined,
         speed,
         toolCalls,
         traceId,
