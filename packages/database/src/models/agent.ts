@@ -1478,7 +1478,11 @@ export class AgentModel {
       where: and(eq(agents.slug, slug), this.ownership()),
     });
 
-    if (existing) return normalizeInboxAgentMeta(existing, { slug: existing.slug });
+    if (existing) {
+      return this.reconcileAgentSkillDefaults(
+        normalizeInboxAgentMeta(existing, { slug: existing.slug }),
+      );
+    }
 
     // For inbox agent, it has special compatibility handling:
     // Historical inbox was stored as session with slug='inbox' and linked agent via agentsToSessions

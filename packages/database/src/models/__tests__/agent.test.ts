@@ -2075,6 +2075,47 @@ describe('AgentModel', () => {
         expect(result?.slug).toBe('task-agent');
         expect(result?.virtual).toBe(true);
       });
+
+      it('reconciles custom skill defaults for an existing non-inbox builtin agent', async () => {
+        const originalUpdatedAt = new Date('2024-01-02T03:04:05.000Z');
+        await serverDB.insert(agentSkills).values({
+          description: 'Skill created before the builtin is read',
+          identifier: 'legacy-builtin-custom-skill',
+          manifest: { description: 'Legacy builtin skill', name: 'Legacy Builtin Skill' },
+          name: 'Legacy Builtin Skill',
+          source: 'user',
+          userId,
+        });
+        const [existing] = await serverDB
+          .insert(agents)
+          .values({
+            plugins: ['existing-plugin'],
+            slug: 'page-agent',
+            updatedAt: originalUpdatedAt,
+            userId,
+            virtual: true,
+          })
+          .returning();
+
+        const result = await agentModel.getBuiltinAgent('page-agent');
+        const persisted = await serverDB.query.agents.findFirst({
+          where: eq(agents.id, existing.id),
+        });
+
+        expect(
+          getPluginMode(
+            result?.plugins as AgentPluginEntry[] | undefined,
+            'legacy-builtin-custom-skill',
+          ),
+        ).toBe('disabled');
+        expect(
+          getPluginMode(
+            persisted?.plugins as AgentPluginEntry[] | undefined,
+            'legacy-builtin-custom-skill',
+          ),
+        ).toBe('disabled');
+        expect(persisted?.updatedAt).toEqual(originalUpdatedAt);
+      });
     });
 
     describe('workspace mode', () => {

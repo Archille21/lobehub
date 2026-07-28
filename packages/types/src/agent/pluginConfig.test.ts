@@ -153,4 +153,19 @@ describe('upsertPluginMode', () => {
       { identifier: 'not-there', mode: 'auto' },
     ]);
   });
+
+  it('collapses duplicate string and object entries for the updated identifier', () => {
+    expect(
+      upsertPluginMode(
+        [
+          { identifier: 'a', mode: 'auto' as const },
+          'b',
+          'a',
+          { identifier: 'a', mode: 'pinned' as const },
+        ],
+        'a',
+        'disabled',
+      ),
+    ).toEqual([{ identifier: 'a', mode: 'disabled' }, 'b']);
+  });
 });
