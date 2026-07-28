@@ -117,6 +117,8 @@ export interface StreamProtocolChunk {
     | 'reasoning'
     // use for reasoning signature, maybe only anthropic
     | 'reasoning_signature'
+    // complete OpenAI Responses reasoning item with replay scope
+    | 'reasoning_response_item'
     // flagged reasoning signature
     | 'flagged_reasoning_signature'
     // multimodal content part in reasoning
@@ -547,11 +549,12 @@ export function createCallbacksTransformer(
           }
 
           case 'reasoning_signature': {
-            if (typeof data === 'string') {
-              reasoningSignature = data;
-            } else {
-              reasoningResponseItems.push(data as ModelReasoningResponseItem);
-            }
+            if (typeof data === 'string') reasoningSignature = data;
+            break;
+          }
+
+          case 'reasoning_response_item': {
+            reasoningResponseItems.push(data as ModelReasoningResponseItem);
             break;
           }
 

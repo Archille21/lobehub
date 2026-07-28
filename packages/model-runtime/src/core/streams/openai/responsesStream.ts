@@ -154,13 +154,17 @@ const transformOpenAIStream = (
          * or persist it when the runtime cannot prove which channel produced it.
          */
         if (hasReplayableReasoning && payload?.signatureScope?.channelId) {
+          /**
+           * Keep structured Responses items on a distinct event. Released clients treat
+           * `reasoning_signature` as string-only and would assign this object to `signature`.
+           */
           return {
             data: {
               item: chunk.item,
               signatureScope: payload.signatureScope,
             },
             id: chunk.item.id,
-            type: 'reasoning_signature',
+            type: 'reasoning_response_item',
           };
         }
 

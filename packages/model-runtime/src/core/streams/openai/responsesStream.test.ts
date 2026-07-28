@@ -709,7 +709,7 @@ describe('OpenAIResponsesStream', () => {
     expect(chunks).toMatchSnapshot();
   });
 
-  it('should emit the complete scoped reasoning item', async () => {
+  it('should emit the complete scoped reasoning item without changing the legacy signature event', async () => {
     const signatureScope = {
       channelId: 'account-1',
       model: 'gpt-5.6-sol',
@@ -740,7 +740,8 @@ describe('OpenAIResponsesStream', () => {
     });
     const chunks = await readStreamChunk(protocolStream);
 
-    expect(chunks.some((chunk) => chunk.includes('event: reasoning_signature'))).toBe(true);
+    expect(chunks.some((chunk) => chunk.includes('event: reasoning_response_item'))).toBe(true);
+    expect(chunks.some((chunk) => chunk.includes('event: reasoning_signature'))).toBe(false);
     expect(chunks.some((chunk) => chunk.includes('encrypted-reasoning-content'))).toBe(true);
     expect(chunks.some((chunk) => chunk.includes('"signatureScope"'))).toBe(true);
     expect(chunks.some((chunk) => chunk.includes('"id":"reasoning_item"'))).toBe(true);
@@ -773,7 +774,7 @@ describe('OpenAIResponsesStream', () => {
     });
     const chunks = await readStreamChunk(protocolStream);
 
-    expect(chunks.some((chunk) => chunk.includes('event: reasoning_signature'))).toBe(false);
+    expect(chunks.some((chunk) => chunk.includes('event: reasoning_response_item'))).toBe(false);
   });
 
   it('should discard encrypted reasoning without a stable channel id', async () => {
@@ -803,7 +804,7 @@ describe('OpenAIResponsesStream', () => {
     });
     const chunks = await readStreamChunk(protocolStream);
 
-    expect(chunks.some((chunk) => chunk.includes('event: reasoning_signature'))).toBe(false);
+    expect(chunks.some((chunk) => chunk.includes('event: reasoning_response_item'))).toBe(false);
     expect(chunks.some((chunk) => chunk.includes('unverifiable-encrypted-content'))).toBe(false);
   });
 

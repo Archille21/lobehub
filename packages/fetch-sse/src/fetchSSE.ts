@@ -434,11 +434,12 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
         }
 
         case 'reasoning_signature': {
-          if (typeof data === 'string') {
-            thinkingSignature = data;
-          } else {
-            reasoningResponseItems.push(data as ModelReasoningResponseItem);
-          }
+          if (typeof data === 'string') thinkingSignature = data;
+          break;
+        }
+
+        case 'reasoning_response_item': {
+          reasoningResponseItems.push(data as ModelReasoningResponseItem);
           break;
         }
 

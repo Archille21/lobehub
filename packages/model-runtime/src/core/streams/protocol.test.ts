@@ -772,7 +772,7 @@ describe('createCallbacksTransformer', () => {
     };
 
     await processChunks(transformer, [
-      'event: reasoning_signature\n',
+      'event: reasoning_response_item\n',
       `data: ${JSON.stringify(responseItem)}\n\n`,
     ]);
 
@@ -805,7 +805,7 @@ describe('createCallbacksTransformer', () => {
     };
 
     await processChunks(transformer, [
-      'event: reasoning_signature\n',
+      'event: reasoning_response_item\n',
       `data: ${JSON.stringify(responseItem)}\n\n`,
     ]);
 
@@ -854,7 +854,7 @@ describe('createCallbacksTransformer', () => {
       'event: reasoning\n',
       'data: "First\\nSecond"\n\n',
       ...responseItems.flatMap((item) => [
-        'event: reasoning_signature\n',
+        'event: reasoning_response_item\n',
         `data: ${JSON.stringify(item)}\n\n`,
       ]),
     ]);

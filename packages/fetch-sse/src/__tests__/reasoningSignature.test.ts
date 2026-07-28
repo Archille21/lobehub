@@ -65,7 +65,7 @@ describe('fetchSSE reasoning signatures', () => {
         options.onopen!({ clone: () => ({ ok: true, headers: new Headers() }) } as any);
         options.onmessage!({
           data: JSON.stringify(responseItem),
-          event: 'reasoning_signature',
+          event: 'reasoning_response_item',
         } as any);
         options.onmessage!({ data: JSON.stringify('Done'), event: 'text' } as any);
       },
@@ -109,7 +109,7 @@ describe('fetchSSE reasoning signatures', () => {
         options.onopen!({ clone: () => ({ ok: true, headers: new Headers() }) } as any);
         options.onmessage!({
           data: JSON.stringify(responseItem),
-          event: 'reasoning_signature',
+          event: 'reasoning_response_item',
         } as any);
         options.onmessage!({ data: JSON.stringify('Done'), event: 'text' } as any);
       },
