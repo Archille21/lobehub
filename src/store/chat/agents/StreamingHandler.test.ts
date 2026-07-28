@@ -591,6 +591,40 @@ describe('StreamingHandler', () => {
 
       expect(result.metadata.reasoning).toBeUndefined();
     });
+
+    it('should preserve response items without reasoning content', async () => {
+      const callbacks = createMockCallbacks();
+      const handler = new StreamingHandler(mockContext, callbacks);
+      const responseItem = {
+        item: {
+          encrypted_content: 'encrypted-reasoning',
+          id: 'reasoning-1',
+          summary: [],
+          type: 'reasoning' as const,
+        },
+        signatureScope: {
+          model: 'gpt-5',
+          provider: 'chatgpt',
+        },
+      };
+
+      handler.handleChunk({ type: 'text', text: 'Content' });
+
+      const result = await handler.handleFinish({
+        type: 'stop',
+        reasoning: {
+          responseItems: [responseItem],
+          signature: 'legacy-signature',
+        },
+      });
+
+      expect(result.metadata.reasoning).toEqual({
+        content: undefined,
+        duration: undefined,
+        responseItems: [responseItem],
+        signature: undefined,
+      });
+    });
   });
 
   describe('getter methods', () => {

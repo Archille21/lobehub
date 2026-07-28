@@ -522,6 +522,11 @@ export class StreamingHandler {
 
     // Get signature from finishData.reasoning (provided by backend in onFinish)
     const reasoningSignature = finishData.reasoning?.signature;
+    /**
+     * Hidden Responses items remain replayable without visible content. This does not retain a
+     * legacy scalar signature on its own.
+     */
+    const hasResponseItems = !!finishData.reasoning?.responseItems?.length;
 
     let finalReasoning: ReasoningState | undefined;
     if (hasReasoningImages) {
@@ -537,10 +542,11 @@ export class StreamingHandler {
         content: this.thinkingContent,
         duration: finalDuration,
       };
-    } else if (finishData.reasoning?.content) {
+    } else if (finishData.reasoning?.content || hasResponseItems) {
       finalReasoning = {
         ...finishData.reasoning,
         duration: finalDuration,
+        signature: finishData.reasoning?.content ? finishData.reasoning.signature : undefined,
       };
     }
 

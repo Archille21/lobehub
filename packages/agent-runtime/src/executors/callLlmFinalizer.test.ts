@@ -194,6 +194,47 @@ describe('callLlmFinalizer', () => {
     });
   });
 
+  it('persists scoped response items without visible reasoning in replay state', async () => {
+    const responseItem = {
+      item: {
+        encrypted_content: 'encrypted-reasoning',
+        id: 'reasoning-1',
+        summary: [],
+        type: 'reasoning' as const,
+      },
+      signatureScope: {
+        model: 'gpt-5',
+        provider: 'chatgpt',
+      },
+    };
+    const result = await finalizeCallLlmTurn({
+      assistantMessageId: 'assistant-1',
+      events: [],
+      host: createHost(),
+      model: 'gpt-5',
+      output: createOutput({
+        reasoning: {
+          responseItems: [responseItem],
+          signature: 'legacy-signature',
+        },
+        thinkingContent: '',
+      }),
+      provider: 'chatgpt',
+      shouldReplayAssistantReasoning: true,
+      state: AgentRuntime.createInitialState({ operationId: 'operation-1' }),
+    });
+
+    expect(result.newState.messages.at(-1)).toMatchObject({
+      model: 'gpt-5',
+      provider: 'chatgpt',
+      reasoning: {
+        content: undefined,
+        responseItems: [responseItem],
+        signature: undefined,
+      },
+    });
+  });
+
   it('publishes no-tool visible output end before persistence and records the marker', async () => {
     const messages = createMessageTransport();
     const stream = createStreamSink();

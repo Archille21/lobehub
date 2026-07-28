@@ -93,11 +93,17 @@ const buildFinalReasoning = (output: CallLlmCollectedOutput): ModelReasoning | u
 
   if (output.reasoning) {
     const content = output.thinkingContent || output.reasoning.content;
-    if (!content) return undefined;
+    /**
+     * Hidden Responses items remain replayable without visible content. Keep them while continuing
+     * to discard legacy scalar signatures that have no reasoning content.
+     */
+    const hasResponseItems = !!output.reasoning.responseItems?.length;
+    if (!content && !hasResponseItems) return undefined;
 
     return {
       ...output.reasoning,
-      content,
+      content: content || undefined,
+      signature: content ? output.reasoning.signature : undefined,
     };
   }
 
