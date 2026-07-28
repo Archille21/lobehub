@@ -5,7 +5,16 @@ import { merge } from '@lobechat/utils';
 import { and, desc, eq, ilike, inArray, isNull, ne, notExists, or, sql } from 'drizzle-orm';
 
 import type { NewAgentSkill } from '../schemas';
-import { agents, agentSkills, agentsToSessions, sessions, users, workspaces } from '../schemas';
+import {
+  agents,
+  agentSkills,
+  agentsToSessions,
+  sessions,
+  userConnectors,
+  userInstalledPlugins,
+  users,
+  workspaces,
+} from '../schemas';
 import type { LobeChatDatabase, Transaction } from '../type';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
 
@@ -24,6 +33,9 @@ export const removeAgentPluginPolicyEntries = async (
     userId: agents.userId,
     workspaceId: agents.workspaceId,
   });
+  const skillScope = buildWorkspaceWhere(scope, agentSkills);
+  const pluginScope = buildWorkspaceWhere(scope, userInstalledPlugins);
+  const connectorScope = buildWorkspaceWhere(scope, userConnectors);
 
   await executor.execute(sql`
     update ${agents}
@@ -35,6 +47,25 @@ export const removeAgentPluginPolicyEntries = async (
         and plugin.entry ->> 'identifier' is distinct from ${identifier}
     )
     where ${and(agentScope, agentId ? eq(agents.id, agentId) : undefined)}
+      and not exists (
+        select 1
+        from ${agentSkills}
+        where ${and(skillScope, eq(agentSkills.identifier, identifier))}
+      )
+      and not exists (
+        select 1
+        from ${userInstalledPlugins}
+        where ${and(pluginScope, eq(userInstalledPlugins.identifier, identifier))}
+      )
+      and not exists (
+        select 1
+        from ${userConnectors}
+        where ${and(
+          connectorScope,
+          eq(userConnectors.identifier, identifier),
+          or(isNull(userConnectors.agentId), eq(userConnectors.agentId, agents.id)),
+        )}
+      )
       and exists (
         select 1
         from jsonb_array_elements(coalesce(${agents.plugins}, '[]'::jsonb)) as plugin(entry)

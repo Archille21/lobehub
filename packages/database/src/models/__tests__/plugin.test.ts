@@ -8,6 +8,7 @@ import type { NewInstalledPlugin } from '../../schemas';
 import { agents, userInstalledPlugins, users } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
 import { AgentSkillModel } from '../agentSkill';
+import { ConnectorModel } from '../connector';
 import { PluginModel } from '../plugin';
 
 const serverDB: LobeChatDatabase = await getTestDB();
@@ -125,6 +126,37 @@ describe('PluginModel', () => {
             getPluginMode(plugins as AgentPluginEntry[] | undefined, identifier) === 'disabled',
         ),
       ).toBe(true);
+    });
+
+    it('preserves policies when a legacy plugin is replaced by a connector', async () => {
+      const identifier = 'migrated-legacy-plugin';
+      await serverDB.insert(userInstalledPlugins).values({
+        identifier,
+        manifest: { name: 'Legacy plugin' },
+        type: 'customPlugin',
+        userId,
+      } as unknown as NewInstalledPlugin);
+      await serverDB.insert(agents).values({
+        id: 'legacy-plugin-agent',
+        plugins: [{ identifier, mode: 'pinned' }] as unknown as string[],
+        userId,
+      });
+
+      // The migration creates and syncs the replacement connector before
+      // uninstalling the legacy plugin under the same identifier.
+      const connectorModel = new ConnectorModel(serverDB, userId);
+      await connectorModel.create({
+        identifier,
+        name: 'Migrated Connector',
+        sourceType: 'custom',
+        status: 'connected',
+      });
+      await pluginModel.delete(identifier);
+
+      const agent = await serverDB.query.agents.findFirst({
+        where: (table, { eq }) => eq(table.id, 'legacy-plugin-agent'),
+      });
+      expect(agent?.plugins).toEqual([{ identifier, mode: 'pinned' }]);
     });
   });
 

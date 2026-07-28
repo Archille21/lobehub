@@ -599,6 +599,44 @@ describe('ConnectorModel', () => {
       ]);
     });
 
+    it('preserves the policy of an agent-owned copy when its base connector is deleted', async () => {
+      const identifier = 'copied-base-connector';
+      await serverDB.insert(agents).values([
+        {
+          id: 'connector-copy-agent',
+          plugins: [{ identifier, mode: 'pinned' }] as unknown as string[],
+          userId,
+        },
+        {
+          id: 'connector-base-only-agent',
+          plugins: [{ identifier, mode: 'pinned' }] as unknown as string[],
+          userId,
+        },
+      ]);
+      const model = new ConnectorModel(serverDB, userId);
+      const base = await model.create({
+        identifier,
+        name: 'Base Connector',
+        sourceType: 'custom',
+        status: 'connected',
+      });
+      await model.copyToAgent(base.id, 'connector-copy-agent');
+
+      await model.delete(base.id);
+
+      const policiesAfterDelete = await serverDB.query.agents.findMany({
+        where: (table, { inArray }) =>
+          inArray(table.id, ['connector-copy-agent', 'connector-base-only-agent']),
+      });
+      const pluginsByAgentId = new Map(
+        policiesAfterDelete.map((agent) => [agent.id, agent.plugins]),
+      );
+      expect(pluginsByAgentId.get('connector-copy-agent')).toEqual([
+        { identifier, mode: 'pinned' },
+      ]);
+      expect(pluginsByAgentId.get('connector-base-only-agent')).toEqual([]);
+    });
+
     it('does not delete connectors owned by another user', async () => {
       const otherModel = new ConnectorModel(serverDB, otherUserId);
       const created = await otherModel.create({
