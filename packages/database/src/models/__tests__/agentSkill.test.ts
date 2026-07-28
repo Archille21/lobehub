@@ -279,26 +279,55 @@ describe('AgentSkillModel', () => {
   });
 
   describe('delete', () => {
-    it('should delete an agent skill by id', async () => {
+    it('removes agent policies before the identifier is reused by another skill', async () => {
+      const identifier = 'reused-deleted-skill';
+      const originalUpdatedAt = new Date('2024-01-02T03:04:05.000Z');
+      await serverDB.insert(agents).values({
+        id: 'deleted-skill-policy-agent',
+        plugins: [{ identifier, mode: 'auto' }, 'kept-plugin'] as unknown as string[],
+        updatedAt: originalUpdatedAt,
+        userId,
+      });
       const { id } = await serverDB
         .insert(agentSkills)
         .values({
-          name: 'To Delete',
-          description: 'To delete skill',
-          identifier: 'to.delete',
-          source: 'user',
+          description: 'Skill whose identifier will be reused',
+          identifier,
           manifest: createManifest(),
+          name: 'To Delete',
+          source: 'user',
           userId,
         })
         .returning()
         .then((res) => res[0]);
 
-      await agentSkillModel.delete(id);
+      const result = await agentSkillModel.delete(id);
 
       const skill = await serverDB.query.agentSkills.findFirst({
         where: eq(agentSkills.id, id),
       });
+      const agentAfterDelete = await serverDB.query.agents.findFirst({
+        where: eq(agents.id, 'deleted-skill-policy-agent'),
+      });
+      expect(result).toEqual({ success: true });
       expect(skill).toBeUndefined();
+      expect(agentAfterDelete?.plugins).toEqual(['kept-plugin']);
+      expect(agentAfterDelete?.updatedAt).toEqual(originalUpdatedAt);
+
+      await agentSkillModel.create({
+        description: 'Replacement skill with the reused identifier',
+        identifier,
+        manifest: createManifest(),
+        name: 'Replacement Skill',
+        source: 'user',
+      });
+
+      const agentAfterReuse = await serverDB.query.agents.findFirst({
+        where: eq(agents.id, 'deleted-skill-policy-agent'),
+      });
+      expect(
+        getPluginMode(agentAfterReuse?.plugins as AgentPluginEntry[] | undefined, identifier),
+      ).toBe('disabled');
     });
   });
 

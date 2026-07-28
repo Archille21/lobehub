@@ -1,4 +1,3 @@
-import { parsePluginEntry } from '@lobechat/types';
 import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
@@ -659,21 +658,6 @@ export const connectorRouter = router({
       if (!target) return;
       assertWorkspaceRowManageable(ctx, target.userId, 'connector');
       await ctx.connectorModel.delete(input.id);
-
-      // Agent-owned connector: also remove its policy entry from the owning
-      // agent. This is resource deletion rather than a user selecting `auto`,
-      // so retaining an explicit auto entry would leave a dangling identifier.
-      if (target.agentId) {
-        const agentModel = new AgentModel(ctx.serverDB, ctx.userId, ctx.workspaceId ?? undefined);
-        const config = await agentModel.getAgentConfigById(target.agentId);
-        if (config) {
-          await agentModel.update(target.agentId, {
-            plugins: (config.plugins ?? []).filter(
-              (entry) => parsePluginEntry(entry).identifier !== target.identifier,
-            ) as any,
-          });
-        }
-      }
     }),
 
   /**

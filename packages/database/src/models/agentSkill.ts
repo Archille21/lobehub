@@ -14,6 +14,36 @@ interface AgentSkillScope {
   workspaceId?: string;
 }
 
+export const removeAgentPluginPolicyEntries = async (
+  executor: LobeChatDatabase,
+  scope: AgentSkillScope,
+  identifier: string,
+  agentId?: string,
+) => {
+  const agentScope = buildWorkspaceWhere(scope, {
+    userId: agents.userId,
+    workspaceId: agents.workspaceId,
+  });
+
+  await executor.execute(sql`
+    update ${agents}
+    set ${sql.identifier('plugins')} = (
+      select coalesce(jsonb_agg(plugin.entry order by plugin.ordinality), '[]'::jsonb)
+      from jsonb_array_elements(coalesce(${agents.plugins}, '[]'::jsonb))
+        with ordinality as plugin(entry, ordinality)
+      where plugin.entry #>> '{}' is distinct from ${identifier}
+        and plugin.entry ->> 'identifier' is distinct from ${identifier}
+    )
+    where ${and(agentScope, agentId ? eq(agents.id, agentId) : undefined)}
+      and exists (
+        select 1
+        from jsonb_array_elements(coalesce(${agents.plugins}, '[]'::jsonb)) as plugin(entry)
+        where plugin.entry #>> '{}' = ${identifier}
+           or plugin.entry ->> 'identifier' = ${identifier}
+      )
+  `);
+};
+
 // Agent and skill creation take the same parent-row lock so overlapping
 // transactions cannot each miss the other's still-uncommitted row.
 export const lockAgentSkillScope = async (trx: Transaction, scope: AgentSkillScope) => {
@@ -272,10 +302,19 @@ export class AgentSkillModel {
   // ========== Delete ==========
 
   delete = async (id: string): Promise<{ success: boolean }> => {
-    const result = await this.db
-      .delete(agentSkills)
-      .where(and(eq(agentSkills.id, id), this.scopeWhere()));
+    return this.db.transaction(async (trx) => {
+      const scope = { userId: this.userId, workspaceId: this.workspaceId };
+      await lockAgentSkillScope(trx, scope);
+      const [deleted] = await trx
+        .delete(agentSkills)
+        .where(and(eq(agentSkills.id, id), this.scopeWhere()))
+        .returning({ identifier: agentSkills.identifier });
 
-    return { success: (result.rowCount ?? 0) > 0 };
+      if (!deleted) return { success: false };
+
+      await removeAgentPluginPolicyEntries(trx, scope, deleted.identifier);
+
+      return { success: true };
+    });
   };
 }

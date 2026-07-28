@@ -1,3 +1,5 @@
+import type { AgentPluginEntry } from '@lobechat/types';
+import { getPluginMode } from '@lobechat/types';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -5,6 +7,7 @@ import { getTestDB } from '../../core/getTestDB';
 import type { ConnectorCredentials } from '../../schemas';
 import { agents, userConnectors, users, workspaces } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
+import { AgentSkillModel } from '../agentSkill';
 import { ConnectorModel } from '../connector';
 
 const serverDB: LobeChatDatabase = await getTestDB();
@@ -498,6 +501,102 @@ describe('ConnectorModel', () => {
       await model.delete(created.id);
 
       expect(await model.findById(created.id)).toBeNull();
+    });
+
+    it('removes base connector policies before its identifier is reused by a custom skill', async () => {
+      const identifier = 'reused-base-connector';
+      const originalUpdatedAt = new Date('2024-01-02T03:04:05.000Z');
+      const model = new ConnectorModel(serverDB, userId);
+      const created = await model.create({
+        identifier,
+        name: 'Base Connector',
+        sourceType: 'custom',
+        status: 'connected',
+      });
+      await serverDB.insert(agents).values([
+        {
+          id: 'base-connector-object-policy-agent',
+          plugins: [{ identifier, mode: 'pinned' }, 'kept-plugin'] as unknown as string[],
+          updatedAt: originalUpdatedAt,
+          userId,
+        },
+        {
+          id: 'base-connector-string-policy-agent',
+          plugins: [identifier],
+          userId,
+        },
+      ]);
+
+      await model.delete(created.id);
+
+      const policiesAfterDelete = await serverDB.query.agents.findMany({
+        where: (table, { eq }) => eq(table.userId, userId),
+      });
+      const policiesByAgentId = new Map(policiesAfterDelete.map((agent) => [agent.id, agent]));
+      expect(policiesByAgentId.get('base-connector-object-policy-agent')?.plugins).toEqual([
+        'kept-plugin',
+      ]);
+      expect(policiesByAgentId.get('base-connector-object-policy-agent')?.updatedAt).toEqual(
+        originalUpdatedAt,
+      );
+      expect(policiesByAgentId.get('base-connector-string-policy-agent')?.plugins).toEqual([]);
+
+      const agentSkillModel = new AgentSkillModel(serverDB, userId);
+      await agentSkillModel.create({
+        description: 'Skill reusing a deleted connector identifier',
+        identifier,
+        manifest: { description: 'Replacement skill', name: 'Replacement Skill' },
+        name: 'Replacement Skill',
+        source: 'user',
+      });
+
+      const policiesAfterReuse = await serverDB.query.agents.findMany({
+        where: (table, { eq }) => eq(table.userId, userId),
+      });
+      expect(
+        policiesAfterReuse.every(
+          ({ plugins }) =>
+            getPluginMode(plugins as AgentPluginEntry[] | undefined, identifier) === 'disabled',
+        ),
+      ).toBe(true);
+    });
+
+    it('removes an agent-owned connector policy only from its owning agent', async () => {
+      const identifier = 'agent-owned-connector';
+      await serverDB.insert(agents).values([
+        {
+          id: 'connector-owner-agent',
+          plugins: [{ identifier, mode: 'auto' }] as unknown as string[],
+          userId,
+        },
+        {
+          id: 'connector-other-agent',
+          plugins: [{ identifier, mode: 'pinned' }] as unknown as string[],
+          userId,
+        },
+      ]);
+      const model = new ConnectorModel(serverDB, userId);
+      const created = await model.create({
+        agentId: 'connector-owner-agent',
+        identifier,
+        name: 'Agent Connector',
+        sourceType: 'custom',
+        status: 'connected',
+      });
+
+      await model.delete(created.id);
+
+      const policiesAfterDelete = await serverDB.query.agents.findMany({
+        where: (table, { inArray }) =>
+          inArray(table.id, ['connector-owner-agent', 'connector-other-agent']),
+      });
+      const pluginsByAgentId = new Map(
+        policiesAfterDelete.map((agent) => [agent.id, agent.plugins]),
+      );
+      expect(pluginsByAgentId.get('connector-owner-agent')).toEqual([]);
+      expect(pluginsByAgentId.get('connector-other-agent')).toEqual([
+        { identifier, mode: 'pinned' },
+      ]);
     });
 
     it('does not delete connectors owned by another user', async () => {

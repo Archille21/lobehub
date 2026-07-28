@@ -1,10 +1,11 @@
 import type { LobeTool } from '@lobechat/types';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 import type { InstalledPluginItem, NewInstalledPlugin } from '../schemas';
-import { agents, userInstalledPlugins } from '../schemas';
+import { userInstalledPlugins } from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import { buildWorkspaceWhere } from '../utils/workspace';
+import { removeAgentPluginPolicyEntries } from './agentSkill';
 
 export class PluginModel {
   private userId: string;
@@ -21,12 +22,6 @@ export class PluginModel {
     buildWorkspaceWhere(
       { userId: this.userId, workspaceId: this.workspaceId },
       userInstalledPlugins,
-    );
-
-  private agentScope = () =>
-    buildWorkspaceWhere(
-      { userId: this.userId, workspaceId: this.workspaceId },
-      { userId: agents.userId, workspaceId: agents.workspaceId },
     );
 
   create = async (
@@ -59,23 +54,11 @@ export class PluginModel {
       // Resource deletion must physically remove the policy entry. Otherwise a
       // later custom skill with the same identifier would inherit stale
       // pinned/auto state instead of receiving its default mode.
-      await trx.execute(sql`
-        update ${agents}
-        set ${sql.identifier('plugins')} = (
-          select coalesce(jsonb_agg(plugin.entry order by plugin.ordinality), '[]'::jsonb)
-          from jsonb_array_elements(coalesce(${agents.plugins}, '[]'::jsonb))
-            with ordinality as plugin(entry, ordinality)
-          where plugin.entry #>> '{}' is distinct from ${id}
-            and plugin.entry ->> 'identifier' is distinct from ${id}
-        )
-        where ${this.agentScope()}
-          and exists (
-            select 1
-            from jsonb_array_elements(coalesce(${agents.plugins}, '[]'::jsonb)) as plugin(entry)
-            where plugin.entry #>> '{}' = ${id}
-               or plugin.entry ->> 'identifier' = ${id}
-          )
-      `);
+      await removeAgentPluginPolicyEntries(
+        trx,
+        { userId: this.userId, workspaceId: this.workspaceId },
+        id,
+      );
 
       return deleted;
     });
