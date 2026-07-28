@@ -1,3 +1,4 @@
+import { INBOX_SESSION_ID } from '@lobechat/const';
 import type { AgentPluginEntry, ImporterEntryData } from '@lobechat/types';
 import { and, inArray, sql } from 'drizzle-orm';
 
@@ -151,7 +152,7 @@ export class DeprecatedDataImporterRepos {
           const agentMapArray = await trx
             .insert(agents)
             .values(
-              shouldInsertSessionAgents.map(({ config, meta }) => ({
+              shouldInsertSessionAgents.map(({ id, config, meta }) => ({
                 ...config,
                 // `config` is the `@lobechat/types` LobeAgentConfig shape
                 // (plugins: AgentPluginEntry[]); the `agents` table's
@@ -160,10 +161,12 @@ export class DeprecatedDataImporterRepos {
                 // rollout, not the JSONB column's compile-time annotation).
                 // Legacy import payloads only ever contain bare strings
                 // anyway.
-                plugins: appendDisabledAgentSkillDefaults(
-                  config.plugins as AgentPluginEntry[] | undefined,
-                  skillIdentifiers,
-                ) as string[] | undefined,
+                plugins: (id === INBOX_SESSION_ID
+                  ? config.plugins
+                  : appendDisabledAgentSkillDefaults(
+                      config.plugins as AgentPluginEntry[] | undefined,
+                      skillIdentifiers,
+                    )) as string[] | undefined,
                 ...meta,
                 userId: this.userId,
                 workspaceId: this.workspaceId ?? null,

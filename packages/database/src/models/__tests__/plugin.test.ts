@@ -7,7 +7,7 @@ import { getTestDB } from '../../core/getTestDB';
 import type { NewInstalledPlugin } from '../../schemas';
 import { agents, userInstalledPlugins, users } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
-import { AgentSkillModel } from '../agentSkill';
+import { AgentSkillModel, lockAgentSkillScope } from '../agentSkill';
 import { ConnectorModel } from '../connector';
 import { PluginModel } from '../plugin';
 
@@ -157,6 +157,39 @@ describe('PluginModel', () => {
         where: (table, { eq }) => eq(table.id, 'legacy-plugin-agent'),
       });
       expect(agent?.plugins).toEqual([{ identifier, mode: 'pinned' }]);
+    });
+
+    it('serializes policy cleanup with a concurrent agent writer', async () => {
+      const identifier = 'concurrently-deleted-plugin';
+      await serverDB.insert(userInstalledPlugins).values({
+        identifier,
+        manifest: { name: 'Concurrent plugin' },
+        type: 'plugin',
+        userId,
+      } as unknown as NewInstalledPlugin);
+
+      let notifyLockAcquired!: () => void;
+      const lockAcquired = new Promise<void>((resolve) => {
+        notifyLockAcquired = resolve;
+      });
+      const agentWriter = serverDB.transaction(async (trx) => {
+        await lockAgentSkillScope(trx, { userId });
+        notifyLockAcquired();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await trx.insert(agents).values({
+          id: 'concurrent-plugin-policy-agent',
+          plugins: [{ identifier, mode: 'auto' }] as unknown as string[],
+          userId,
+        });
+      });
+
+      await lockAcquired;
+      await Promise.all([agentWriter, pluginModel.delete(identifier)]);
+
+      const agent = await serverDB.query.agents.findFirst({
+        where: (table, { eq }) => eq(table.id, 'concurrent-plugin-policy-agent'),
+      });
+      expect(agent?.plugins).toEqual([]);
     });
   });
 

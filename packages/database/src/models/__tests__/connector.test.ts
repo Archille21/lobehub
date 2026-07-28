@@ -7,7 +7,7 @@ import { getTestDB } from '../../core/getTestDB';
 import type { ConnectorCredentials } from '../../schemas';
 import { agents, userConnectors, users, workspaces } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
-import { AgentSkillModel } from '../agentSkill';
+import { AgentSkillModel, lockAgentSkillScope } from '../agentSkill';
 import { ConnectorModel } from '../connector';
 
 const serverDB: LobeChatDatabase = await getTestDB();
@@ -635,6 +635,40 @@ describe('ConnectorModel', () => {
         { identifier, mode: 'pinned' },
       ]);
       expect(pluginsByAgentId.get('connector-base-only-agent')).toEqual([]);
+    });
+
+    it('serializes policy cleanup with a concurrent agent writer', async () => {
+      const identifier = 'concurrently-deleted-connector';
+      const model = new ConnectorModel(serverDB, userId);
+      const connector = await model.create({
+        identifier,
+        name: 'Concurrent Connector',
+        sourceType: 'custom',
+        status: 'connected',
+      });
+
+      let notifyLockAcquired!: () => void;
+      const lockAcquired = new Promise<void>((resolve) => {
+        notifyLockAcquired = resolve;
+      });
+      const agentWriter = serverDB.transaction(async (trx) => {
+        await lockAgentSkillScope(trx, { userId });
+        notifyLockAcquired();
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await trx.insert(agents).values({
+          id: 'concurrent-connector-policy-agent',
+          plugins: [{ identifier, mode: 'auto' }] as unknown as string[],
+          userId,
+        });
+      });
+
+      await lockAcquired;
+      await Promise.all([agentWriter, model.delete(connector.id)]);
+
+      const agent = await serverDB.query.agents.findFirst({
+        where: (table, { eq }) => eq(table.id, 'concurrent-connector-policy-agent'),
+      });
+      expect(agent?.plugins).toEqual([]);
     });
 
     it('does not delete connectors owned by another user', async () => {

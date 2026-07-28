@@ -9,7 +9,7 @@ import type {
 import { userConnectors, userConnectorTools } from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
-import { removeAgentPluginPolicyEntries } from './agentSkill';
+import { lockAgentSkillScope, removeAgentPluginPolicyEntries } from './agentSkill';
 
 interface GateKeeper {
   decrypt: (ciphertext: string) => Promise<{ plaintext: string }>;
@@ -186,6 +186,8 @@ export class ConnectorModel {
 
   delete = async (id: string): Promise<void> => {
     await this.db.transaction(async (trx) => {
+      const scope = { userId: this.userId, workspaceId: this.workspaceId };
+      await lockAgentSkillScope(trx, scope);
       const [deleted] = await trx
         .delete(userConnectors)
         .where(and(eq(userConnectors.id, id), this.ownership()))
@@ -195,7 +197,7 @@ export class ConnectorModel {
 
       await removeAgentPluginPolicyEntries(
         trx,
-        { userId: this.userId, workspaceId: this.workspaceId },
+        scope,
         deleted.identifier,
         deleted.agentId ?? undefined,
       );
