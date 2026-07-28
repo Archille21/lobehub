@@ -3008,6 +3008,68 @@ describe('LobeOpenAICompatibleFactory', () => {
         ]);
       });
 
+      it('should unwrap scoped tool signatures for chat completion requests', async () => {
+        const mockResponse = {
+          choices: [
+            {
+              message: {
+                tool_calls: [
+                  {
+                    function: {
+                      arguments: '{"city":"Tokyo"}',
+                      name: 'get_weather',
+                    },
+                    type: 'function' as const,
+                  },
+                ],
+              },
+            },
+          ],
+        };
+        vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue(
+          mockResponse as any,
+        );
+        const signatureScope = {
+          model: 'gpt-4o',
+          provider: ModelProvider.Groq,
+        };
+
+        await instance.generateObject({
+          messages: [
+            {
+              content: '',
+              role: 'assistant' as const,
+              tool_calls: [
+                {
+                  function: { arguments: '{}', name: 'search' },
+                  id: 'call-1',
+                  thoughtSignature: serializeScopedSignature('upstream-signature', signatureScope),
+                  type: 'function' as const,
+                },
+              ],
+            },
+          ],
+          model: 'gpt-4o',
+          tools: [
+            {
+              function: {
+                name: 'get_weather',
+                parameters: {
+                  properties: { city: { type: 'string' } },
+                  type: 'object' as const,
+                },
+              },
+              type: 'function' as const,
+            },
+          ],
+        });
+
+        const requestPayload = instance['client'].chat.completions.create.mock.calls[0]![0];
+        expect(requestPayload.messages[0].tool_calls[0].thoughtSignature).toBe(
+          'upstream-signature',
+        );
+      });
+
       it('should handle tools parameter with systemRole', async () => {
         const mockResponse = {
           choices: [

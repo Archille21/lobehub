@@ -1610,10 +1610,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         model,
         responseApi,
       });
+      const signatureScope = this.getSignatureScope(this.getMappedModelId(payload.model));
 
       if (shouldUseResponses) {
         log('calling responses.create for tool calling');
-        const signatureScope = this.getSignatureScope(this.getMappedModelId(payload.model));
         const input = await convertOpenAIResponseInputs(messages as any, {
           forceImageBase64: chatCompletion?.forceImageBase64,
           forceVideoBase64: chatCompletion?.forceVideoBase64,
@@ -1671,7 +1671,12 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       }
 
       log('calling chat.completions.create for tool calling');
-      const msgs = messages;
+      const msgs = await convertOpenAIMessages(messages as any, {
+        forceImageBase64: chatCompletion?.forceImageBase64,
+        forceVideoBase64: chatCompletion?.forceVideoBase64,
+        model,
+        signatureScope,
+      });
 
       const res = await this.client.chat.completions.create(
         this.withMappedRequestModel(

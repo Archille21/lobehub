@@ -503,7 +503,11 @@ export const createRouterRuntime = ({
         apiType: resolvedApiType,
         channelId,
         provider: this._id,
-        routerId: router.id,
+        /**
+         * Keep an explicit RouterRuntime marker even when a router has no configured id. The
+         * signature matcher can then fail closed when the route also lacks a stable channel id.
+         */
+        routerId: router.id ?? this._id,
       };
 
       /**

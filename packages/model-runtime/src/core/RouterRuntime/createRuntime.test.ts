@@ -105,6 +105,40 @@ describe('createRouterRuntime', () => {
         routerId: 'router-a',
       });
     });
+
+    it('should mark router signature scopes when router and channel ids are missing', async () => {
+      let signatureScope;
+
+      class MockRuntime implements LobeRuntimeAI {
+        chat = vi.fn().mockImplementation(() => {
+          signatureScope = getRuntimeSignatureScope(this);
+        });
+        embeddings = vi.fn();
+        models = vi.fn();
+        textToSpeech = vi.fn();
+      }
+
+      const Runtime = createRouterRuntime({
+        id: 'test-runtime',
+        routers: [
+          {
+            apiType: 'openai',
+            models: ['test-model'],
+            options: {},
+            runtime: MockRuntime as any,
+          },
+        ],
+      });
+
+      await new Runtime().chat({ messages: [], model: 'test-model', temperature: 0.7 });
+
+      expect(signatureScope).toEqual({
+        apiType: 'openai',
+        channelId: undefined,
+        provider: 'test-runtime',
+        routerId: 'test-runtime',
+      });
+    });
   });
 
   describe('chat method', () => {
