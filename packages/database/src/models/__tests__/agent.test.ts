@@ -303,6 +303,7 @@ describe('AgentModel', () => {
 
     it('lazily backfills disabled policies for agents that predate custom-skill defaults', async () => {
       const agentId = 'legacy-agent-before-skill-defaults';
+      const originalUpdatedAt = new Date('2024-01-02T03:04:05.000Z');
       await serverDB.insert(agentSkills).values([
         {
           description: 'Legacy missing policy skill',
@@ -326,6 +327,7 @@ describe('AgentModel', () => {
         plugins: [
           { identifier: 'legacy-explicit-policy-skill', mode: 'auto' },
         ] as unknown as string[],
+        updatedAt: originalUpdatedAt,
         userId,
       });
 
@@ -350,6 +352,7 @@ describe('AgentModel', () => {
           'legacy-missing-policy-skill',
         ),
       ).toBe('disabled');
+      expect(persisted?.updatedAt).toEqual(originalUpdatedAt);
     });
 
     it('keeps a historical session-linked inbox implicit auto during lazy reconciliation', async () => {

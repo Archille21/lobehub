@@ -252,7 +252,7 @@ export class AgentModel {
 
       const [updatedAgent] = await trx
         .update(agents)
-        .set({ plugins: currentPlugins as string[] })
+        .set({ plugins: currentPlugins as string[], updatedAt: agents.updatedAt })
         .where(and(eq(agents.id, currentAgent.id), this.ownership()))
         .returning();
       return updatedAgent ?? currentAgent;
