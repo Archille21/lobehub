@@ -247,6 +247,16 @@ export class ConnectorModel {
     return Promise.all(rows.map((r) => decryptRow(r, gateKeeper)));
   };
 
+  hasIdentifier = async (identifier: string): Promise<boolean> => {
+    const [row] = await this.db
+      .select({ id: userConnectors.id })
+      .from(userConnectors)
+      .where(and(this.ownership(), eq(userConnectors.identifier, identifier)))
+      .limit(1);
+
+    return !!row;
+  };
+
   /**
    * Base (non-agent) rows for the given identifiers. Excludes agent-scoped rows;
    * use {@link resolveByIdentifiers} for agent-aware runtime resolution.
