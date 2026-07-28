@@ -149,7 +149,11 @@ const transformOpenAIStream = (
         const hasReplayableReasoning =
           chunk.item.type === 'reasoning' &&
           (!!chunk.item.encrypted_content || chunk.item.summary?.some(({ text }) => !!text));
-        if (hasReplayableReasoning && payload?.signatureScope) {
+        /**
+         * Encrypted Responses reasoning is channel-bound provider state. Do not expose
+         * or persist it when the runtime cannot prove which channel produced it.
+         */
+        if (hasReplayableReasoning && payload?.signatureScope?.channelId) {
           return {
             data: {
               item: chunk.item,
