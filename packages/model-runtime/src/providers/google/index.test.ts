@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOBE_ERROR_KEY } from '../../core/streams';
 import { AgentRuntimeErrorType } from '../../types/error';
 import * as debugStreamModule from '../../utils/debugStream';
+import { serializeScopedSignature } from '../../utils/signatureScope';
 import { LobeGoogleAI } from './index';
 
 const provider = 'google';
@@ -73,13 +74,32 @@ describe('LobeGoogleAI', () => {
       );
 
       await mappedInstance.chat({
-        messages: [{ content: 'Hello', role: 'user' }],
+        messages: [
+          {
+            content: '',
+            role: 'assistant',
+            tool_calls: [
+              {
+                function: { arguments: '{}', name: 'search' },
+                id: 'call-1',
+                thoughtSignature: serializeScopedSignature('upstream-signature', {
+                  model: 'gemini-upstream',
+                  provider: 'google',
+                }),
+                type: 'function',
+              },
+            ],
+          },
+          { content: '{}', role: 'tool', tool_call_id: 'call-1' },
+          { content: 'Hello', role: 'user' },
+        ],
         model: 'gemini-logical',
         temperature: 0,
       });
 
       const callArgs = (mappedInstance['client'].models.generateContentStream as any).mock.calls[0];
       expect(callArgs[0].model).toBe('gemini-upstream');
+      expect(callArgs[0].contents[0].parts[0].thoughtSignature).toBe('upstream-signature');
       expect(getModelPricingMock).toHaveBeenCalledWith('gemini-logical', provider, undefined);
     });
 

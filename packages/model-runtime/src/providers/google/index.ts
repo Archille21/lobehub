@@ -151,7 +151,7 @@ export class LobeGoogleAI implements LobeRuntimeAI {
       const requestModel = requestPayload.model;
       const signatureScope = createModelSignatureScope(
         this.provider,
-        model,
+        requestModel,
         getRuntimeSignatureScope(this),
       );
       const shouldOmitDeprecatedGenerationParams =
@@ -364,17 +364,18 @@ export class LobeGoogleAI implements LobeRuntimeAI {
    * @see https://ai.google.dev/gemini-api/docs/function-calling
    */
   async generateObject(payload: GenerateObjectPayload, options?: GenerateObjectOptions) {
+    const requestPayload = withMappedModelId(payload, this.modelIdMappingOptions);
+
     // Convert OpenAI messages to Google format
     const contents = await buildGoogleMessages(payload.messages, {
-      model: payload.model,
+      model: requestPayload.model,
       signatureScope: createModelSignatureScope(
         this.provider,
-        payload.model,
+        requestPayload.model,
         getRuntimeSignatureScope(this),
       ),
     });
     const pricing = await getModelPricing(payload.model, this.provider, options?.pricingContext);
-    const requestPayload = withMappedModelId(payload, this.modelIdMappingOptions);
 
     // Handle tools-based structured output
     if (payload.tools && payload.tools.length > 0) {

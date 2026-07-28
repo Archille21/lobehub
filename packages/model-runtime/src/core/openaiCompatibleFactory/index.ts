@@ -679,7 +679,10 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           this.baseURL = targetBaseURL;
         }
 
-        const signatureScope = this.getSignatureScope(payload.model);
+        const requestModel =
+          this.withMappedRequestModel({ model: postPayload.model }, payload.model).model ??
+          payload.model;
+        const signatureScope = this.getSignatureScope(requestModel);
         const messages = await convertOpenAIMessages(postPayload.messages, {
           forceImageBase64: chatCompletion?.forceImageBase64,
           forceVideoBase64: chatCompletion?.forceVideoBase64,
@@ -1441,12 +1444,14 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       log('handleResponseAPIMode called with model: %s', payload.model);
 
       const inputStartAt = Date.now();
-      const signatureScope = this.getSignatureScope(usageModel);
 
       const { messages, reasoning_effort, tools, reasoning, responseMode, max_tokens, ...res } =
         responses?.handlePayload
           ? (responses?.handlePayload(payload, this._options) as ChatStreamPayload)
           : payload;
+      const requestModel =
+        this.withMappedRequestModel({ model: res.model }, usageModel).model ?? usageModel;
+      const signatureScope = this.getSignatureScope(requestModel);
 
       // remove penalty params and chat completion specific params
       delete res.apiMode;
@@ -1608,11 +1613,12 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
 
       if (shouldUseResponses) {
         log('calling responses.create for tool calling');
+        const signatureScope = this.getSignatureScope(this.getMappedModelId(payload.model));
         const input = await convertOpenAIResponseInputs(messages as any, {
           forceImageBase64: chatCompletion?.forceImageBase64,
           forceVideoBase64: chatCompletion?.forceVideoBase64,
           provider: this.id,
-          signatureScope: this.getSignatureScope(payload.model),
+          signatureScope,
           strictToolPairing: true,
         });
 

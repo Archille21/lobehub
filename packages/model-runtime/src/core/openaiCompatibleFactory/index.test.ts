@@ -9,6 +9,7 @@ import type { LobeOpenAICompatibleRuntime } from '../../core/BaseAI';
 import type { ChatStreamCallbacks, ChatStreamPayload } from '../../types/chat';
 import { AgentRuntimeErrorType } from '../../types/error';
 import * as debugStreamModule from '../../utils/debugStream';
+import { serializeScopedSignature } from '../../utils/signatureScope';
 import * as openaiHelpers from '../contextBuilders/openai';
 import { createOpenAICompatibleRuntime } from './index';
 
@@ -203,6 +204,50 @@ describe('LobeOpenAICompatibleFactory', () => {
       expect(runtime['client'].chat.completions.create).toHaveBeenCalledWith(
         expect.objectContaining({ model: 'upstream-model' }),
         expect.anything(),
+      );
+    });
+
+    it('should scope tool signatures to the mapped upstream model id', async () => {
+      const Runtime = createOpenAICompatibleRuntime({
+        baseURL: defaultBaseURL,
+        provider: 'mapped-provider',
+      });
+      const runtime = new Runtime({
+        apiKey: 'test',
+        modelIdMapping: { 'logical-model': 'upstream-model' },
+      });
+      const create = vi
+        .spyOn(runtime['client'].chat.completions, 'create')
+        .mockResolvedValue(new ReadableStream() as any);
+
+      await runtime.chat({
+        messages: [
+          {
+            content: '',
+            role: 'assistant',
+            tool_calls: [
+              {
+                function: { arguments: '{}', name: 'search' },
+                id: 'call-1',
+                thoughtSignature: serializeScopedSignature('upstream-signature', {
+                  model: 'upstream-model',
+                  provider: 'mapped-provider',
+                }),
+                type: 'function',
+              },
+            ],
+          },
+          { content: '{}', role: 'tool', tool_call_id: 'call-1' },
+          { content: 'Continue', role: 'user' },
+        ],
+        model: 'logical-model',
+        temperature: 0,
+      });
+
+      const request = create.mock.calls[0][0];
+      expect(request.model).toBe('upstream-model');
+      expect((request.messages[0] as any).tool_calls[0].thoughtSignature).toBe(
+        'upstream-signature',
       );
     });
 
@@ -1527,6 +1572,59 @@ describe('LobeOpenAICompatibleFactory', () => {
             strictToolPairing: true,
           }),
         );
+        convertSpy.mockRestore();
+      });
+
+      it('should replay Responses reasoning for the mapped upstream model id', async () => {
+        const Runtime = createOpenAICompatibleRuntime({
+          baseURL: 'https://api.test.com/v1',
+          chatCompletion: { useResponse: true },
+          provider: 'mapped-provider',
+        });
+        const runtime = new Runtime({
+          apiKey: 'test',
+          modelIdMapping: { 'logical-model': 'upstream-model' },
+        });
+        const create = vi
+          .spyOn(runtime['client'].responses, 'create')
+          .mockResolvedValue(new ReadableStream() as any);
+
+        await runtime.chat({
+          messages: [
+            {
+              content: 'Answer',
+              reasoning: {
+                content: 'Summary',
+                responseItems: [
+                  {
+                    item: {
+                      encrypted_content: 'upstream-encrypted-content',
+                      id: 'reasoning-1',
+                      summary: [{ text: 'Summary', type: 'summary_text' }],
+                      type: 'reasoning',
+                    },
+                    signatureScope: {
+                      model: 'upstream-model',
+                      provider: 'mapped-provider',
+                    },
+                  },
+                ],
+              },
+              role: 'assistant',
+            },
+            { content: 'Continue', role: 'user' },
+          ],
+          model: 'logical-model',
+          temperature: 0,
+        });
+
+        const request = create.mock.calls[0][0];
+        expect(request.model).toBe('upstream-model');
+        expect(request.input[0]).toMatchObject({
+          encrypted_content: 'upstream-encrypted-content',
+          id: 'reasoning-1',
+          type: 'reasoning',
+        });
       });
 
       it('should keep OpenRouter OpenAI slugs on chat completions for provider payload normalization', async () => {
