@@ -788,6 +788,39 @@ describe('createCallbacksTransformer', () => {
     );
   });
 
+  it('should preserve response items without visible reasoning text', async () => {
+    const onCompletion = vi.fn();
+    const transformer = createCallbacksTransformer({ onCompletion });
+    const responseItem = {
+      item: {
+        encrypted_content: 'encrypted-1',
+        id: 'reasoning-1',
+        summary: [],
+        type: 'reasoning',
+      },
+      signatureScope: {
+        model: 'gpt-5.6-sol',
+        provider: 'chatgpt',
+      },
+    };
+
+    await processChunks(transformer, [
+      'event: reasoning_signature\n',
+      `data: ${JSON.stringify(responseItem)}\n\n`,
+    ]);
+
+    expect(onCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reasoning: {
+          content: undefined,
+          responseItems: [responseItem],
+          signature: undefined,
+        },
+        thinking: undefined,
+      }),
+    );
+  });
+
   it('should preserve multiple scoped Responses reasoning items', async () => {
     const onCompletion = vi.fn();
     const transformer = createCallbacksTransformer({ onCompletion });

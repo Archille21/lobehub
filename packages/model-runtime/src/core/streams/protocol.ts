@@ -466,6 +466,7 @@ export function createCallbacksTransformer(
         .filter(Boolean)
         .join('\n');
       const reasoningContent = aggregatedThinking || responseItemsThinking;
+      const hasResponseItems = reasoningResponseItems.length > 0;
       const data: OnFinishData = {
         error: streamError,
         finishReason,
@@ -476,11 +477,15 @@ export function createCallbacksTransformer(
         toolsCalling,
         usage,
       };
-      if (reasoningContent) {
+      /**
+       * Responses reasoning items remain replayable without a visible summary, while a legacy
+       * signature alone must still be discarded because it has no safe replay context.
+       */
+      if (reasoningContent || hasResponseItems) {
         data.reasoning = {
-          content: reasoningContent,
-          responseItems: reasoningResponseItems.length > 0 ? reasoningResponseItems : undefined,
-          signature: reasoningSignature,
+          content: reasoningContent || undefined,
+          responseItems: hasResponseItems ? reasoningResponseItems : undefined,
+          signature: reasoningContent ? reasoningSignature : undefined,
         };
       }
       const usageMissingDiagnostics = usage

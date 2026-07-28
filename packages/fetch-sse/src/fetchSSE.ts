@@ -555,18 +555,24 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
         .filter(Boolean)
         .join('\n');
       const reasoningContent = thinking || responseItemsThinking;
+      const hasResponseItems = reasoningResponseItems.length > 0;
 
       await options?.onFinish?.(output, {
         grounding,
         images: images.length > 0 ? images : undefined,
         observationId,
-        reasoning: reasoningContent
-          ? {
-              content: reasoningContent,
-              responseItems: reasoningResponseItems.length > 0 ? reasoningResponseItems : undefined,
-              signature: thinkingSignature,
-            }
-          : undefined,
+        /**
+         * Responses reasoning items remain replayable without a visible summary, while a legacy
+         * signature alone must still be discarded because it has no safe replay context.
+         */
+        reasoning:
+          reasoningContent || hasResponseItems
+            ? {
+                content: reasoningContent || undefined,
+                responseItems: hasResponseItems ? reasoningResponseItems : undefined,
+                signature: reasoningContent ? thinkingSignature : undefined,
+              }
+            : undefined,
         speed,
         toolCalls,
         traceId,
