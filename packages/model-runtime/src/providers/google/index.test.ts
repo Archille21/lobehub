@@ -1,5 +1,5 @@
 // @vitest-environment node
-import type { GenerateContentResponse } from '@google/genai';
+import type { Content, GenerateContentResponse } from '@google/genai';
 import OpenAI from 'openai';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -151,9 +151,8 @@ describe('LobeGoogleAI', () => {
         temperature: 0,
       });
 
-      expect(generateContentStream.mock.calls[0][0].contents[0].parts[0].thoughtSignature).not.toBe(
-        'foreign-signature',
-      );
+      const contents = generateContentStream.mock.calls[0][0].contents as Content[];
+      expect(contents[0]?.parts?.[0]?.thoughtSignature).not.toBe('foreign-signature');
     });
 
     it('should apply upstream model compatibility after model mapping', async () => {

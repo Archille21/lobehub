@@ -6,7 +6,7 @@ import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LobeOpenAICompatibleRuntime } from '../../core/BaseAI';
-import type { ChatStreamCallbacks, ChatStreamPayload } from '../../types/chat';
+import type { ChatStreamCallbacks, ChatStreamPayload, OpenAIChatMessage } from '../../types/chat';
 import { AgentRuntimeErrorType } from '../../types/error';
 import * as debugStreamModule from '../../utils/debugStream';
 import { createSignatureChannelId, serializeScopedSignature } from '../../utils/signatureScope';
@@ -1675,7 +1675,7 @@ describe('LobeOpenAICompatibleFactory', () => {
 
         const request = create.mock.calls[0][0];
         expect(request.model).toBe('upstream-model');
-        expect(request.input[0]).toMatchObject({
+        expect(request.input?.[0]).toMatchObject({
           encrypted_content: 'upstream-encrypted-content',
           id: 'reasoning-1',
           type: 'reasoning',
@@ -3081,30 +3081,31 @@ describe('LobeOpenAICompatibleFactory', () => {
             },
           ],
         };
-        vi.spyOn(instance['client'].chat.completions, 'create').mockResolvedValue(
-          mockResponse as any,
-        );
+        const create = vi
+          .spyOn(instance['client'].chat.completions, 'create')
+          .mockResolvedValue(mockResponse as any);
         const signatureScope = {
           channelId: await createSignatureChannelId(defaultBaseURL, 'test'),
           model: 'gpt-4o',
           provider: ModelProvider.Groq,
         };
+        const messages = [
+          {
+            content: '',
+            role: 'assistant',
+            tool_calls: [
+              {
+                function: { arguments: '{}', name: 'search' },
+                id: 'call-1',
+                thoughtSignature: serializeScopedSignature('upstream-signature', signatureScope),
+                type: 'function',
+              },
+            ],
+          },
+        ] satisfies OpenAIChatMessage[];
 
         await instance.generateObject({
-          messages: [
-            {
-              content: '',
-              role: 'assistant' as const,
-              tool_calls: [
-                {
-                  function: { arguments: '{}', name: 'search' },
-                  id: 'call-1',
-                  thoughtSignature: serializeScopedSignature('upstream-signature', signatureScope),
-                  type: 'function' as const,
-                },
-              ],
-            },
-          ],
+          messages,
           model: 'gpt-4o',
           tools: [
             {
@@ -3120,10 +3121,9 @@ describe('LobeOpenAICompatibleFactory', () => {
           ],
         });
 
-        const requestPayload = instance['client'].chat.completions.create.mock.calls[0]![0];
-        expect(requestPayload.messages[0].tool_calls[0].thoughtSignature).toBe(
-          'upstream-signature',
-        );
+        const requestPayload = create.mock.calls[0]![0];
+        const requestMessage = requestPayload.messages[0] as OpenAIChatMessage;
+        expect(requestMessage.tool_calls?.[0]?.thoughtSignature).toBe('upstream-signature');
       });
 
       it('should handle tools parameter with systemRole', async () => {
