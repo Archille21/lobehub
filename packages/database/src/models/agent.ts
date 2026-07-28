@@ -217,6 +217,49 @@ export class AgentModel {
     buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, agentsToSessions);
 
   /**
+   * Lazily reconcile agents created before custom-skill defaults were persisted.
+   * The fast path is read-only once every scoped skill already has a policy
+   * entry. Missing entries are rechecked under the shared scope lock before
+   * writing, so a concurrent skill creation cannot be lost.
+   */
+  private reconcileAgentSkillDefaults = async (agent: AgentItem): Promise<AgentItem | null> => {
+    if (agent.slug === INBOX_SESSION_ID) return agent;
+
+    const scope = { userId: this.userId, workspaceId: this.workspaceId };
+    const skillIdentifiers = await getScopedAgentSkillIdentifiers(this.db, scope);
+    const plugins = appendDisabledAgentSkillDefaults(
+      agent.plugins as AgentPluginEntry[] | null,
+      skillIdentifiers,
+    );
+    if ((plugins?.length ?? 0) === (agent.plugins?.length ?? 0)) return agent;
+
+    return this.db.transaction(async (trx) => {
+      await lockAgentSkillScope(trx, scope);
+      const currentAgent = await trx.query.agents.findFirst({
+        where: and(eq(agents.id, agent.id), this.ownership()),
+      });
+      if (!currentAgent) return null;
+      if (await isInboxAgentRecord(trx, currentAgent.id)) return currentAgent;
+
+      const currentSkillIdentifiers = await getScopedAgentSkillIdentifiers(trx, scope);
+      const currentPlugins = appendDisabledAgentSkillDefaults(
+        currentAgent.plugins as AgentPluginEntry[] | null,
+        currentSkillIdentifiers,
+      );
+      if ((currentPlugins?.length ?? 0) === (currentAgent.plugins?.length ?? 0)) {
+        return currentAgent;
+      }
+
+      const [updatedAgent] = await trx
+        .update(agents)
+        .set({ plugins: currentPlugins as string[] })
+        .where(and(eq(agents.id, currentAgent.id), this.ownership()))
+        .returning();
+      return updatedAgent ?? currentAgent;
+    });
+  };
+
+  /**
    * Collect device ids that an incoming `agencyConfig` patch is *setting*
    * (not clearing). `workingDirByDevice` entries with `undefined` value are
    * deletes (per `pruneWorkingDirByDeviceDeletes`) and are skipped.
@@ -340,7 +383,10 @@ export class AgentModel {
 
     if (!agent) return null;
 
-    return this.enrichAgentWithKnowledge(agent);
+    const reconciledAgent = await this.reconcileAgentSkillDefaults(agent);
+    if (!reconciledAgent) return null;
+
+    return this.enrichAgentWithKnowledge(reconciledAgent);
   };
 
   /**
@@ -640,7 +686,10 @@ export class AgentModel {
 
     if (!agent) return null;
 
-    return this.enrichAgentWithKnowledge(agent);
+    const reconciledAgent = await this.reconcileAgentSkillDefaults(agent);
+    if (!reconciledAgent) return null;
+
+    return this.enrichAgentWithKnowledge(reconciledAgent);
   };
 
   /**

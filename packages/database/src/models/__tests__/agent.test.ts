@@ -301,6 +301,86 @@ describe('AgentModel', () => {
       expect(result?.id).toBe(agentId);
     });
 
+    it('lazily backfills disabled policies for agents that predate custom-skill defaults', async () => {
+      const agentId = 'legacy-agent-before-skill-defaults';
+      await serverDB.insert(agentSkills).values([
+        {
+          description: 'Legacy missing policy skill',
+          identifier: 'legacy-missing-policy-skill',
+          manifest: { description: 'Legacy missing policy skill', name: 'Legacy Missing Policy' },
+          name: 'Legacy Missing Policy',
+          source: 'user',
+          userId,
+        },
+        {
+          description: 'Legacy explicit policy skill',
+          identifier: 'legacy-explicit-policy-skill',
+          manifest: { description: 'Legacy explicit policy skill', name: 'Legacy Explicit Policy' },
+          name: 'Legacy Explicit Policy',
+          source: 'user',
+          userId,
+        },
+      ]);
+      await serverDB.insert(agents).values({
+        id: agentId,
+        plugins: [
+          { identifier: 'legacy-explicit-policy-skill', mode: 'auto' },
+        ] as unknown as string[],
+        userId,
+      });
+
+      const result = await agentModel.getAgentConfig(agentId);
+      const persisted = await serverDB.query.agents.findFirst({ where: eq(agents.id, agentId) });
+
+      expect(
+        getPluginMode(
+          result?.plugins as AgentPluginEntry[] | undefined,
+          'legacy-missing-policy-skill',
+        ),
+      ).toBe('disabled');
+      expect(
+        getPluginMode(
+          result?.plugins as AgentPluginEntry[] | undefined,
+          'legacy-explicit-policy-skill',
+        ),
+      ).toBe('auto');
+      expect(
+        getPluginMode(
+          persisted?.plugins as AgentPluginEntry[] | undefined,
+          'legacy-missing-policy-skill',
+        ),
+      ).toBe('disabled');
+    });
+
+    it('keeps a historical session-linked inbox implicit auto during lazy reconciliation', async () => {
+      const agentId = 'legacy-session-linked-inbox-reconciliation';
+      await serverDB.insert(agentSkills).values({
+        description: 'Inbox reconciliation skill',
+        identifier: 'inbox-reconciliation-skill',
+        manifest: { description: 'Inbox reconciliation skill', name: 'Inbox Reconciliation' },
+        name: 'Inbox Reconciliation',
+        source: 'user',
+        userId,
+      });
+      await serverDB.insert(agents).values({ id: agentId, userId });
+      await serverDB
+        .insert(sessions)
+        .values({ id: 'legacy-reconciliation-session', slug: 'inbox', userId });
+      await serverDB.insert(agentsToSessions).values({
+        agentId,
+        sessionId: 'legacy-reconciliation-session',
+        userId,
+      });
+
+      const result = await agentModel.getAgentConfigById(agentId);
+      const persisted = await serverDB.query.agents.findFirst({ where: eq(agents.id, agentId) });
+
+      expect(getPluginMode(result?.plugins ?? undefined, 'inbox-reconciliation-skill')).toBe(
+        'auto',
+      );
+      expect(persisted?.plugins).toBeNull();
+    });
+
     it('should find agent by slug when ID does not match', async () => {
       const agentId = 'test-agent-slug';
       const slug = 'my-agent-slug';

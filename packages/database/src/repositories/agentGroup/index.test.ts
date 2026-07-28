@@ -1566,6 +1566,7 @@ describe('AgentGroupRepository', () => {
       await serverDB.insert(agents).values([
         {
           id: 'transfer-supervisor',
+          plugins: ['group-target-transfer-skill'],
           title: 'Supervisor',
           userId,
           virtual: true,
@@ -1573,6 +1574,7 @@ describe('AgentGroupRepository', () => {
         },
         {
           id: 'transfer-member',
+          plugins: ['member-existing-tool'],
           title: 'Member',
           userId,
           virtual: false,
@@ -1651,15 +1653,25 @@ describe('AgentGroupRepository', () => {
         where: (a, { inArray }) => inArray(a.id, ['transfer-supervisor', 'transfer-member']),
       });
       expect(memberAgents.every((agent) => agent.workspaceId === targetWorkspaceId)).toBe(true);
+      const membersById = new Map(memberAgents.map((agent) => [agent.id, agent]));
       expect(
-        memberAgents.every(
-          (agent) =>
-            getPluginMode(
-              agent.plugins as AgentPluginEntry[] | undefined,
-              'group-target-transfer-skill',
-            ) === 'disabled',
+        getPluginMode(
+          membersById.get('transfer-supervisor')?.plugins as AgentPluginEntry[] | undefined,
+          'group-target-transfer-skill',
         ),
-      ).toBe(true);
+      ).toBe('pinned');
+      expect(
+        getPluginMode(
+          membersById.get('transfer-member')?.plugins as AgentPluginEntry[] | undefined,
+          'group-target-transfer-skill',
+        ),
+      ).toBe('disabled');
+      expect(
+        getPluginMode(
+          membersById.get('transfer-member')?.plugins as AgentPluginEntry[] | undefined,
+          'member-existing-tool',
+        ),
+      ).toBe('pinned');
 
       const junctions = await serverDB.query.chatGroupsAgents.findMany({
         where: (cga, { eq }) => eq(cga.chatGroupId, 'transfer-group'),

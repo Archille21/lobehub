@@ -913,22 +913,26 @@ export class AgentGroupRepository {
             ),
           );
 
-        for (const member of memberRows) {
-          await trx
-            .update(agents)
-            .set({
-              ...ownershipUpdate,
-              ...visibilityUpdate,
-              plugins: inboxAgentIds.has(member.agentId)
-                ? member.plugins
-                : (appendDisabledAgentSkillDefaults(
-                    member.plugins as AgentPluginEntry[] | null,
-                    targetSkillIdentifiers,
-                  ) as string[] | undefined),
-              updatedAt: new Date(),
-            })
-            .where(eq(agents.id, member.agentId));
-        }
+        const pluginsByAgentId = Object.fromEntries(
+          memberRows.map((member) => [
+            member.agentId,
+            inboxAgentIds.has(member.agentId)
+              ? member.plugins
+              : (appendDisabledAgentSkillDefaults(
+                  member.plugins as AgentPluginEntry[] | null,
+                  targetSkillIdentifiers,
+                ) ?? null),
+          ]),
+        );
+        await trx
+          .update(agents)
+          .set({
+            ...ownershipUpdate,
+            ...visibilityUpdate,
+            plugins: sql`${JSON.stringify(pluginsByAgentId)}::jsonb -> ${agents.id}`,
+            updatedAt: new Date(),
+          })
+          .where(inArray(agents.id, agentIds));
       }
 
       await trx
