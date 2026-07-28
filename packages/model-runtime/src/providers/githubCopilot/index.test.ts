@@ -44,6 +44,7 @@ describe('LobeGithubCopilotAI', () => {
         forceImageBase64: true,
         provider: ModelProvider.GithubCopilot,
         signatureScope: {
+          channelId: expect.stringMatching(/^[\da-f]{32}$/),
           model: 'gpt-5.1-codex-mini',
           provider: ModelProvider.GithubCopilot,
         },
@@ -73,10 +74,43 @@ describe('LobeGithubCopilotAI', () => {
       expect(convertMessagesSpy).toHaveBeenCalledWith(expect.any(Array), {
         forceImageBase64: true,
         signatureScope: {
+          channelId: expect.stringMatching(/^[\da-f]{32}$/),
           model: 'gpt-4o',
           provider: ModelProvider.GithubCopilot,
         },
       });
+    });
+
+    it('should bind signature scopes to a non-secret account fingerprint', async () => {
+      const convertMessagesSpy = vi
+        .spyOn(openAIContextBuilders, 'convertOpenAIMessages')
+        .mockRejectedValue({ status: 400 });
+      const futureTime = Date.now() + 600_000;
+      const tokens = ['ghu_account_a', 'ghu_account_b'];
+
+      for (const oauthAccessToken of tokens) {
+        const instance = new LobeGithubCopilotAI({
+          bearerToken: 'cached-bearer-token',
+          bearerTokenExpiresAt: futureTime,
+          oauthAccessToken,
+        });
+
+        await expect(
+          instance.chat({
+            messages: [{ content: 'hello', role: 'user' }],
+            model: 'gpt-4o',
+          } as any),
+        ).rejects.toBeDefined();
+      }
+
+      const channelIds = convertMessagesSpy.mock.calls.map(
+        ([, options]) => options?.signatureScope?.channelId,
+      );
+      expect(channelIds[0]).toMatch(/^[\da-f]{32}$/);
+      expect(channelIds[1]).toMatch(/^[\da-f]{32}$/);
+      expect(channelIds[0]).not.toBe(channelIds[1]);
+      expect(tokens).not.toContain(channelIds[0]);
+      expect(tokens).not.toContain(channelIds[1]);
     });
   });
 

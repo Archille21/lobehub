@@ -29,6 +29,14 @@ const MAX_TOTAL_ATTEMPTS = 5;
 const MAX_RATE_LIMIT_RETRIES = 3;
 const QUOTA_EXHAUSTION_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 
+const createAccountFingerprint = async (token: string) => {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 32);
+};
+
 const debugParams = {
   chatCompletion: () => process.env.DEBUG_GITHUBCOPILOT_CHAT_COMPLETION === '1',
   responses: () => process.env.DEBUG_GITHUBCOPILOT_RESPONSES === '1',
@@ -139,6 +147,7 @@ export interface LobeGithubCopilotAIParams {
 
 export class LobeGithubCopilotAI implements LobeRuntimeAI {
   baseURL = COPILOT_BASE_URL;
+  private accountFingerprint?: Promise<string>;
   private cachedBearerToken?: string;
   private githubToken: string;
 
@@ -167,6 +176,19 @@ export class LobeGithubCopilotAI implements LobeRuntimeAI {
     }
   }
 
+  /**
+   * Bind persisted opaque reasoning state to the Copilot account without storing credentials.
+   * OAuth/PAT fingerprints survive bearer refreshes; bearer-only instances remain scoped to that
+   * bearer token's lifetime.
+   */
+  private getAccountFingerprint() {
+    const accountToken = this.githubToken || this.cachedBearerToken;
+    if (!accountToken) return undefined;
+
+    this.accountFingerprint ??= createAccountFingerprint(accountToken);
+    return this.accountFingerprint;
+  }
+
   async chat(payload: ChatStreamPayload, options?: ChatMethodOptions) {
     // Pre-flight: abort before dispatching if tools exceed the Copilot 128-tool limit
     if (payload.tools && payload.tools.length > 0) {
@@ -185,7 +207,13 @@ export class LobeGithubCopilotAI implements LobeRuntimeAI {
 
       const { model, ...rest } = this.handlePayload(payload);
       const shouldStream = rest.stream !== false;
-      const signatureScope = createModelSignatureScope(ModelProvider.GithubCopilot, model);
+      const accountFingerprint = await this.getAccountFingerprint();
+      const signatureScope = accountFingerprint
+        ? createModelSignatureScope(ModelProvider.GithubCopilot, model, {
+            channelId: accountFingerprint,
+            provider: ModelProvider.GithubCopilot,
+          })
+        : undefined;
 
       if (model.toLowerCase().includes('claude')) {
         const anthropicClient = new Anthropic({
