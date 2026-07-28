@@ -61,7 +61,7 @@ export const resolveScopedSignature = (
   target: ModelSignatureScope | undefined,
 ) => {
   if (!value) return undefined;
-  if (!target) return value;
+  if (!target) return value.startsWith(SCOPED_SIGNATURE_PREFIX) ? undefined : value;
   if (!value.startsWith(SCOPED_SIGNATURE_PREFIX)) return undefined;
 
   const parsed = safeParseJSON<{ scope?: ModelSignatureScope; signature?: string }>(

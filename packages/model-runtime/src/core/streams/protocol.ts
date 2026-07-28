@@ -460,19 +460,25 @@ export function createCallbacksTransformer(
 
   return new TransformStream<string, Uint8Array>({
     async flush(): Promise<void> {
+      const responseItemsThinking = reasoningResponseItems
+        .flatMap(({ item }) => item.summary)
+        .map(({ text }) => text)
+        .filter(Boolean)
+        .join('\n');
+      const reasoningContent = aggregatedThinking || responseItemsThinking;
       const data: OnFinishData = {
         error: streamError,
         finishReason,
         grounding,
         speed,
         text: aggregatedText,
-        thinking: aggregatedThinking,
+        thinking: reasoningContent || undefined,
         toolsCalling,
         usage,
       };
-      if (aggregatedThinking) {
+      if (reasoningContent) {
         data.reasoning = {
-          content: aggregatedThinking,
+          content: reasoningContent,
           responseItems: reasoningResponseItems.length > 0 ? reasoningResponseItems : undefined,
           signature: reasoningSignature,
         };

@@ -44,4 +44,48 @@ describe('fetchSSE reasoning signatures', () => {
       type: 'done',
     });
   });
+
+  it('should preserve non-streaming response items with visible summary text', async () => {
+    const mockOnFinish = vi.fn();
+    const responseItem = {
+      item: {
+        encrypted_content: 'encrypted-reasoning-content',
+        id: 'reasoning-1',
+        summary: [{ text: 'Visible summary', type: 'summary_text' }],
+        type: 'reasoning',
+      },
+      signatureScope: {
+        model: 'gpt-5.6-sol',
+        provider: 'chatgpt',
+      },
+    };
+
+    (fetchEventSource as any).mockImplementationOnce(
+      (url: string, options: FetchEventSourceInit) => {
+        options.onopen!({ clone: () => ({ ok: true, headers: new Headers() }) } as any);
+        options.onmessage!({
+          data: JSON.stringify(responseItem),
+          event: 'reasoning_signature',
+        } as any);
+        options.onmessage!({ data: JSON.stringify('Done'), event: 'text' } as any);
+      },
+    );
+
+    await fetchSSE('/', {
+      onFinish: mockOnFinish,
+      responseAnimation: 'fadeIn',
+    });
+
+    expect(mockOnFinish).toHaveBeenCalledWith('Done', {
+      observationId: null,
+      reasoning: {
+        content: 'Visible summary',
+        responseItems: [responseItem],
+        signature: undefined,
+      },
+      toolCalls: undefined,
+      traceId: null,
+      type: 'done',
+    });
+  });
 });

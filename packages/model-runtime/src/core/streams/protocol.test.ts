@@ -755,6 +755,39 @@ describe('createCallbacksTransformer', () => {
     expect(onCompletion.mock.calls[0][0].reasoning).toBeUndefined();
   });
 
+  it('should preserve response items when only their summaries contain reasoning text', async () => {
+    const onCompletion = vi.fn();
+    const transformer = createCallbacksTransformer({ onCompletion });
+    const responseItem = {
+      item: {
+        encrypted_content: 'encrypted-1',
+        id: 'reasoning-1',
+        summary: [{ text: 'Visible summary', type: 'summary_text' }],
+        type: 'reasoning',
+      },
+      signatureScope: {
+        model: 'gpt-5.6-sol',
+        provider: 'chatgpt',
+      },
+    };
+
+    await processChunks(transformer, [
+      'event: reasoning_signature\n',
+      `data: ${JSON.stringify(responseItem)}\n\n`,
+    ]);
+
+    expect(onCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reasoning: {
+          content: 'Visible summary',
+          responseItems: [responseItem],
+          signature: undefined,
+        },
+        thinking: 'Visible summary',
+      }),
+    );
+  });
+
   it('should preserve multiple scoped Responses reasoning items', async () => {
     const onCompletion = vi.fn();
     const transformer = createCallbacksTransformer({ onCompletion });

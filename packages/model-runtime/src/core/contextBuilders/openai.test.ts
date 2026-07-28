@@ -226,9 +226,20 @@ describe('convertOpenAIMessages', () => {
     const mismatched = await convertOpenAIMessages(messages, {
       signatureScope: { ...sourceScope, channelId: 'openrouter-b' },
     });
+    const missingTarget = await convertOpenAIMessages(messages);
+    const legacy = await convertOpenAIMessages([
+      {
+        ...messages[0],
+        tool_calls: [
+          { ...(messages[0] as any).tool_calls[0], thoughtSignature: 'legacy-signature' },
+        ],
+      } as OpenAI.ChatCompletionMessageParam,
+    ]);
 
     expect((matching[0] as any).tool_calls[0].thoughtSignature).toBe('gemini-signature');
     expect((mismatched[0] as any).tool_calls[0].thoughtSignature).toBeUndefined();
+    expect((missingTarget[0] as any).tool_calls[0].thoughtSignature).toBeUndefined();
+    expect((legacy[0] as any).tool_calls[0].thoughtSignature).toBe('legacy-signature');
   });
 
   it('should convert array content messages', async () => {

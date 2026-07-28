@@ -549,14 +549,20 @@ export const fetchSSE = async (url: string, options: RequestInit & FetchSSEOptio
 
       textController.flushQueue();
       thinkingController.flushQueue();
+      const responseItemsThinking = reasoningResponseItems
+        .flatMap(({ item }) => item.summary)
+        .map(({ text }) => text)
+        .filter(Boolean)
+        .join('\n');
+      const reasoningContent = thinking || responseItemsThinking;
 
       await options?.onFinish?.(output, {
         grounding,
         images: images.length > 0 ? images : undefined,
         observationId,
-        reasoning: thinking
+        reasoning: reasoningContent
           ? {
-              content: thinking,
+              content: reasoningContent,
               responseItems: reasoningResponseItems.length > 0 ? reasoningResponseItems : undefined,
               signature: thinkingSignature,
             }
