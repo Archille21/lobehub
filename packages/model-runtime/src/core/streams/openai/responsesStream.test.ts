@@ -746,6 +746,36 @@ describe('OpenAIResponsesStream', () => {
     expect(chunks.some((chunk) => chunk.includes('"id":"reasoning_item"'))).toBe(true);
   });
 
+  it('should discard reasoning items without summary or encrypted content', async () => {
+    const mockOpenAIStream = createReadableStream([
+      {
+        item: {
+          encrypted_content: null,
+          id: 'empty_reasoning_item',
+          summary: [],
+          type: 'reasoning',
+        },
+        output_index: 0,
+        type: 'response.output_item.done',
+      },
+    ]);
+
+    const protocolStream = OpenAIResponsesStream(mockOpenAIStream, {
+      payload: {
+        model: 'gpt-5.6-sol',
+        provider: 'chatgpt',
+        signatureScope: {
+          channelId: 'account-1',
+          model: 'gpt-5.6-sol',
+          provider: 'chatgpt',
+        },
+      },
+    });
+    const chunks = await readStreamChunk(protocolStream);
+
+    expect(chunks.some((chunk) => chunk.includes('event: reasoning_signature'))).toBe(false);
+  });
+
   it('should handle response.completed with usage', async () => {
     const mockOpenAIStream = createReadableStream([
       {

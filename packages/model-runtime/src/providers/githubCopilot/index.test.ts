@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { ModelProvider } from 'model-bank';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import * as openAIContextBuilders from '../../core/contextBuilders/openai';
@@ -41,6 +42,11 @@ describe('LobeGithubCopilotAI', () => {
 
       expect(convertResponseInputsSpy).toHaveBeenCalledWith(expect.any(Array), {
         forceImageBase64: true,
+        provider: ModelProvider.GithubCopilot,
+        signatureScope: {
+          model: 'gpt-5.1-codex-mini',
+          provider: ModelProvider.GithubCopilot,
+        },
         strictToolPairing: true,
       });
     });
@@ -66,6 +72,10 @@ describe('LobeGithubCopilotAI', () => {
 
       expect(convertMessagesSpy).toHaveBeenCalledWith(expect.any(Array), {
         forceImageBase64: true,
+        signatureScope: {
+          model: 'gpt-4o',
+          provider: ModelProvider.GithubCopilot,
+        },
       });
     });
   });

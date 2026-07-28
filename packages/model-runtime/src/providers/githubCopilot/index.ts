@@ -18,6 +18,7 @@ import { AgentRuntimeError } from '../../utils/createError';
 import { debugPayload, debugResponse, debugStream } from '../../utils/debugStream';
 import { getModelPricing } from '../../utils/getModelPricing';
 import { StreamingResponse } from '../../utils/response';
+import { createModelSignatureScope } from '../../utils/signatureScope';
 import { assertToolLimits } from '../../utils/validateToolLimits';
 import { isResponsesAPIModel } from '../openai/modelId';
 
@@ -184,6 +185,7 @@ export class LobeGithubCopilotAI implements LobeRuntimeAI {
 
       const { model, ...rest } = this.handlePayload(payload);
       const shouldStream = rest.stream !== false;
+      const signatureScope = createModelSignatureScope(ModelProvider.GithubCopilot, model);
 
       if (model.toLowerCase().includes('claude')) {
         const anthropicClient = new Anthropic({
@@ -283,6 +285,8 @@ export class LobeGithubCopilotAI implements LobeRuntimeAI {
 
         const input = await convertOpenAIResponseInputs(messages as any, {
           forceImageBase64: true,
+          provider: ModelProvider.GithubCopilot,
+          signatureScope,
           strictToolPairing: true,
         });
 
@@ -328,7 +332,7 @@ export class LobeGithubCopilotAI implements LobeRuntimeAI {
           return StreamingResponse(
             OpenAIResponsesStream(prod, {
               callbacks: options?.callback,
-              payload: { model, provider: ModelProvider.GithubCopilot },
+              payload: { model, provider: ModelProvider.GithubCopilot, signatureScope },
             }),
             { headers: options?.headers },
           );
@@ -344,7 +348,7 @@ export class LobeGithubCopilotAI implements LobeRuntimeAI {
           OpenAIResponsesStream(responseStream, {
             callbacks: options?.callback,
             enableStreaming: false,
-            payload: { model, provider: ModelProvider.GithubCopilot },
+            payload: { model, provider: ModelProvider.GithubCopilot, signatureScope },
           }),
           { headers: options?.headers },
         );
@@ -353,6 +357,7 @@ export class LobeGithubCopilotAI implements LobeRuntimeAI {
       const { apiMode: _, preserveThinking: _pt, ...cleanedRest } = rest as any;
       const messages = await convertOpenAIMessages(cleanedRest.messages as any, {
         forceImageBase64: true,
+        signatureScope,
       });
 
       const chatCompletionPayload = {
@@ -386,7 +391,7 @@ export class LobeGithubCopilotAI implements LobeRuntimeAI {
       return StreamingResponse(
         OpenAIStream(response, {
           callbacks: options?.callback,
-          payload: { model, provider: ModelProvider.GithubCopilot },
+          payload: { model, provider: ModelProvider.GithubCopilot, signatureScope },
         }),
         { headers: options?.headers },
       );

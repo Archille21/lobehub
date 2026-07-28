@@ -146,7 +146,10 @@ const transformOpenAIStream = (
       }
 
       case 'response.output_item.done': {
-        if (chunk.item.type === 'reasoning' && payload?.signatureScope) {
+        const hasReplayableReasoning =
+          chunk.item.type === 'reasoning' &&
+          (!!chunk.item.encrypted_content || chunk.item.summary?.some(({ text }) => !!text));
+        if (hasReplayableReasoning && payload?.signatureScope) {
           return {
             data: {
               item: chunk.item,
