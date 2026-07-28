@@ -18,7 +18,7 @@ import { AgentRuntimeError } from '../../utils/createError';
 import { debugPayload, debugResponse, debugStream } from '../../utils/debugStream';
 import { getModelPricing } from '../../utils/getModelPricing';
 import { StreamingResponse } from '../../utils/response';
-import { createModelSignatureScope } from '../../utils/signatureScope';
+import { createModelSignatureScope, createSignatureChannelId } from '../../utils/signatureScope';
 import { assertToolLimits } from '../../utils/validateToolLimits';
 import { isResponsesAPIModel } from '../openai/modelId';
 
@@ -28,14 +28,6 @@ const TOKEN_EXCHANGE_URL = 'https://api.github.com/copilot_internal/v2/token';
 const MAX_TOTAL_ATTEMPTS = 5;
 const MAX_RATE_LIMIT_RETRIES = 3;
 const QUOTA_EXHAUSTION_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
-
-const createAccountFingerprint = async (token: string) => {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
-
-  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0'))
-    .join('')
-    .slice(0, 32);
-};
 
 const debugParams = {
   chatCompletion: () => process.env.DEBUG_GITHUBCOPILOT_CHAT_COMPLETION === '1',
@@ -185,7 +177,7 @@ export class LobeGithubCopilotAI implements LobeRuntimeAI {
     const accountToken = this.githubToken || this.cachedBearerToken;
     if (!accountToken) return undefined;
 
-    this.accountFingerprint ??= createAccountFingerprint(accountToken);
+    this.accountFingerprint ??= createSignatureChannelId(accountToken);
     return this.accountFingerprint;
   }
 

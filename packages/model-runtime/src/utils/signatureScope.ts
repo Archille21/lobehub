@@ -18,6 +18,21 @@ export const setRuntimeSignatureScope = (runtime: object, scope: ModelSignatureS
 
 export const getRuntimeSignatureScope = (runtime: object) => runtimeSignatureScopes.get(runtime);
 
+/**
+ * Derive a stable channel identifier without persisting credentials or endpoint secrets.
+ * JSON encoding keeps multi-part channel identities unambiguous before hashing.
+ */
+export const createSignatureChannelId = async (...identityParts: string[]) => {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(JSON.stringify(identityParts)),
+  );
+
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 32);
+};
+
 export const createModelSignatureScope = (
   provider: string,
   model: string,
@@ -33,11 +48,10 @@ export const isSameModelSignatureScope = (
   target: ModelSignatureScope,
 ) => {
   /**
-   * Router options without a stable channel id cannot safely prove provenance.
-   * Refuse replay instead of treating all anonymous fallback channels as equal.
+   * Provider and model alone cannot distinguish direct API credentials or endpoints.
+   * Refuse replay whenever either side lacks a stable channel identity.
    */
-  if ((source.routerId || target.routerId) && (!source.channelId || !target.channelId))
-    return false;
+  if (!source.channelId || !target.channelId) return false;
 
   return (
     source.provider === target.provider &&

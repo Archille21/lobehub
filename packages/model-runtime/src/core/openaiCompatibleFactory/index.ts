@@ -63,6 +63,7 @@ import {
 import { StreamingResponse } from '../../utils/response';
 import {
   createModelSignatureScope,
+  createSignatureChannelId,
   getRuntimeSignatureScope,
   type ModelSignatureScopeBase,
 } from '../../utils/signatureScope';
@@ -392,11 +393,22 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
       this.logPrefix = `lobe-model-runtime:${this.id}`;
     }
 
-    private getSignatureScope(model: string) {
+    /**
+     * Direct OpenAI-compatible endpoints do not expose a stable account id, so bind
+     * opaque reasoning state to a non-secret fingerprint of the endpoint and API key.
+     */
+    private async getSignatureScope(model: string) {
+      const runtimeScope = getRuntimeSignatureScope(this) ?? this.directSignatureScope;
+      const directChannelId =
+        runtimeScope || !this._options.apiKey
+          ? undefined
+          : await createSignatureChannelId(this.baseURL, this._options.apiKey);
+
       return createModelSignatureScope(
         this.id,
         model,
-        getRuntimeSignatureScope(this) ?? this.directSignatureScope,
+        runtimeScope ??
+          (directChannelId ? { channelId: directChannelId, provider: this.id } : undefined),
       );
     }
 
@@ -682,7 +694,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         const requestModel =
           this.withMappedRequestModel({ model: postPayload.model }, payload.model).model ??
           payload.model;
-        const signatureScope = this.getSignatureScope(requestModel);
+        const signatureScope = await this.getSignatureScope(requestModel);
         const messages = await convertOpenAIMessages(postPayload.messages, {
           forceImageBase64: chatCompletion?.forceImageBase64,
           forceVideoBase64: chatCompletion?.forceVideoBase64,
@@ -1451,7 +1463,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
           : payload;
       const requestModel =
         this.withMappedRequestModel({ model: res.model }, usageModel).model ?? usageModel;
-      const signatureScope = this.getSignatureScope(requestModel);
+      const signatureScope = await this.getSignatureScope(requestModel);
 
       // remove penalty params and chat completion specific params
       delete res.apiMode;
@@ -1610,7 +1622,7 @@ export const createOpenAICompatibleRuntime = <T extends Record<string, any> = an
         model,
         responseApi,
       });
-      const signatureScope = this.getSignatureScope(this.getMappedModelId(payload.model));
+      const signatureScope = await this.getSignatureScope(this.getMappedModelId(payload.model));
 
       if (shouldUseResponses) {
         log('calling responses.create for tool calling');

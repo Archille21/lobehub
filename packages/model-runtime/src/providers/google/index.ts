@@ -32,7 +32,11 @@ import { parseGoogleErrorMessage } from '../../utils/googleErrorParser';
 import type { ModelIdMappingOptions } from '../../utils/modelIdMapping';
 import { withMappedModelId } from '../../utils/modelIdMapping';
 import { StreamingResponse } from '../../utils/response';
-import { createModelSignatureScope, getRuntimeSignatureScope } from '../../utils/signatureScope';
+import {
+  createModelSignatureScope,
+  createSignatureChannelId,
+  getRuntimeSignatureScope,
+} from '../../utils/signatureScope';
 import { createGoogleImage } from './createImage';
 import { createGoogleVideo, pollGoogleVideoOperation } from './createVideo';
 import { createGoogleGenerateObject, createGoogleGenerateObjectWithTools } from './generateObject';
@@ -149,11 +153,7 @@ export class LobeGoogleAI implements LobeRuntimeAI {
       const { model, thinkingBudget, thinkingLevel, imageAspectRatio, imageResolution } = payload;
       const requestPayload = withMappedModelId(payload, this.modelIdMappingOptions);
       const requestModel = requestPayload.model;
-      const signatureScope = createModelSignatureScope(
-        this.provider,
-        requestModel,
-        getRuntimeSignatureScope(this),
-      );
+      const signatureScope = await this.getSignatureScope(requestModel);
       const shouldOmitDeprecatedGenerationParams =
         shouldOmitDeprecatedGoogleGenerationParams(requestModel);
 
@@ -369,11 +369,7 @@ export class LobeGoogleAI implements LobeRuntimeAI {
     // Convert OpenAI messages to Google format
     const contents = await buildGoogleMessages(payload.messages, {
       model: requestPayload.model,
-      signatureScope: createModelSignatureScope(
-        this.provider,
-        requestPayload.model,
-        getRuntimeSignatureScope(this),
-      ),
+      signatureScope: await this.getSignatureScope(requestPayload.model),
     });
     const pricing = await getModelPricing(payload.model, this.provider, options?.pricingContext);
 
@@ -398,6 +394,26 @@ export class LobeGoogleAI implements LobeRuntimeAI {
     }
 
     return undefined;
+  }
+
+  /**
+   * Direct Gemini endpoints do not expose a stable account id, so bind thought
+   * signatures to a non-secret fingerprint when both endpoint and API key are known.
+   * Injected clients such as direct Vertex AI fail closed unless RouterRuntime supplies a channel.
+   */
+  private async getSignatureScope(model: string) {
+    const runtimeScope = getRuntimeSignatureScope(this);
+    const directChannelId =
+      runtimeScope || !this.baseURL || !this.apiKey
+        ? undefined
+        : await createSignatureChannelId(this.baseURL, this.apiKey);
+
+    return createModelSignatureScope(
+      this.provider,
+      model,
+      runtimeScope ??
+        (directChannelId ? { channelId: directChannelId, provider: this.provider } : undefined),
+    );
   }
 
   private createEnhancedStream(originalStream: any, signal: AbortSignal): ReadableStream {

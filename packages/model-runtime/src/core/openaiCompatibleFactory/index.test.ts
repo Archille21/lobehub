@@ -9,7 +9,7 @@ import type { LobeOpenAICompatibleRuntime } from '../../core/BaseAI';
 import type { ChatStreamCallbacks, ChatStreamPayload } from '../../types/chat';
 import { AgentRuntimeErrorType } from '../../types/error';
 import * as debugStreamModule from '../../utils/debugStream';
-import { serializeScopedSignature } from '../../utils/signatureScope';
+import { createSignatureChannelId, serializeScopedSignature } from '../../utils/signatureScope';
 import * as openaiHelpers from '../contextBuilders/openai';
 import { createOpenAICompatibleRuntime } from './index';
 
@@ -230,6 +230,7 @@ describe('LobeOpenAICompatibleFactory', () => {
                 function: { arguments: '{}', name: 'search' },
                 id: 'call-1',
                 thoughtSignature: serializeScopedSignature('upstream-signature', {
+                  channelId: await createSignatureChannelId(defaultBaseURL, 'test'),
                   model: 'upstream-model',
                   provider: 'mapped-provider',
                 }),
@@ -249,6 +250,59 @@ describe('LobeOpenAICompatibleFactory', () => {
       expect((request.messages[0] as any).tool_calls[0].thoughtSignature).toBe(
         'upstream-signature',
       );
+    });
+
+    it.each([
+      {
+        sourceApiKey: 'another-key',
+        sourceBaseURL: defaultBaseURL,
+        sourceLabel: 'API key',
+      },
+      {
+        sourceApiKey: 'test',
+        sourceBaseURL: 'https://another.example.com/v1',
+        sourceLabel: 'endpoint',
+      },
+    ])('should not replay a direct signature from another $sourceLabel', async (source) => {
+      const Runtime = createOpenAICompatibleRuntime({
+        baseURL: defaultBaseURL,
+        provider: 'mapped-provider',
+      });
+      const runtime = new Runtime({ apiKey: 'test' });
+      const create = vi
+        .spyOn(runtime['client'].chat.completions, 'create')
+        .mockResolvedValue(new ReadableStream() as any);
+
+      await runtime.chat({
+        messages: [
+          {
+            content: '',
+            role: 'assistant',
+            tool_calls: [
+              {
+                function: { arguments: '{}', name: 'search' },
+                id: 'call-1',
+                thoughtSignature: serializeScopedSignature('foreign-signature', {
+                  channelId: await createSignatureChannelId(
+                    source.sourceBaseURL,
+                    source.sourceApiKey,
+                  ),
+                  model: 'upstream-model',
+                  provider: 'mapped-provider',
+                }),
+                type: 'function',
+              },
+            ],
+          },
+          { content: '{}', role: 'tool', tool_call_id: 'call-1' },
+          { content: 'Continue', role: 'user' },
+        ],
+        model: 'upstream-model',
+        temperature: 0,
+      });
+
+      const request = create.mock.calls[0][0];
+      expect((request.messages[0] as any).tool_calls[0].thoughtSignature).toBeUndefined();
     });
 
     describe('streaming response', () => {
@@ -1604,6 +1658,7 @@ describe('LobeOpenAICompatibleFactory', () => {
                       type: 'reasoning',
                     },
                     signatureScope: {
+                      channelId: await createSignatureChannelId('https://api.test.com/v1', 'test'),
                       model: 'upstream-model',
                       provider: 'mapped-provider',
                     },
@@ -3030,6 +3085,7 @@ describe('LobeOpenAICompatibleFactory', () => {
           mockResponse as any,
         );
         const signatureScope = {
+          channelId: await createSignatureChannelId(defaultBaseURL, 'test'),
           model: 'gpt-4o',
           provider: ModelProvider.Groq,
         };

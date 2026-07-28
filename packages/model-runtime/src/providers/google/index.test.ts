@@ -6,10 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LOBE_ERROR_KEY } from '../../core/streams';
 import { AgentRuntimeErrorType } from '../../types/error';
 import * as debugStreamModule from '../../utils/debugStream';
-import { serializeScopedSignature } from '../../utils/signatureScope';
+import { createSignatureChannelId, serializeScopedSignature } from '../../utils/signatureScope';
 import { LobeGoogleAI } from './index';
 
 const provider = 'google';
+const defaultBaseURL = 'https://generativelanguage.googleapis.com';
 const bizErrorType = 'ProviderBizError';
 const invalidErrorType = 'InvalidProviderAPIKey';
 const getModelPricingMock = vi.hoisted(() => vi.fn());
@@ -83,6 +84,7 @@ describe('LobeGoogleAI', () => {
                 function: { arguments: '{}', name: 'search' },
                 id: 'call-1',
                 thoughtSignature: serializeScopedSignature('upstream-signature', {
+                  channelId: await createSignatureChannelId(defaultBaseURL, 'test'),
                   model: 'gemini-upstream',
                   provider: 'google',
                 }),
@@ -101,6 +103,57 @@ describe('LobeGoogleAI', () => {
       expect(callArgs[0].model).toBe('gemini-upstream');
       expect(callArgs[0].contents[0].parts[0].thoughtSignature).toBe('upstream-signature');
       expect(getModelPricingMock).toHaveBeenCalledWith('gemini-logical', provider, undefined);
+    });
+
+    it.each([
+      {
+        sourceApiKey: 'another-key',
+        sourceBaseURL: defaultBaseURL,
+        sourceLabel: 'API key',
+      },
+      {
+        sourceApiKey: 'test',
+        sourceBaseURL: 'https://another.example.com',
+        sourceLabel: 'endpoint',
+      },
+    ])('should not replay a direct signature from another $sourceLabel', async (source) => {
+      const directInstance = new LobeGoogleAI({ apiKey: 'test' });
+      const mockStreamData = createEmptyAsyncGenerator<GenerateContentResponse>();
+      const generateContentStream = vi
+        .spyOn(directInstance['client'].models, 'generateContentStream')
+        .mockResolvedValue(mockStreamData);
+
+      await directInstance.chat({
+        messages: [
+          {
+            content: '',
+            role: 'assistant',
+            tool_calls: [
+              {
+                function: { arguments: '{}', name: 'search' },
+                id: 'call-1',
+                thoughtSignature: serializeScopedSignature('foreign-signature', {
+                  channelId: await createSignatureChannelId(
+                    source.sourceBaseURL,
+                    source.sourceApiKey,
+                  ),
+                  model: 'gemini-upstream',
+                  provider: 'google',
+                }),
+                type: 'function',
+              },
+            ],
+          },
+          { content: '{}', role: 'tool', tool_call_id: 'call-1' },
+          { content: 'Continue', role: 'user' },
+        ],
+        model: 'gemini-upstream',
+        temperature: 0,
+      });
+
+      expect(generateContentStream.mock.calls[0][0].contents[0].parts[0].thoughtSignature).not.toBe(
+        'foreign-signature',
+      );
     });
 
     it('should apply upstream model compatibility after model mapping', async () => {
