@@ -4,7 +4,6 @@ export interface SettingsSearchContext {
   disableEmailPassword: boolean;
   enableBusinessFeatures: boolean;
   enableComposio: boolean;
-  enableGatewayMode: boolean;
   enableSTT: boolean;
   /** Whether the signed-in user has an email on their profile */
   hasEmail: boolean;
@@ -12,6 +11,7 @@ export interface SettingsSearchContext {
   isDesktop: boolean;
   isLogin: boolean;
   showAiImage: boolean;
+  showGatewayModeToggle: boolean;
 }
 
 export interface SettingsSearchItem {
@@ -309,7 +309,7 @@ export const SETTINGS_SEARCH_ITEMS: SettingsSearchItem[] = [
     keywords: ['gateway', 'agent runtime'],
     labelKey: 'tab.advanced.gatewayMode.title',
     tab: SettingsTabs.Advanced,
-    visible: (ctx) => ctx.enableGatewayMode,
+    visible: (ctx) => ctx.showGatewayModeToggle,
   },
   {
     anchor: 'advanced-update-channel',

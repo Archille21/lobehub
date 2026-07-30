@@ -56,6 +56,52 @@ describe('serverConfigSelectors', () => {
     });
   });
 
+  describe('showGatewayModeToggle', () => {
+    it('should return true when gateway mode is enabled and business features are off', () => {
+      const store = initServerConfigStore({
+        serverConfig: {
+          aiProvider: {},
+          enableBusinessFeatures: false,
+          enableGatewayMode: true,
+          telemetry: {},
+        },
+      });
+
+      const result = serverConfigSelectors.showGatewayModeToggle(store.getState());
+
+      expect(result).toBe(true);
+    });
+
+    it('should return false when business features are on, even if gateway mode is enabled', () => {
+      const store = initServerConfigStore({
+        serverConfig: {
+          aiProvider: {},
+          enableBusinessFeatures: true,
+          enableGatewayMode: true,
+          telemetry: {},
+        },
+      });
+
+      const result = serverConfigSelectors.showGatewayModeToggle(store.getState());
+
+      expect(result).toBe(false);
+    });
+
+    it('should return false when gateway mode is not enabled', () => {
+      const store = initServerConfigStore({
+        serverConfig: {
+          aiProvider: {},
+          enableBusinessFeatures: false,
+          telemetry: {},
+        },
+      });
+
+      const result = serverConfigSelectors.showGatewayModeToggle(store.getState());
+
+      expect(result).toBe(false);
+    });
+  });
+
   describe('enabledTelemetryChat', () => {
     it('should return langfuse value from store when defined', () => {
       const store = initServerConfigStore({
