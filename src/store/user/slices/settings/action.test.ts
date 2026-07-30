@@ -121,6 +121,20 @@ describe('SettingsAction', () => {
       );
     });
 
+    it('should preserve an explicit telemetry denial during later general setting updates', async () => {
+      const { result } = renderHook(() => useUserStore());
+
+      await act(async () => {
+        await result.current.updateGeneralConfig({ telemetry: false });
+        await result.current.updateGeneralConfig({ fontSize: 12 });
+      });
+
+      expect(userService.updateUserSettings).toHaveBeenLastCalledWith(
+        { general: { fontSize: 12, telemetry: false } },
+        expect.any(AbortSignal),
+      );
+    });
+
     it('should keep legacy scalar system agent fields unchanged', async () => {
       const { result } = renderHook(() => useUserStore());
       const settingsWithLegacySystemAgent = {

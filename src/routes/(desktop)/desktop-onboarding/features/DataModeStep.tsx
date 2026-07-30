@@ -4,7 +4,7 @@ import { Block, Checkbox, Empty, Flexbox, Text } from '@lobehub/ui';
 import { Button } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
 import { HeartHandshake, Undo2Icon } from 'lucide-react';
-import { memo, useCallback, useState } from 'react';
+import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useUserStore } from '@/store/user';
@@ -12,12 +12,13 @@ import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 
 import LobeMessage from '../components/LobeMessage';
 import OnboardingFooterActions from '../components/OnboardingFooterActions';
+import { useDataModeSubmit } from './useDataModeSubmit';
 
 type DataMode = 'share' | 'privacy';
 
 interface DataModeStepProps {
   onBack: () => void;
-  onNext: () => void;
+  onNext: () => Promise<void> | void;
 }
 
 const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
@@ -27,11 +28,11 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
   const [selectedMode, setSelectedMode] = useState<DataMode>(
     telemetryEnabled ? 'share' : 'privacy',
   );
-
-  const handleNext = useCallback(() => {
-    void updateGeneralConfig({ telemetry: selectedMode === 'share' });
-    onNext();
-  }, [onNext, selectedMode, updateGeneralConfig]);
+  const { handleNext, hasSaveError, isSaving } = useDataModeSubmit({
+    onNext,
+    selectedMode,
+    updateGeneralConfig,
+  });
 
   const checkIcon = (
     <Checkbox
@@ -109,9 +110,15 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
       <Text color={cssVar.colorTextSecondary} fontSize={12} style={{ marginTop: 16 }}>
         {t('screen4.footerNote')}
       </Text>
+      {hasSaveError && (
+        <Text color={cssVar.colorError} fontSize={12}>
+          {t('screen4.errors.saveFailed')}
+        </Text>
+      )}
       <OnboardingFooterActions
         left={
           <Button
+            disabled={isSaving}
             icon={Undo2Icon}
             style={{ color: cssVar.colorTextDescription }}
             type={'text'}
@@ -121,7 +128,7 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
           </Button>
         }
         right={
-          <Button type={'primary'} onClick={handleNext}>
+          <Button disabled={isSaving} loading={isSaving} type={'primary'} onClick={handleNext}>
             {t('next')}
           </Button>
         }
