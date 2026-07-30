@@ -3,6 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useUserStore } from '@/store/user';
 import type { SPAServerConfig } from '@/types/spaServerConfig';
 
 import { LobeAnalyticsProviderWrapper } from './LobeAnalyticsProviderWrapper';
@@ -10,6 +11,7 @@ import { LobeAnalyticsProviderWrapper } from './LobeAnalyticsProviderWrapper';
 const providerMock = vi.hoisted(() => ({
   props: undefined as
     | {
+        captureEnabled: boolean;
         children: ReactNode;
         postHogConfig: PostHogProviderAnalyticsConfig;
       }
@@ -18,6 +20,7 @@ const providerMock = vi.hoisted(() => ({
 
 vi.mock('@/components/Analytics/LobeAnalyticsProvider', () => ({
   LobeAnalyticsProvider: (props: {
+    captureEnabled: boolean;
     children: ReactNode;
     postHogConfig: PostHogProviderAnalyticsConfig;
   }) => {
@@ -39,15 +42,28 @@ const serverConfig = {
 beforeEach(() => {
   providerMock.props = undefined;
   window.__SERVER_CONFIG__ = serverConfig;
+  useUserStore.setState({
+    isUserStateInit: true,
+    settings: { general: { telemetry: true } },
+    user: {
+      email: 'user@example.com',
+      id: 'user-id',
+    },
+  });
 });
 
 afterEach(() => {
   cleanup();
   window.__SERVER_CONFIG__ = undefined;
+  useUserStore.setState({
+    isUserStateInit: false,
+    settings: {},
+    user: undefined,
+  });
 });
 
 describe('LobeAnalyticsProviderWrapper', () => {
-  it('enables PostHog history-change pageview capture for the SPA provider', () => {
+  it('starts PostHog opted out and enables capture only after explicit consent is loaded', () => {
     render(
       <LobeAnalyticsProviderWrapper>
         <div>Analytics child</div>
@@ -55,13 +71,28 @@ describe('LobeAnalyticsProviderWrapper', () => {
     );
 
     expect(screen.getByText('Analytics child')).toBeInTheDocument();
+    expect(providerMock.props?.captureEnabled).toBe(true);
     expect(providerMock.props?.postHogConfig).toMatchObject({
       capture_pageview: 'history_change',
       debug: true,
       enabled: true,
       host: 'https://posthog.example.com',
       key: 'ph-key',
-      person_profiles: 'always',
+      opt_out_capturing_by_default: true,
+      opt_out_persistence_by_default: true,
+      person_profiles: 'identified_only',
     });
+  });
+
+  it('keeps capture disabled until user state initialization completes', () => {
+    useUserStore.setState({ isUserStateInit: false });
+
+    render(
+      <LobeAnalyticsProviderWrapper>
+        <div>Analytics child</div>
+      </LobeAnalyticsProviderWrapper>,
+    );
+
+    expect(providerMock.props?.captureEnabled).toBe(false);
   });
 });

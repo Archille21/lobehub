@@ -2,6 +2,8 @@ import { type ReactNode } from 'react';
 import { memo } from 'react';
 
 import { LobeAnalyticsProvider } from '@/components/Analytics/LobeAnalyticsProvider';
+import { useUserStore } from '@/store/user';
+import { userGeneralSettingsSelectors, userProfileSelectors } from '@/store/user/selectors';
 import type { SPAServerConfig } from '@/types/spaServerConfig';
 import { isDev } from '@/utils/env';
 
@@ -12,9 +14,15 @@ type Props = {
 export const LobeAnalyticsProviderWrapper = memo<Props>(({ children }) => {
   const serverConfig: SPAServerConfig | undefined = window.__SERVER_CONFIG__;
   const analytics = serverConfig?.analyticsConfig;
+  const isUserStateInit = useUserStore((s) => s.isUserStateInit);
+  const telemetryEnabled = useUserStore(userGeneralSettingsSelectors.telemetry);
+  const user = useUserStore(userProfileSelectors.userProfile);
+  const captureEnabled = isUserStateInit && telemetryEnabled === true;
 
   return (
     <LobeAnalyticsProvider
+      captureEnabled={captureEnabled}
+      user={user}
       ga4Config={{
         debug: isDev,
         enabled: !!analytics?.google?.measurementId,
@@ -29,7 +37,9 @@ export const LobeAnalyticsProviderWrapper = memo<Props>(({ children }) => {
         capture_pageview: 'history_change',
         host: analytics?.posthog?.host ?? '',
         key: analytics?.posthog?.key ?? '',
-        person_profiles: 'always',
+        opt_out_capturing_by_default: true,
+        opt_out_persistence_by_default: true,
+        person_profiles: 'identified_only',
       }}
       xAdsConfig={{
         debug: isDev,

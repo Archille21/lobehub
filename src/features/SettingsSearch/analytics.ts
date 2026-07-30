@@ -27,8 +27,8 @@ const QUERY_SETTLE_MS = 1000;
 const MAX_QUERY_LENGTH = 100;
 
 /**
- * Secret-looking input must never reach analytics: telemetry is default-on and
- * users may paste an API key into the search box by accident. Real settings
+ * Secret-looking input must never reach analytics: even after opting in, users
+ * may paste an API key into the search box by accident. Real settings
  * queries are short human words, so redact anything that looks like a
  * credential — a known key prefix at any token boundary (covers pastes with
  * surrounding text like `apiKey=sk-...` or JSON snippets), or a long unbroken

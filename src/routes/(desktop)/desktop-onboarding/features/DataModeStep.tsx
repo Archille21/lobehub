@@ -28,16 +28,10 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
     telemetryEnabled ? 'share' : 'privacy',
   );
 
-  const setMode = useCallback(
-    (mode: DataMode) => {
-      setSelectedMode(mode);
-      const nextTelemetry = mode === 'share';
-      if (telemetryEnabled !== nextTelemetry) {
-        void updateGeneralConfig({ telemetry: nextTelemetry });
-      }
-    },
-    [telemetryEnabled, updateGeneralConfig],
-  );
+  const handleNext = useCallback(() => {
+    void updateGeneralConfig({ telemetry: selectedMode === 'share' });
+    onNext();
+  }, [onNext, selectedMode, updateGeneralConfig]);
 
   const checkIcon = (
     <Checkbox
@@ -64,7 +58,7 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
           padding={16}
           style={{ borderColor: selectedMode === 'share' ? cssVar.colorSuccess : undefined }}
           variant={'outlined'}
-          onClick={() => setMode('share')}
+          onClick={() => setSelectedMode('share')}
         >
           {selectedMode === 'share' && checkIcon}
           <Empty
@@ -101,7 +95,7 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
           padding={16}
           style={{ borderColor: selectedMode === 'privacy' ? cssVar.colorSuccess : undefined }}
           variant={'outlined'}
-          onClick={() => setMode('privacy')}
+          onClick={() => setSelectedMode('privacy')}
         >
           {selectedMode === 'privacy' && checkIcon}
           <Text strong fontSize={18}>
@@ -127,7 +121,7 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
           </Button>
         }
         right={
-          <Button type={'primary'} onClick={onNext}>
+          <Button type={'primary'} onClick={handleNext}>
             {t('next')}
           </Button>
         }

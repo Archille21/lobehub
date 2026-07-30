@@ -23,7 +23,7 @@ interface TelemetryStepProps {
 const TelemetryStep = memo<TelemetryStepProps>(({ onNext }) => {
   const { t, i18n } = useTranslation('onboarding');
   const locale = i18n.language;
-  const [check, setCheck] = useState(true);
+  const [check, setCheck] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
   const isNavigatingRef = useRef(false);
   const updateGeneralConfig = useUserStore((s) => s.updateGeneralConfig);
