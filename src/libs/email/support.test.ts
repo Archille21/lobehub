@@ -1,17 +1,43 @@
+import { BRANDING_EMAIL, SOCIAL_URL } from '@lobechat/business-const';
 import { describe, expect, it } from 'vitest';
 
 import { EMAIL_SUPPORT_ADDRESS, getEmailSupportHtml, getEmailSupportText } from './support';
 
+// Both channels are deployment-configurable branding slots, and a white-label
+// deployment may have neither. So these assertions are written against the
+// configured values rather than upstream's, and each channel's expectations are
+// guarded on it actually being configured.
+const support: string | undefined = BRANDING_EMAIL.support || undefined;
+const discord: string | undefined = SOCIAL_URL.discord || undefined;
+
 describe('email support helpers', () => {
-  it('renders actionable support links for HTML and plain-text emails', () => {
+  it('renders actionable support links for the configured channels', () => {
     const html = getEmailSupportHtml();
     const text = getEmailSupportText();
 
-    expect(EMAIL_SUPPORT_ADDRESS).toBe('support@lobehub.com');
-    expect(html).toContain('href="mailto:support@lobehub.com"');
-    expect(html).toContain('https://discord.gg/');
-    expect(text).toContain('support@lobehub.com');
-    expect(text).toContain('https://discord.gg/');
+    expect(EMAIL_SUPPORT_ADDRESS).toBe(support);
+
+    if (support) {
+      expect(html).toContain(`href="mailto:${support}"`);
+      expect(text).toContain(support);
+    }
+
+    if (discord) {
+      expect(html).toContain(discord);
+      expect(text).toContain(discord);
+    }
+  });
+
+  it('omits a channel the deployment did not configure', () => {
+    const html = getEmailSupportHtml();
+    const text = getEmailSupportText();
+
+    // These ship in real outgoing mail, where a dead link cannot be taken back.
+    expect(html).not.toContain('mailto:undefined');
+    expect(html).not.toContain('href=""');
+    expect(text).not.toContain('undefined');
+
+    if (!support && !discord) expect(html).toBe('');
   });
 
   it('escapes localized labels before rendering HTML', () => {
@@ -22,7 +48,8 @@ describe('email support helpers', () => {
 
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('<strong>');
-    expect(html).toContain('&lt;script&gt;');
-    expect(html).toContain('&lt;strong&gt;');
+
+    if (support) expect(html).toContain('&lt;script&gt;');
+    if (discord) expect(html).toContain('&lt;strong&gt;');
   });
 });
