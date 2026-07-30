@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 interface MockGlobalConfigOptions {
   agentGatewayUrl?: string;
   enableAgentGateway?: boolean;
+  marketTrustedClient?: boolean;
 }
 
 const mockGlobalConfigDependencies = (
@@ -42,6 +43,9 @@ const mockGlobalConfigDependencies = (
       ...(options.enableAgentGateway === undefined
         ? {}
         : { ENABLE_AGENT_GATEWAY: options.enableAgentGateway }),
+      ...(options.marketTrustedClient
+        ? { MARKET_TRUSTED_CLIENT_ID: 'test-id', MARKET_TRUSTED_CLIENT_SECRET: 'test-secret' }
+        : {}),
     },
     getAppConfig: vi.fn(() => ({
       DEFAULT_AGENT_CONFIG: '',
@@ -194,6 +198,22 @@ describe('getServerGlobalConfig', () => {
 
     await expect(loadServerConfig(false, { enableAgentGateway: true })).resolves.toMatchObject({
       enableGatewayMode: false,
+    });
+  });
+
+  it('should hide the LobeHub Skill connectors in business feature mode even if market trusted-client env vars are set', async () => {
+    await expect(loadServerConfig(true, { marketTrustedClient: true })).resolves.toMatchObject({
+      enableLobehubSkill: false,
+    });
+  });
+
+  it('should keep the LobeHub Skill connectors gated by the market trusted-client env vars outside business feature mode', async () => {
+    await expect(loadServerConfig(false, { marketTrustedClient: true })).resolves.toMatchObject({
+      enableLobehubSkill: true,
+    });
+
+    await expect(loadServerConfig(false)).resolves.toMatchObject({
+      enableLobehubSkill: false,
     });
   });
 });

@@ -107,7 +107,15 @@ export const getServerGlobalConfig = async () => {
     enableComposio: !!composioEnv.COMPOSIO_API_KEY,
     enableGatewayMode:
       ENABLE_BUSINESS_FEATURES || (!!appEnv.ENABLE_AGENT_GATEWAY && !!appEnv.AGENT_GATEWAY_URL),
-    enableLobehubSkill: !!(appEnv.MARKET_TRUSTED_CLIENT_SECRET && appEnv.MARKET_TRUSTED_CLIENT_ID),
+    // The LobeHub Skill connectors (Notion/PostHog/GitHub/etc. OAuth) are a
+    // hosted-cloud-only integration — private-label deployments can't complete
+    // their OAuth handshake, so keep them hidden even if the market trusted-
+    // client env vars happen to be set for other reasons. The Skill Store
+    // marketplace and cloud sandbox are unaffected — separate feature, no
+    // dependency on these env vars.
+    enableLobehubSkill:
+      !ENABLE_BUSINESS_FEATURES &&
+      !!(appEnv.MARKET_TRUSTED_CLIENT_SECRET && appEnv.MARKET_TRUSTED_CLIENT_ID),
     enableMagicLink: authEnv.AUTH_ENABLE_MAGIC_LINK,
     enableMarketTrustedClient: !!(
       appEnv.MARKET_TRUSTED_CLIENT_SECRET && appEnv.MARKET_TRUSTED_CLIENT_ID
