@@ -6,6 +6,10 @@ import {
   processUnderstandingProviders,
 } from './processProviders';
 
+type TriggerTaskRecommendations = Parameters<
+  typeof processUnderstandingProviders
+>[1]['triggerTaskRecommendations'];
+
 const errors = vi.hoisted(() => {
   class DomainError extends Error {}
   return { DomainError };
@@ -74,7 +78,7 @@ describe('processUnderstandingProviders', () => {
       }),
     };
     const { context, invocations, steps } = createContext(payload);
-    const triggerTaskRecommendations = vi.fn(async () => undefined);
+    const triggerTaskRecommendations = vi.fn<TriggerTaskRecommendations>(async () => undefined);
     const running = processUnderstandingProviders(context as never, {
       createService: async () => service as never,
       processCollectedWorkflow: workflow as never,
@@ -129,7 +133,7 @@ describe('processUnderstandingProviders', () => {
     const attempt = { id: 'github', revision: 2 };
     const first = createContext({ ...payload, providers: [attempt] });
     const replay = createContext({ ...payload, providers: [attempt] });
-    const triggerTaskRecommendations = vi.fn(async () => undefined);
+    const triggerTaskRecommendations = vi.fn<TriggerTaskRecommendations>(async () => undefined);
     const dependencies = {
       createService: async () => service as never,
       processCollectedWorkflow: workflow as never,
@@ -146,8 +150,15 @@ describe('processUnderstandingProviders', () => {
     expect(first.invocations[0].settings.workflowRunId).toMatch(
       /^onboarding-understanding-collected-[a-f0-9]{32}$/,
     );
-    expect(triggerTaskRecommendations.mock.calls[0][1].workflowRunId).toBe(
-      triggerTaskRecommendations.mock.calls[1][1].workflowRunId,
+    const firstRecommendationCall = triggerTaskRecommendations.mock.calls.at(0);
+    const replayedRecommendationCall = triggerTaskRecommendations.mock.calls.at(1);
+    expect(firstRecommendationCall).toBeDefined();
+    expect(replayedRecommendationCall).toBeDefined();
+    if (!firstRecommendationCall || !replayedRecommendationCall) {
+      throw new Error('Expected both recommendation workflow triggers');
+    }
+    expect(firstRecommendationCall[1].workflowRunId).toBe(
+      replayedRecommendationCall[1].workflowRunId,
     );
   });
 
