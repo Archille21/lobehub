@@ -49,8 +49,8 @@ import { setNamespace } from '@/utils/storeDebug';
 
 import { displayMessageSelectors } from '../message/selectors';
 import { type TopicData } from './initialState';
-import { type ChatTopicDispatch } from './reducer';
-import { topicReducer } from './reducer';
+import { type ChatTopicDetailDispatch, type ChatTopicDispatch } from './reducer';
+import { topicDetailReducer, topicReducer } from './reducer';
 import { topicSelectors } from './selectors';
 
 const n = setNamespace('t');
@@ -128,11 +128,34 @@ export class ChatTopicActionImpl {
 
   #staleRunningTopicCleanupInFlight = false;
 
+  #topicDetailRequests = new Map<string, Promise<ChatTopic | null>>();
+
   constructor(set: Setter, get: () => ChatStore, _api?: unknown) {
     void _api;
     this.#set = set;
     this.#get = get;
   }
+
+  #fetchTopicDetail = async (id: string): Promise<ChatTopic | null> => {
+    const stored = topicSelectors.getTopicById(id)(this.#get());
+    if (stored) return stored;
+
+    const pendingRequest = this.#topicDetailRequests.get(id);
+    if (pendingRequest) return pendingRequest;
+
+    const request = topicService.getTopicDetail(id);
+    this.#topicDetailRequests.set(id, request);
+
+    try {
+      const topic = await request;
+      if (topic) this.#get().internal_setTopicDetail(topic);
+      return topic;
+    } finally {
+      if (this.#topicDetailRequests.get(id) === request) {
+        this.#topicDetailRequests.delete(id);
+      }
+    }
+  };
 
   #resolveTopicLinkedPullRequestRefreshParams = (
     topicId: string,
@@ -387,7 +410,8 @@ export class ChatTopicActionImpl {
   };
 
   updateTopicMetadata = async (id: string, metadata: Partial<ChatTopicMetadata>): Promise<void> => {
-    const topic = topicSelectors.getTopicById(id)(this.#get());
+    const topic =
+      topicSelectors.getTopicById(id)(this.#get()) ?? (await this.#fetchTopicDetail(id));
     if (!topic) return;
 
     // Optimistic update with merged metadata
@@ -497,7 +521,9 @@ export class ChatTopicActionImpl {
       groupId: scopedGroupId,
       scope,
     });
-    const topic = state.topicDataMap[key]?.items?.find((t) => t.id === topicId);
+    const topic =
+      state.topicDataMap[key]?.items?.find((t) => t.id === topicId) ??
+      state.topicDetailMap[topicId];
 
     // Already at the target status — both the in-memory and DB writes are no-ops.
     if (topic?.status === status) return;
@@ -567,7 +593,10 @@ export class ChatTopicActionImpl {
     if (!topic.metadata?.runningOperation) return;
 
     const key = topicMapKey(patchScope);
-    const currentTopic = this.#get().topicDataMap[key]?.items.find((item) => item.id === topic.id);
+    const state = this.#get();
+    const currentTopic =
+      state.topicDataMap[key]?.items.find((item) => item.id === topic.id) ??
+      state.topicDetailMap[topic.id];
     const metadata = currentTopic?.metadata ?? topic.metadata;
 
     await topicService.updateTopicMetadata(topic.id, { runningOperation: null });
@@ -728,6 +757,20 @@ export class ChatTopicActionImpl {
       },
     );
   };
+
+  useFetchTopicDetail = (id?: string): SWRResponse<ChatTopic | null> =>
+    useClientDataSWRWithSync<ChatTopic | null>(
+      id ? topicKeys.detail(id) : null,
+      id ? () => this.#fetchTopicDetail(id) : null,
+      {
+        onData: (topic) => {
+          if (topic) this.#get().internal_setTopicDetail(topic);
+        },
+        onError: (error) => {
+          console.error('[useFetchTopicDetail] failed:', error);
+        },
+      },
+    );
 
   autoRenameTopicTitle = async (id: string): Promise<void> => {
     const { activeAgentId: agentId, summaryTopicTitle, internal_updateTopicLoading } = this.#get();
@@ -1215,6 +1258,12 @@ export class ChatTopicActionImpl {
       n('toggleTopic'),
     );
 
+    if (id && !topicSelectors.getTopicById(id)(this.#get())) {
+      void this.#fetchTopicDetail(id).catch((error) => {
+        console.error('[switchTopic] failed to fetch topic detail:', error);
+      });
+    }
+
     if (activeAgentId) {
       this.#get().markTopicRead({ agentId: activeAgentId, topicId: id ?? null });
     }
@@ -1266,6 +1315,7 @@ export class ChatTopicActionImpl {
     const { refreshTopic } = this.#get();
 
     await topicService.removeAllTopic();
+    this.#set({ topicDetailMap: {} }, false, n('removeAllTopics/clearDetails'));
     await refreshTopic();
     // every topic is gone — wipe all cached message lists
     void evictMessageCache(() => true);
@@ -1439,11 +1489,29 @@ export class ChatTopicActionImpl {
   };
 
   internal_updateTopic = async (id: string, data: Partial<ChatTopic>): Promise<void> => {
+    if (!topicSelectors.getTopicById(id)(this.#get())) {
+      try {
+        await this.#fetchTopicDetail(id);
+      } catch (error) {
+        /**
+         * Detail hydration is an optimization for the local optimistic write,
+         * not a prerequisite for persisting the user's edit. In particular,
+         * an Electron proxy blip must not turn a model switch into a client-side
+         * no-op before the update request is even attempted.
+         */
+        console.error('[internal_updateTopic] failed to hydrate topic detail:', error);
+      }
+    }
+
     this.#get().internal_dispatchTopic({ type: 'updateTopic', id, value: data });
 
     this.#get().internal_updateTopicLoading(id, true);
     try {
-      await topicService.updateTopic(id, data);
+      const persistedTopics = await topicService.updateTopic(id, data);
+      const persistedTopic = persistedTopics?.[0];
+      if (persistedTopic) {
+        this.#get().internal_setTopicDetail(persistedTopic as unknown as ChatTopic);
+      }
       await this.#get().refreshTopic();
     } finally {
       // Rename "Topic" -> "New" can fail after opening a loading owner; always release it.
@@ -1534,6 +1602,22 @@ export class ChatTopicActionImpl {
   };
 
   /**
+   * Cache a full topic row fetched outside the paginated list. The detail map
+   * is intentionally separate so opening an old topic does not change sidebar
+   * pagination, ordering, or totals.
+   */
+  internal_setTopicDetail = (topic: ChatTopic): void => {
+    const currentMap = this.#get().topicDetailMap;
+    const nextMap = topicDetailReducer(currentMap, {
+      type: 'setTopicDetail',
+      value: topic,
+    });
+
+    if (isEqual(nextMap, currentMap)) return;
+    this.#set({ topicDetailMap: nextMap }, false, n('setTopicDetail'));
+  };
+
+  /**
    * Apply a topic reducer to a bucket in `topicDataMap`. Scope on the payload
    * (`agentId`/`groupId`) wins; otherwise falls back to the currently active
    * agent/group bucket. Pass scope on the payload when the write originates
@@ -1561,9 +1645,19 @@ export class ChatTopicActionImpl {
     const nextViewItems = viewData ? topicReducer(viewData.items, payload) : undefined;
     const viewChanged = viewData ? !isEqual(nextViewItems, viewData.items) : false;
 
-    // no need to update if both maps are unchanged
-    const mainChanged = !isEqual(nextItems, currentData?.items);
-    if (!mainChanged && !viewChanged) return;
+    const detailMap = this.#get().topicDetailMap;
+    const nextDetailMap =
+      payload.type === 'addTopic'
+        ? detailMap
+        : topicDetailReducer(detailMap, payload as ChatTopicDetailDispatch);
+    const detailChanged = !isEqual(nextDetailMap, detailMap);
+
+    // Updating or deleting a missing row must not create an empty list bucket.
+    // Only addTopic is allowed to initialize a previously unloaded container.
+    const mainChanged = currentData
+      ? !isEqual(nextItems, currentData.items)
+      : payload.type === 'addTopic' && nextItems.length > 0;
+    if (!mainChanged && !viewChanged && !detailChanged) return;
 
     const currentTotal = currentData?.total ?? currentData?.items?.length ?? 0;
     const total =
@@ -1606,6 +1700,10 @@ export class ChatTopicActionImpl {
           total: viewNextTotal,
         },
       };
+    }
+
+    if (detailChanged) {
+      nextState.topicDetailMap = nextDetailMap;
     }
 
     this.#set(nextState, false, action ?? n(`dispatchTopic/${payload.type}`));

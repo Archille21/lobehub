@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { DynamicRouteMetaProps } from '@/spa/router/routeMeta';
 import { useChatStore } from '@/store/chat';
-import { topicMapKey } from '@/store/chat/utils/topicMapKey';
+import { topicSelectors } from '@/store/chat/selectors';
 import { useSessionStore } from '@/store/session';
 import { sessionGroupSelectors } from '@/store/session/slices/sessionGroup/selectors';
 
@@ -22,9 +22,7 @@ const useTopicTitle = (
   useChatStore((state) => {
     if (!groupId || !topicId || routeWorkspaceId === undefined) return undefined;
 
-    const topic = state.topicDataMap[topicMapKey({ groupId })]?.items?.find(
-      (item) => item.id === topicId,
-    );
+    const topic = topicSelectors.getTopicById(topicId)(state);
     return topic?.title || undefined;
   });
 

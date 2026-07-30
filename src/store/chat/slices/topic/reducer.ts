@@ -43,6 +43,17 @@ type ReplaceChatTopicIdAction = ChatTopicScope & {
 export type ChatTopicDispatch =
   AddChatTopicAction | UpdateChatTopicAction | DeleteChatTopicAction | ReplaceChatTopicIdAction;
 
+type SetChatTopicDetailAction = {
+  type: 'setTopicDetail';
+  value: ChatTopic;
+};
+
+export type ChatTopicDetailDispatch =
+  | SetChatTopicDetailAction
+  | UpdateChatTopicAction
+  | DeleteChatTopicAction
+  | ReplaceChatTopicIdAction;
+
 export const topicReducer = (state: ChatTopic[] = [], payload: ChatTopicDispatch): ChatTopic[] => {
   switch (payload.type) {
     case 'addTopic': {
@@ -55,7 +66,7 @@ export const topicReducer = (state: ChatTopic[] = [], payload: ChatTopicDispatch
           sessionId: payload.value.sessionId || undefined,
           // A brand-new topic is fresh activity: seed the sidebar sort key so it
           // lands at the top immediately, matching the server's `topicActivityAt`
-          // once the real row is fetched. 
+          // once the real row is fetched.
           sortUpdatedAt: Date.now(),
           updatedAt: Date.now(),
         });
@@ -79,7 +90,7 @@ export const topicReducer = (state: ChatTopic[] = [], payload: ChatTopicDispatch
             // Bump `updatedAt` (display/edit time) on every real write. The sidebar
             // no longer sorts by `updatedAt` — it sorts by `sortUpdatedAt` (activity
             // time) — so a status flip bumping `updatedAt` here can't reorder the
-            // list; only an explicit `sortUpdatedAt` in `value` moves a row. 
+            // list; only an explicit `sortUpdatedAt` in `value` moves a row.
             // TODO: updatedAt type needs to be changed to Date later
             // @ts-ignore
             draftState[topicIndex] = { ...mergedTopic, updatedAt: new Date() };
@@ -105,7 +116,7 @@ export const topicReducer = (state: ChatTopic[] = [], payload: ChatTopicDispatch
           id: nextId,
           // Resolving a first-send optimistic topic to its real id is fresh activity:
           // keep it pinned to the top via the sidebar sort key (`sortUpdatedAt`), not
-          // just `updatedAt` which the sidebar no longer sorts by. 
+          // just `updatedAt` which the sidebar no longer sorts by.
           sortUpdatedAt: Date.now(),
           updatedAt: Date.now(),
         };
@@ -122,6 +133,63 @@ export const topicReducer = (state: ChatTopic[] = [], payload: ChatTopicDispatch
         if (topicIndex !== -1) {
           draftState.splice(topicIndex, 1);
         }
+      });
+    }
+
+    default: {
+      return state;
+    }
+  }
+};
+
+/**
+ * Keep independently fetched topic details reactive without mixing them into
+ * the paginated sidebar list. List mutations are mirrored here only when the
+ * detail row is already cached.
+ */
+export const topicDetailReducer = (
+  state: Record<string, ChatTopic> = {},
+  payload: ChatTopicDetailDispatch,
+): Record<string, ChatTopic> => {
+  switch (payload.type) {
+    case 'setTopicDetail': {
+      return produce(state, (draftState) => {
+        draftState[payload.value.id] = payload.value;
+      });
+    }
+
+    case 'updateTopic': {
+      return produce(state, (draftState) => {
+        const currentTopic = draftState[payload.id];
+        if (!currentTopic) return;
+
+        const mergedTopic = { ...currentTopic, ...payload.value };
+        if (isEqual(current(currentTopic), mergedTopic)) return;
+
+        draftState[payload.id] = { ...mergedTopic, updatedAt: Date.now() };
+      });
+    }
+
+    case 'replaceTopicId': {
+      return produce(state, (draftState) => {
+        const currentTopic = draftState[payload.id];
+        if (!currentTopic) return;
+
+        const nextTopic = draftState[payload.nextId];
+        draftState[payload.nextId] = {
+          ...currentTopic,
+          ...nextTopic,
+          ...payload.value,
+          id: payload.nextId,
+          updatedAt: Date.now(),
+        };
+        delete draftState[payload.id];
+      });
+    }
+
+    case 'deleteTopic': {
+      return produce(state, (draftState) => {
+        delete draftState[payload.id];
       });
     }
 

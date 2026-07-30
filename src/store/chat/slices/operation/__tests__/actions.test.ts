@@ -258,8 +258,6 @@ describe('Operation Actions', () => {
         }).operationId;
       });
 
-      const startTime = result.current.operations[operationId!].metadata.startTime;
-
       act(() => {
         result.current.completeOperation(operationId!);
       });
@@ -1053,7 +1051,7 @@ describe('Operation Actions', () => {
       const { result } = renderHook(() => useChatStore());
 
       let operationId: string;
-      const asyncHandler = vi.fn(async ({ type }) => {
+      const asyncHandler = vi.fn(async () => {
         // Simulate async cleanup
         await new Promise((resolve) => setTimeout(resolve, 10));
         // Don't return anything (void)
@@ -1517,6 +1515,49 @@ describe('Operation Actions', () => {
       expect(
         result.current.operations[childOpId!].metadata.runtimeHooks?.afterCompletionCallbacks,
       ).toBeUndefined();
+    });
+  });
+});
+
+describe('Operation topic detail fallbacks', () => {
+  beforeEach(() => {
+    useChatStore.setState(useChatStore.getInitialState());
+  });
+
+  it('marks a deep-linked unread topic as read outside the loaded list page', () => {
+    const topicId = 'deep-linked-topic';
+    const { result } = renderHook(() => useChatStore());
+
+    act(() => {
+      useChatStore.setState({
+        activeAgentId: 'agent-1',
+        activeTopicId: topicId,
+        topicDataMap: {},
+        topicDetailMap: {
+          [topicId]: {
+            createdAt: 1,
+            id: topicId,
+            status: 'unread',
+            title: 'Older topic',
+            updatedAt: 1,
+          },
+        },
+      });
+    });
+
+    const updateTopicStatus = vi
+      .spyOn(result.current, 'updateTopicStatus')
+      .mockResolvedValue(undefined);
+
+    act(() => {
+      result.current.markTopicRead({ agentId: 'agent-1', topicId });
+    });
+
+    expect(updateTopicStatus).toHaveBeenCalledWith({
+      agentId: 'agent-1',
+      groupId: undefined,
+      status: 'active',
+      topicId,
     });
   });
 });

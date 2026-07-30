@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { initialState as initialChatState } from '@/store/chat/initialState';
 import { useChatStore } from '@/store/chat/store';
+import { topicMapKey } from '@/store/chat/utils/topicMapKey';
 
 import ChatHydration from './index';
 
@@ -15,6 +16,7 @@ const useLocationMock = vi.hoisted(() => vi.fn());
 const useParamsMock = vi.hoisted(() => vi.fn());
 const useSearchParamsMock = vi.hoisted(() => vi.fn());
 const workspaceMock = vi.hoisted(() => ({ activeSlug: null as string | null }));
+const getTopicDetailMock = vi.hoisted(() => vi.fn());
 
 vi.hoisted(() => {
   const storage = {
@@ -48,6 +50,12 @@ vi.mock('@/business/client/hooks/useActiveWorkspaceSlug', () => ({
   useActiveWorkspaceSlug: () => workspaceMock.activeSlug,
 }));
 
+vi.mock('@/services/topic', () => ({
+  topicService: {
+    getTopicDetail: getTopicDetailMock,
+  },
+}));
+
 describe('ChatHydration', () => {
   beforeEach(() => {
     navigateMock.mockReset();
@@ -55,6 +63,8 @@ describe('ChatHydration', () => {
     useLocationMock.mockReset();
     useParamsMock.mockReset();
     useSearchParamsMock.mockReset();
+    getTopicDetailMock.mockReset();
+    getTopicDetailMock.mockResolvedValue(null);
     workspaceMock.activeSlug = null;
 
     useChatStore.setState(
@@ -107,6 +117,53 @@ describe('ChatHydration', () => {
       expect(useChatStore.getState().activeTopicId).toBe('tpc_123');
       expect(useChatStore.getState().activeThreadId).toBe('thd_456');
       expect(navigateMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it('loads a routed topic detail when it is outside the paginated topic list', async () => {
+    const topicId = 'tpc_deep_linked';
+    const topicListKey = topicMapKey({ agentId: 'agt_test' });
+    const recentTopic = {
+      createdAt: 2,
+      id: 'tpc_recent',
+      title: 'Recent topic',
+      updatedAt: 2,
+    };
+    const topicDetail = {
+      createdAt: 1,
+      id: topicId,
+      model: 'claude-sonnet-4-6',
+      provider: 'anthropic',
+      title: 'Older topic',
+      updatedAt: 1,
+    };
+
+    useParamsMock.mockReturnValue({ aid: 'agt_test', topicId });
+    useLocationMock.mockReturnValue({
+      hash: '',
+      pathname: `/agent/agt_test/${topicId}`,
+      search: '',
+    });
+    useSearchParamsMock.mockReturnValue([new URLSearchParams(''), setSearchParamsMock]);
+    useChatStore.setState({
+      topicDataMap: {
+        [topicListKey]: {
+          currentPage: 0,
+          hasMore: true,
+          items: [recentTopic],
+          pageSize: 20,
+          total: 100,
+        },
+      },
+    });
+    getTopicDetailMock.mockResolvedValueOnce(topicDetail);
+
+    render(<ChatHydration />);
+
+    await waitFor(() => {
+      expect(getTopicDetailMock).toHaveBeenCalledWith(topicId);
+      expect(useChatStore.getState().topicDetailMap[topicId]).toEqual(topicDetail);
+      expect(useChatStore.getState().topicDataMap[topicListKey].items).toEqual([recentTopic]);
     });
   });
 

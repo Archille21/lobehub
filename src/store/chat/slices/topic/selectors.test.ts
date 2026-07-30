@@ -88,6 +88,29 @@ describe('topicSelectors', () => {
         provider: 'openai',
       });
     });
+
+    it('reads the active model from a deep-linked topic outside the loaded list page', () => {
+      const state = merge(initialStore, {
+        activeAgentId: 'test',
+        activeTopicId: 'deep-linked',
+        topicDataMap: modelTopicDataMap,
+        topicDetailMap: {
+          'deep-linked': {
+            createdAt: 1,
+            id: 'deep-linked',
+            model: 'deepseek-v4',
+            provider: 'deepseek',
+            title: 'Older topic',
+            updatedAt: 1,
+          },
+        },
+      });
+
+      expect(topicSelectors.activeTopicModel(state)).toEqual({
+        model: 'deepseek-v4',
+        provider: 'deepseek',
+      });
+    });
   });
 
   describe('currentTopicLength', () => {
@@ -212,6 +235,22 @@ describe('topicSelectors', () => {
       const state = merge(initialStore, { topicDataMap, activeAgentId: 'test' });
       const topic = topicSelectors.getTopicById('topic1')(state);
       expect(topic).toEqual(topicItems[0]);
+    });
+
+    it('should fall back to the independently loaded detail', () => {
+      const detail = {
+        createdAt: 1,
+        id: 'older-topic',
+        title: 'Older topic',
+        updatedAt: 1,
+      };
+      const state = merge(initialStore, {
+        activeAgentId: 'test',
+        topicDataMap,
+        topicDetailMap: { [detail.id]: detail },
+      });
+
+      expect(topicSelectors.getTopicById(detail.id)(state)).toEqual(detail);
     });
   });
 

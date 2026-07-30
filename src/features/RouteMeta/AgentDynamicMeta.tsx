@@ -6,7 +6,7 @@ import type { DynamicRouteMetaProps } from '@/spa/router/routeMeta';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
-import { topicMapKey } from '@/store/chat/utils/topicMapKey';
+import { topicSelectors } from '@/store/chat/selectors';
 
 import { usePublishDynamicRouteMeta } from './usePublishDynamicRouteMeta';
 import { matchesRouteWorkspace, useRouteWorkspaceId } from './workspaceScope';
@@ -19,9 +19,7 @@ const useTopicTitle = (
   useChatStore((state) => {
     if (!agentId || !topicId || routeWorkspaceId === undefined) return undefined;
 
-    const topic = state.topicDataMap[topicMapKey({ agentId })]?.items?.find(
-      (item) => item.id === topicId,
-    );
+    const topic = topicSelectors.getTopicById(topicId)(state);
     return topic?.title || undefined;
   });
 

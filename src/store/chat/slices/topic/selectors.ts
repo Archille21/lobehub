@@ -40,8 +40,13 @@ const currentTopicsWithoutCron = (s: ChatStoreState): ChatTopic[] | undefined =>
   return topics.filter((topic) => topic.trigger !== 'cron');
 };
 
+const getTopicById =
+  (id: string) =>
+  (s: ChatStoreState): ChatTopic | undefined =>
+    currentTopics(s)?.find((topic) => topic.id === id) ?? s.topicDetailMap[id];
+
 const currentActiveTopic = (s: ChatStoreState): ChatTopic | undefined => {
-  return currentTopics(s)?.find((topic) => topic.id === s.activeTopicId);
+  return s.activeTopicId ? getTopicById(s.activeTopicId)(s) : undefined;
 };
 const searchTopics = (s: ChatStoreState): ChatTopic[] => s.searchTopics;
 
@@ -53,11 +58,6 @@ const currentUnFavTopics = (s: ChatStoreState): ChatTopic[] =>
 const currentTopicLength = (s: ChatStoreState): number => currentTopicsWithoutCron(s)?.length || 0;
 
 const currentTopicCount = (s: ChatStoreState): number => currentTopicData(s)?.total || 0;
-
-const getTopicById =
-  (id: string) =>
-  (s: ChatStoreState): ChatTopic | undefined =>
-    currentTopics(s)?.find((topic) => topic.id === id); // Don't filter here, need to access all topics by ID
 
 /**
  * Get topics by specific agentId (for AgentBuilder scenarios where agentId differs from activeAgentId)

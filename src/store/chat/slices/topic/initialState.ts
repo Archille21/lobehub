@@ -58,6 +58,12 @@ export interface ChatTopicState {
    */
   topicDataMap: Record<string, TopicData>;
   /**
+   * Full topic rows loaded independently from the paginated sidebar list.
+   * A deep-linked or searched topic can be active without appearing in the
+   * current list page, so its model and metadata need an id-keyed detail cache.
+   */
+  topicDetailMap: Record<string, ChatTopic>;
+  /**
    * Internal ref-count for topic loading owners. A topic can be loading because
    * the agent is running and because title-summary is streaming at the same time.
    */
@@ -75,6 +81,7 @@ export const initialTopicState: ChatTopicState = {
   isSearchingTopic: false,
   searchTopics: [],
   topicDataMap: {},
+  topicDetailMap: {},
   topicLoadingIdCounts: {},
   topicLoadingIds: [],
   topicSearchKeywords: '',

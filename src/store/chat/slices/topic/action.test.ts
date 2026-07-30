@@ -82,13 +82,14 @@ beforeEach(() => {
       agentTopicsViewMap: {},
       searchTopics: [],
       topicDataMap: {},
+      topicDetailMap: {},
       topicLoadingIdCounts: {},
       topicLoadingIds: [],
       // ... initial state
     },
     false,
   );
-  useAgentStore.setState({ agentDocumentsMap: {} });
+  useAgentStore.setState({ agentDocumentsMap: {}, agentMap: {} });
   useUserStore.setState({ user: { id: 'user-1' } as LobeUser });
   useSessionStore.setState(
     {
@@ -1189,6 +1190,16 @@ describe('topic action', () => {
       const { result } = renderHook(() => useChatStore());
 
       const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic');
+      useChatStore.setState({
+        topicDetailMap: {
+          'topic-1': {
+            createdAt: 1,
+            id: 'topic-1',
+            title: 'Topic',
+            updatedAt: 1,
+          },
+        },
+      });
 
       await act(async () => {
         await result.current.removeAllTopics();
@@ -1196,6 +1207,7 @@ describe('topic action', () => {
 
       expect(topicService.removeAllTopic).toHaveBeenCalled();
       expect(refreshTopicSpy).toHaveBeenCalled();
+      expect(useChatStore.getState().topicDetailMap).toEqual({});
     });
   });
   describe('removeTopic', () => {
@@ -1519,6 +1531,96 @@ describe('topic action', () => {
     });
   });
   describe('internal_updateTopic', () => {
+    it('updates a deep-linked topic that is outside the loaded list page', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const agentId = 'agent-1';
+      const topicId = 'deep-linked-topic';
+      const key = topicMapKey({ agentId });
+      const listedTopic: ChatTopic = {
+        createdAt: 2,
+        id: 'recent-topic',
+        title: 'Recent topic',
+        updatedAt: 2,
+      };
+      const deepLinkedTopic: ChatTopic = {
+        createdAt: 1,
+        id: topicId,
+        model: 'claude-sonnet-4-6',
+        provider: 'anthropic',
+        sessionId: agentId,
+        title: 'Older topic',
+        updatedAt: 1,
+      };
+
+      act(() => {
+        useChatStore.setState({
+          activeAgentId: agentId,
+          activeTopicId: topicId,
+          topicDataMap: {
+            [key]: {
+              currentPage: 0,
+              hasMore: true,
+              items: [listedTopic],
+              pageSize: 20,
+              total: 100,
+            },
+          },
+        });
+      });
+
+      (topicService.getTopicDetail as Mock).mockResolvedValueOnce(deepLinkedTopic);
+      vi.spyOn(topicService, 'updateTopic').mockResolvedValueOnce(undefined);
+
+      await act(async () => {
+        await result.current.updateTopicModel(topicId, {
+          model: 'deepseek-v4',
+          provider: 'deepseek',
+        });
+      });
+
+      expect(topicService.getTopicDetail).toHaveBeenCalledWith(topicId);
+      expect(topicService.updateTopic).toHaveBeenCalledWith(topicId, {
+        model: 'deepseek-v4',
+        provider: 'deepseek',
+      });
+      expect(useChatStore.getState().topicDetailMap[topicId]).toMatchObject({
+        model: 'deepseek-v4',
+        provider: 'deepseek',
+      });
+      expect(useChatStore.getState().topicDataMap[key].items).toEqual([listedTopic]);
+    });
+
+    it('still persists an update when detail hydration fails', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const topicId = 'deep-linked-topic';
+      const persistedTopic: ChatTopic = {
+        createdAt: 1,
+        id: topicId,
+        model: 'deepseek-v4',
+        provider: 'deepseek',
+        title: 'Older topic',
+        updatedAt: 2,
+      };
+
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      (topicService.getTopicDetail as Mock).mockRejectedValueOnce(new Error('proxy failed'));
+      vi.spyOn(topicService, 'updateTopic').mockResolvedValueOnce([persistedTopic] as any);
+
+      await act(async () => {
+        await result.current.updateTopicModel(topicId, {
+          model: 'deepseek-v4',
+          provider: 'deepseek',
+        });
+      });
+
+      expect(topicService.updateTopic).toHaveBeenCalledWith(topicId, {
+        model: 'deepseek-v4',
+        provider: 'deepseek',
+      });
+      expect(useChatStore.getState().topicDetailMap[topicId]).toEqual(persistedTopic);
+      expect(useChatStore.getState().topicDataMap).toEqual({});
+    });
+
     it('should release the loading owner when updating a topic fails', async () => {
       const { result } = renderHook(() => useChatStore());
       const agentId = 'agent-1';
@@ -2270,6 +2372,14 @@ describe('topic action', () => {
           activeAgentId,
           messagesMap: {
             [messageMapKey({ agentId: activeAgentId })]: messages,
+          },
+        });
+        useAgentStore.setState({
+          agentMap: {
+            [activeAgentId]: {
+              model: 'deepseek-v4-pro',
+              provider: 'deepseek',
+            },
           },
         });
       });

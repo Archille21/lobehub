@@ -720,7 +720,10 @@ export class OperationActionsImpl {
       agentId: agentId ?? this.#get().activeAgentId,
       groupId: groupId ?? this.#get().activeGroupId,
     });
-    const topic = this.#get().topicDataMap[key]?.items?.find((t) => t.id === topicId);
+    const state = this.#get();
+    const topic =
+      state.topicDataMap[key]?.items?.find((t) => t.id === topicId) ??
+      state.topicDetailMap[topicId];
     if (topic?.status !== 'unread') return;
 
     void this.#get()

@@ -1292,3 +1292,24 @@ describe('Operation Selectors', () => {
     });
   });
 });
+
+describe('Operation topic detail selectors', () => {
+  it('finds unread state in a deep-linked topic outside the loaded list page', () => {
+    useChatStore.setState({
+      topicDataMap: {},
+      topicDetailMap: {
+        'deep-linked-topic': {
+          createdAt: 1,
+          id: 'deep-linked-topic',
+          status: 'unread',
+          title: 'Older topic',
+          updatedAt: 1,
+        },
+      },
+    });
+
+    expect(
+      operationSelectors.isTopicUnreadCompleted('deep-linked-topic')(useChatStore.getState()),
+    ).toBe(true);
+  });
+});

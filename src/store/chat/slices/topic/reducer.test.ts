@@ -3,7 +3,7 @@ import { expect } from 'vitest';
 import { type ChatTopic } from '@/types/topic';
 
 import { type ChatTopicDispatch } from './reducer';
-import { topicReducer } from './reducer';
+import { topicDetailReducer, topicReducer } from './reducer';
 
 describe('topicReducer', () => {
   let state: ChatTopic[];
@@ -204,5 +204,48 @@ describe('topicReducer', () => {
 
       expect(state).toEqual([]);
     });
+  });
+});
+
+describe('topicDetailReducer', () => {
+  const topic: ChatTopic = {
+    createdAt: 1,
+    id: 'topic-1',
+    model: 'claude-sonnet-4-6',
+    provider: 'anthropic',
+    title: 'Deep-linked topic',
+    updatedAt: 1,
+  };
+
+  it('sets and updates a topic without adding it to a paginated list', () => {
+    const detailMap = topicDetailReducer(
+      {},
+      {
+        type: 'setTopicDetail',
+        value: topic,
+      },
+    );
+
+    const nextMap = topicDetailReducer(detailMap, {
+      id: topic.id,
+      type: 'updateTopic',
+      value: { model: 'deepseek-v4', provider: 'deepseek' },
+    });
+
+    expect(nextMap[topic.id]).toMatchObject({
+      id: topic.id,
+      model: 'deepseek-v4',
+      provider: 'deepseek',
+      title: topic.title,
+    });
+  });
+
+  it('removes a cached detail when the topic is deleted', () => {
+    const nextMap = topicDetailReducer(
+      { [topic.id]: topic },
+      { id: topic.id, type: 'deleteTopic' },
+    );
+
+    expect(nextMap).toEqual({});
   });
 });

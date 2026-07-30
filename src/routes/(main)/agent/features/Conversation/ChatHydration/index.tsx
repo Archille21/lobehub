@@ -15,13 +15,15 @@ const ChatHydration = memo(() => {
   const params = useParams<{ aid?: string; topicId?: string }>();
   const routeTopicId = params.topicId;
   const activeAgentId = useChatStore((s) => s.activeAgentId);
-  const topicMetadata = useChatStore((s) =>
-    routeTopicId ? topicSelectors.getTopicById(routeTopicId)(s)?.metadata : undefined,
+  const routeTopic = useChatStore((s) =>
+    routeTopicId ? topicSelectors.getTopicById(routeTopicId)(s) : undefined,
   );
+  const useFetchTopicDetail = useChatStore((s) => s.useFetchTopicDetail);
   const useFetchTopicLinkedPullRequest = useChatStore((s) => s.useFetchTopicLinkedPullRequest);
 
   useClearActiveTopicUnread();
-  useFetchTopicLinkedPullRequest(activeAgentId ? routeTopicId : undefined, topicMetadata);
+  useFetchTopicDetail(activeAgentId && !routeTopic ? routeTopicId : undefined);
+  useFetchTopicLinkedPullRequest(activeAgentId ? routeTopicId : undefined, routeTopic?.metadata);
   useTopicCommentDeepLink(routeTopicId);
   useChatRouteSync();
 

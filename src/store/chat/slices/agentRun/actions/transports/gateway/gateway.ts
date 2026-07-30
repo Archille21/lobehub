@@ -1014,7 +1014,9 @@ export class GatewayActionImpl {
       agentId: agentId ?? state.activeAgentId,
       groupId: groupId ?? state.activeGroupId,
     });
-    const existingTopic = state.topicDataMap[key]?.items?.find((t) => t.id === topicId);
+    const existingTopic =
+      state.topicDataMap[key]?.items?.find((t) => t.id === topicId) ??
+      state.topicDetailMap[topicId];
     if (existingTopic?.metadata?.runningOperation?.operationId !== operationId) return;
 
     state.internal_dispatchTopic({

@@ -9,7 +9,7 @@ import { operationSelectors } from '@/store/chat/slices/operation/selectors';
  * `switchTopic` already clears unread for in-app navigation. This covers the
  * other entry points — reload, deep link, notification — where `ChatHydration`
  * sets `activeTopicId` directly (bypassing `switchTopic`) and the topic list may
- * not be loaded yet. We wait for the active topic to appear in a loaded bucket
+ * not be loaded yet. We wait for the active topic to appear in loaded topic data
  * as `unread`, then mark it read so the sidebar / home badge doesn't linger
  * while the user is already viewing it.
  *

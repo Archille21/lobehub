@@ -9,6 +9,7 @@ import { useTopicCommentDeepLink } from '@/features/TopicComment/useTopicComment
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useQueryState } from '@/hooks/useQueryParam';
 import { useChatStore } from '@/store/chat';
+import { topicSelectors } from '@/store/chat/selectors';
 
 const getSearchSuffix = (searchParams: URLSearchParams) => {
   const search = searchParams.toString();
@@ -25,10 +26,15 @@ const ChatHydration = memo(() => {
 
   const [thread, setThread] = useQueryState('thread', { history: 'replace', throttleMs: 500 });
   const routeTopicId = params.topicId;
+  const routeTopic = useChatStore((s) =>
+    routeTopicId ? topicSelectors.getTopicById(routeTopicId)(s) : undefined,
+  );
+  const useFetchTopicDetail = useChatStore((s) => s.useFetchTopicDetail);
 
   // Route hydration sets activeTopicId directly (below) instead of going through
   // switchTopic, so clear any lingering persisted unread once the topic loads.
   useClearActiveTopicUnread();
+  useFetchTopicDetail(routeTopic ? undefined : routeTopicId);
   useTopicCommentDeepLink(routeTopicId);
 
   useLayoutEffect(() => {
