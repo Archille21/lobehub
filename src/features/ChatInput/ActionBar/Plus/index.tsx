@@ -308,7 +308,7 @@ const PlusAction = memo(() => {
 
   const upload = useFileStore((s) => s.uploadChatFiles);
   const { enableKnowledgeBase } = useServerConfigStore(featureFlagsSelectors);
-  const enableGatewayMode = useServerConfigStore(serverConfigSelectors.enableGatewayMode);
+  const showGatewayModeToggle = useServerConfigStore(serverConfigSelectors.showGatewayModeToggle);
   const defaultDisableGatewayMode = useUserStore(
     (s) => settingsSelectors.defaultAgentConfig(s).chatConfig?.disableGatewayMode,
   );
@@ -547,7 +547,7 @@ const PlusAction = memo(() => {
     // Agent Gateway sits below the formatting toolbar (grouped with advanced
     // params), gated on the resource-configuration permission.
     const gatewayItem: ActionDropdownMenuItems =
-      canConfigureResource && enableGatewayMode
+      canConfigureResource && showGatewayModeToggle
         ? [
             {
               checked: isGatewayModeEnabled,
@@ -755,7 +755,7 @@ const PlusAction = memo(() => {
     canUploadAudio,
     editor,
     enableFC,
-    enableGatewayMode,
+    showGatewayModeToggle,
     enableKnowledgeBase,
     handleSelectSearch,
     handleToggleGatewayMode,

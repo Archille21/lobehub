@@ -79,7 +79,7 @@ export const useSettingsSearch = (
   const categoryGroups = useCategory();
   const { enableSTT, hideDocs, showAiImage } = useServerConfigStore(featureFlagsSelectors);
   const enableBusinessFeatures = useServerConfigStore(serverConfigSelectors.enableBusinessFeatures);
-  const enableGatewayMode = useServerConfigStore(serverConfigSelectors.enableGatewayMode);
+  const showGatewayModeToggle = useServerConfigStore(serverConfigSelectors.showGatewayModeToggle);
   const enableComposio = useServerConfigStore(serverConfigSelectors.enableComposio);
   const disableEmailPassword = useServerConfigStore(serverConfigSelectors.disableEmailPassword);
   const isLogin = useUserStore(authSelectors.isLogin);
@@ -96,13 +96,13 @@ export const useSettingsSearch = (
       disableEmailPassword: !!disableEmailPassword,
       enableBusinessFeatures: !!enableBusinessFeatures,
       enableComposio: !!enableComposio,
-      enableGatewayMode: !!enableGatewayMode,
       enableSTT: !!enableSTT,
       hasEmail,
       hideDocs: !!hideDocs,
       isDesktop,
       isLogin: !!isLogin,
       showAiImage: !!showAiImage,
+      showGatewayModeToggle: !!showGatewayModeToggle,
     };
 
     // Tab-level entries first so they rank above item-level matches.
@@ -219,12 +219,12 @@ export const useSettingsSearch = (
     disableEmailPassword,
     enableBusinessFeatures,
     enableComposio,
-    enableGatewayMode,
     enableSTT,
     hasEmail,
     hideDocs,
     isLogin,
     showAiImage,
+    showGatewayModeToggle,
   ]);
 
   // Load the pinyin dict only when the index actually contains Han text, so

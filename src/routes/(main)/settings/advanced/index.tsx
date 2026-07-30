@@ -46,7 +46,7 @@ const Page = memo(() => {
     ]);
   const [loading, setLoading] = useState(false);
 
-  const enableGatewayMode = useServerConfigStore(serverConfigSelectors.enableGatewayMode);
+  const showGatewayModeToggle = useServerConfigStore(serverConfigSelectors.showGatewayModeToggle);
 
   const [channel, setChannel] = useState<UpdateChannelValue>('stable');
 
@@ -100,7 +100,7 @@ const Page = memo(() => {
         name: 'isDevMode',
         valuePropName: 'checked',
       },
-      ...(enableGatewayMode
+      ...(showGatewayModeToggle
         ? [
             {
               children: (
