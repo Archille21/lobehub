@@ -25,8 +25,6 @@ import {
   resolveAgentDocumentsContext,
 } from '@/services/agentDocument';
 import type { StoreSetter } from '@/store/types';
-import { getUserStoreState } from '@/store/user';
-import { userProfileSelectors } from '@/store/user/selectors';
 import type {
   AgentItem,
   LobeAgentChatConfig,
@@ -146,17 +144,10 @@ export class AgentSliceActionImpl {
     // Track new agent creation analytics
     const analytics = getSingletonAnalyticsOptional();
     if (analytics) {
-      const userStore = getUserStoreState();
-      const userId = userProfileSelectors.userId(userStore);
-
+      // Privacy boundary: record the action only. Account/Agent IDs and user-authored
+      // Agent names or tags must never be included, even after telemetry consent.
       analytics.track({
         name: 'new_agent_created',
-        properties: {
-          agent_id: result.agentId,
-          assistant_name: params.config?.title || 'Untitled Agent',
-          assistant_tags: params.config?.tags || [],
-          user_id: userId || 'anonymous',
-        },
       });
     }
 

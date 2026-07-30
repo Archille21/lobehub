@@ -72,15 +72,33 @@ describe('LobeAnalyticsProviderWrapper', () => {
 
     expect(screen.getByText('Analytics child')).toBeInTheDocument();
     expect(providerMock.props?.captureEnabled).toBe(true);
+    expect(providerMock.props).not.toHaveProperty('user');
     expect(providerMock.props?.postHogConfig).toMatchObject({
-      capture_pageview: 'history_change',
+      autocapture: false,
+      capture_pageleave: false,
+      capture_pageview: false,
       debug: true,
+      disable_session_recording: true,
       enabled: true,
       host: 'https://posthog.example.com',
       key: 'ph-key',
+      mask_all_element_attributes: true,
+      mask_all_text: true,
+      mask_personal_data_properties: true,
       opt_out_capturing_by_default: true,
       opt_out_persistence_by_default: true,
-      person_profiles: 'identified_only',
+      person_profiles: 'never',
+      property_denylist: expect.arrayContaining([
+        '$current_url',
+        '$initial_current_url',
+        '$initial_ph_keyword',
+        '$pathname',
+        '$referrer',
+        'ph_keyword',
+        'title',
+      ]),
+      save_campaign_params: false,
+      save_referrer: false,
     });
   });
 

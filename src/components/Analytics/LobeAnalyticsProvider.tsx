@@ -1,14 +1,13 @@
 'use client';
 
-import type { LobeUser } from '@lobechat/types';
-import {
-  type GoogleAnalyticsProviderConfig,
-  type PostHogProviderAnalyticsConfig,
-  type XAdsProviderAnalyticsConfig,
+import type {
+  GoogleAnalyticsProviderConfig,
+  PostHogProviderAnalyticsConfig,
+  XAdsProviderAnalyticsConfig,
 } from '@lobehub/analytics';
 import { createSingletonAnalytics } from '@lobehub/analytics';
 import { AnalyticsProvider } from '@lobehub/analytics/react';
-import { type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { memo, useEffect, useRef, useState } from 'react';
 
 import { BUSINESS_LINE } from '@/const/analytics';
@@ -19,14 +18,13 @@ type Props = {
   children: ReactNode;
   ga4Config: GoogleAnalyticsProviderConfig;
   postHogConfig: PostHogProviderAnalyticsConfig;
-  user?: LobeUser | null;
   xAdsConfig: XAdsProviderAnalyticsConfig;
 };
 
 let analyticsInstance: ReturnType<typeof createSingletonAnalytics> | null = null;
 
 export const LobeAnalyticsProvider = memo(
-  ({ captureEnabled, children, ga4Config, postHogConfig, user, xAdsConfig }: Props) => {
+  ({ captureEnabled, children, ga4Config, postHogConfig, xAdsConfig }: Props) => {
     const analyticsRef = useRef<ReturnType<typeof createSingletonAnalytics> | null>(null);
     const [isInitialized, setIsInitialized] = useState(false);
 
@@ -53,31 +51,16 @@ export const LobeAnalyticsProvider = memo(
     useEffect(() => {
       if (!analytics || !isInitialized || !captureEnabled) return;
 
+      // Privacy boundary: telemetry consent covers anonymous product-usage metrics only.
+      // Never call `identify` or attach account/profile fields here, even after consent.
+      // The shared manager fans identification out to every configured provider, including GA4.
       analytics
         .getProvider('posthog')
         ?.getNativeInstance()
         ?.register({
           platform: isDesktop ? 'desktop' : 'web',
         });
-
-      if (user?.id) {
-        void analytics.identify(user.id, {
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.latestName,
-          username: user.username,
-        });
-      }
-    }, [
-      analytics,
-      captureEnabled,
-      isInitialized,
-      user?.email,
-      user?.firstName,
-      user?.id,
-      user?.latestName,
-      user?.username,
-    ]);
+    }, [analytics, captureEnabled, isInitialized]);
 
     if (!analytics) return children;
 
