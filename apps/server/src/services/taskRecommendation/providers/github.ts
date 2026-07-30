@@ -14,6 +14,7 @@ type GitHubSignal =
   | {
       kind: 'recent_contribution';
       relationship: 'author' | 'participant' | 'reviewer';
+      sourceUrl?: string;
       value: GitHubContribution;
     }
   | {
@@ -97,6 +98,7 @@ export const createGitHubTaskRecommendationProvider = (
             : value.type === 'pull_request'
               ? ('author' as const)
               : ('participant' as const),
+        sourceUrl: value.repository ? `https://github.com/${value.repository}` : undefined,
         value,
       })),
     ].slice(0, config.maxSignals);

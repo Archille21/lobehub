@@ -186,13 +186,16 @@ describe('TaskRecommendationService', () => {
   /** @example Repeating the same create request reuses the persisted task mapping. */
   it('does not create duplicate tasks when materialization is retried', async () => {
     let persisted = structuredClone(session);
-    const createTask = vi.fn(async () => ({ id: 'task-1' }));
+    const materialize = vi.fn(async ({ recommendationId }: { recommendationId: string }) => {
+      persisted.createdTaskIds[recommendationId] ??= 'task-1';
+      return { status: 'success' as const, taskId: persisted.createdTaskIds[recommendationId] };
+    });
     const service = new TaskRecommendationService({
       configurator: new TaskRecommendationConfigurator(),
       connectorData: {},
+      materializer: { materialize },
       onboarding: { getInboxAgentId: vi.fn(async () => 'inbox-1') },
       providers: new Map(),
-      task: { createTask },
       topic: {
         findById: vi.fn(async () => ({
           metadata: { onboardingSession: { taskRecommendations: persisted } },
@@ -213,60 +216,13 @@ describe('TaskRecommendationService', () => {
     await service.createTasks(input);
     await service.createTasks(input);
 
-    expect(createTask).toHaveBeenCalledTimes(1);
-    expect(createTask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        description: 'The pull request was updated recently.',
-        instruction: [
-          'Review the pull request and propose the next step.',
-          '',
-          'Sources:',
-          '- https://github.com/lobehub/lobe-chat/pull/1',
-          '- https://github.com/lobehub/lobe-chat/issues/2',
-        ].join('\n'),
-      }),
-    );
-    expect(persisted.createdTaskIds).toEqual({ 'recommendation-1': 'task-1' });
-  });
-
-  /** @example Long AI reasons fit the task schema while complete source context remains actionable. */
-  it('bounds task descriptions without dropping source context', async () => {
-    const longReason = 'A'.repeat(300);
-    const persisted = structuredClone(session);
-    persisted.recommendations[0].reason = longReason;
-    const createTask = vi.fn(async () => ({ id: 'task-1' }));
-    const service = new TaskRecommendationService({
-      configurator: new TaskRecommendationConfigurator(),
-      connectorData: {},
-      onboarding: { getInboxAgentId: vi.fn(async () => 'inbox-1') },
-      providers: new Map(),
-      task: { createTask },
-      topic: {
-        findById: vi.fn(async () => ({
-          metadata: { onboardingSession: { taskRecommendations: persisted } },
-        })),
-        updateMetadata: vi.fn(),
-      },
-      userId: 'user-1',
-      writer: {},
-    } as never);
-
-    // ROOT CAUSE:
-    //
-    // AI-generated reasons can exceed `tasks.description` varchar(255). Passing the unbounded
-    // reason to TaskService caused the entire tRPC materialization request to fail at insertion.
-    // The bounded description remains a summary; full instructions and sources carry the detail.
-    await service.createTasks({
-      recommendationIds: ['recommendation-1'],
+    expect(materialize).toHaveBeenCalledTimes(2);
+    expect(materialize).toHaveBeenCalledWith({
+      assigneeAgentId: 'inbox-1',
+      recommendationId: 'recommendation-1',
       sessionId: 'session-1',
       topicId: 'topic-1',
     });
-
-    expect(createTask).toHaveBeenCalledWith(
-      expect.objectContaining({
-        description: longReason.slice(0, 255),
-        instruction: expect.stringContaining('https://github.com/lobehub/lobe-chat/issues/2'),
-      }),
-    );
+    expect(persisted.createdTaskIds).toEqual({ 'recommendation-1': 'task-1' });
   });
 });

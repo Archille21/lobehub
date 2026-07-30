@@ -7,6 +7,7 @@ import type {
   OnboardingTaskRecommendationError,
   OnboardingTaskRecommendationPollingResult,
   OnboardingTaskRecommendationSession,
+  UserSystemAgentConfig,
 } from '@lobechat/types';
 import {
   OnboardingTaskRecommendationSessionSchema,
@@ -15,13 +16,17 @@ import {
 
 import { AgentModel } from '@/database/models/agent';
 import { TopicModel } from '@/database/models/topic';
+import { UserModel } from '@/database/models/user';
 import type { LobeChatDatabase } from '@/database/type';
+import { appEnv } from '@/envs/app';
+import { parseSystemAgent } from '@/server/globalConfig/parseSystemAgent';
 import { AiGenerationService } from '@/server/services/aiGeneration';
 import { ConnectorDataService } from '@/server/services/connectorData';
 import { OnboardingService } from '@/server/services/onboarding';
-import { TaskService } from '@/server/services/task';
+import { resolveSystemAgentModelConfig } from '@/server/services/systemAgent/modelConfig';
 
 import { TaskRecommendationConfigurator } from './config';
+import { TaskRecommendationMaterializer } from './materializer';
 import { taskRecommendationProviderMap } from './providers';
 import type { TaskRecommendationProvider } from './types';
 import { TaskRecommendationWriter } from './writer';
@@ -55,9 +60,9 @@ export interface TaskRecommendationProviderResult {
 interface TaskRecommendationServiceDependencies {
   configurator: TaskRecommendationConfigurator;
   connectorData: ConnectorDataService;
+  materializer: Pick<TaskRecommendationMaterializer, 'materialize'>;
   onboarding: Pick<OnboardingService, 'getInboxAgentId'>;
   providers: ReadonlyMap<string, TaskRecommendationProvider>;
-  task: Pick<TaskService, 'createTask'>;
   topic: Pick<TopicModel, 'findById' | 'updateMetadata'>;
   writer: Pick<TaskRecommendationWriter, 'generate'>;
 }
@@ -348,7 +353,7 @@ export class TaskRecommendationService {
    * - Stable recommendation-to-task mappings, reusing prior mappings on retries
    */
   createTasks = async (input: CreateOnboardingTasksInput): Promise<Record<string, string>> => {
-    let session = await this.get(input.topicId);
+    const session = await this.get(input.topicId);
     if (session.id !== input.sessionId) throw new StaleTaskRecommendationSessionError();
     const selected = new Set(input.recommendationIds);
     const recommendations = session.recommendations.filter(({ id }) => selected.has(id));
@@ -356,30 +361,16 @@ export class TaskRecommendationService {
     const inboxAgentId = await this.dependencies.onboarding.getInboxAgentId();
 
     for (const recommendation of recommendations) {
-      if (session.createdTaskIds[recommendation.id]) continue;
-      const sourceList = recommendation.sources.map(({ subject, url }) =>
-        subject ? `- ${subject}: ${url}` : `- ${url}`,
-      );
-      const task = await this.dependencies.task.createTask({
+      const result = await this.dependencies.materializer.materialize({
         assigneeAgentId: inboxAgentId,
-        // NOTICE:
-        // Task descriptions are stored in `tasks.description` as varchar(255).
-        // Recommendation reasons allow 1000 characters, and source URLs can add several kilobytes.
-        // Keep the complete execution context in `instruction`; this slice can be removed if the
-        // database column is widened or TaskService begins normalizing descriptions centrally.
-        description: recommendation.reason.slice(0, 255),
-        instruction: `${recommendation.instruction}\n\nSources:\n${sourceList.join('\n')}`,
-        name: recommendation.title,
-        priority: 3,
-        visibility: 'private',
+        recommendationId: recommendation.id,
+        sessionId: input.sessionId,
+        topicId: input.topicId,
       });
-      session = await this.persist(input.topicId, {
-        ...session,
-        createdTaskIds: { ...session.createdTaskIds, [recommendation.id]: task.id },
-        updatedAt: new Date().toISOString(),
-      });
+      if (result.status === 'stale') throw new StaleTaskRecommendationSessionError();
+      if (result.status === 'not-found') throw new TaskRecommendationNotFoundError();
     }
-    return session.createdTaskIds;
+    return (await this.get(input.topicId)).createdTaskIds;
   };
 }
 
@@ -394,12 +385,13 @@ export const createTaskRecommendationService = async ({
   userId,
 }: CreateTaskRecommendationServiceOptions): Promise<TaskRecommendationService> => {
   const agentModel = new AgentModel(db, userId);
+  const userModel = new UserModel(db, userId);
   return new TaskRecommendationService({
     configurator: new TaskRecommendationConfigurator(),
     connectorData: new ConnectorDataService(db, userId),
+    materializer: new TaskRecommendationMaterializer(db, userId),
     onboarding: new OnboardingService(db, userId),
     providers: taskRecommendationProviderMap,
-    task: new TaskService(db, userId),
     topic: new TopicModel(db, userId),
     writer: new TaskRecommendationWriter({
       generator: new AiGenerationService(db, userId),
@@ -408,8 +400,15 @@ export const createTaskRecommendationService = async ({
           BUILTIN_AGENT_SLUGS.onboardingTaskRecommender,
         );
         if (!writerAgent) throw new Error('Onboarding task recommendation agent is unavailable');
-        const modelConfig = await agentModel.getAgentModelConfig(writerAgent.id);
-        if (!modelConfig) throw new Error('Onboarding task recommendation agent is unavailable');
+        const settings = await userModel.getUserSettings();
+        const userSystemAgent = settings?.systemAgent as Partial<UserSystemAgentConfig> | undefined;
+        const userConfig = userSystemAgent?.onboardingTaskRecommender;
+        const serverConfig = parseSystemAgent(appEnv.SYSTEM_AGENT).onboardingTaskRecommender;
+        const modelConfig = await resolveSystemAgentModelConfig({
+          override: userConfig,
+          taskConfig: serverConfig,
+          taskKey: 'onboardingTaskRecommender',
+        });
         return { ...modelConfig, id: writerAgent.id };
       },
     }),
