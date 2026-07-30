@@ -111,6 +111,13 @@ export class UserSettingsActionImpl {
       }
     }
 
+    const telemetry = settings.general?.telemetry;
+    if (typeof telemetry === 'boolean') {
+      // Unlike ordinary defaults, false means explicit denial while absence means no choice yet.
+      // Preserve both consent decisions when compacting settings against their defaults.
+      diffs.general = { ...diffs.general, telemetry };
+    }
+
     const nextDefaultAgentConfig = nextSettings.defaultAgent?.config;
     const changedDefaultAgentConfig = changedFields.defaultAgent?.config;
     const hasDefaultAgentModelProviderChange =

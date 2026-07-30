@@ -26,14 +26,16 @@ let analyticsInstance: ReturnType<typeof createSingletonAnalytics> | null = null
 export const LobeAnalyticsProvider = memo(
   ({ captureEnabled, children, ga4Config, postHogConfig, xAdsConfig }: Props) => {
     const analyticsRef = useRef<ReturnType<typeof createSingletonAnalytics> | null>(null);
-    const [isInitialized, setIsInitialized] = useState(false);
+    const previousCaptureEnabledRef = useRef(captureEnabled);
+    const [isCaptureReady, setIsCaptureReady] = useState(false);
 
     if (!analyticsRef.current) {
       analyticsRef.current =
         analyticsInstance ||
         createSingletonAnalytics({
           business: BUSINESS_LINE,
-          captureEnabled,
+          // Keep every provider opted out until legacy identity cleanup finishes.
+          captureEnabled: false,
           // Keep the manager-level logs (`[AnalyticsManager] ...`) quiet even in dev
           debug: false,
           providers: {
@@ -49,7 +51,21 @@ export const LobeAnalyticsProvider = memo(
     const analytics = analyticsRef.current;
 
     useEffect(() => {
-      if (!analytics || !isInitialized || !captureEnabled) return;
+      if (!analytics || !isCaptureReady) {
+        previousCaptureEnabledRef.current = captureEnabled;
+        return;
+      }
+
+      const wasCaptureEnabled = previousCaptureEnabledRef.current;
+      previousCaptureEnabledRef.current = captureEnabled;
+
+      if (wasCaptureEnabled && !captureEnabled) {
+        // opt-out stops new events; reset also clears identity already loaded in provider memory.
+        void analytics.reset();
+        return;
+      }
+
+      if (!captureEnabled) return;
 
       // Privacy boundary: telemetry consent covers anonymous product-usage metrics only.
       // Never call `identify` or attach account/profile fields here, even after consent.
@@ -60,19 +76,32 @@ export const LobeAnalyticsProvider = memo(
         ?.register({
           platform: isDesktop ? 'desktop' : 'web',
         });
-    }, [analytics, captureEnabled, isInitialized]);
+    }, [analytics, captureEnabled, isCaptureReady]);
 
     if (!analytics) return children;
 
     return (
       <AnalyticsProvider
-        captureEnabled={captureEnabled}
+        captureEnabled={isCaptureReady && captureEnabled}
         client={analytics}
         onInitializeSuccess={() => {
-          analyticsInstance?.setGlobalContext({
-            platform: isDesktop ? 'desktop' : 'web',
-          });
-          setIsInitialized(true);
+          const finishPrivacyInitialization = async () => {
+            const postHog = analytics.getProvider('posthog')?.getNativeInstance();
+            const hasLegacyIdentity =
+              !!postHog?.get_property('$user_id') ||
+              postHog?.get_property('$user_state') === 'identified';
+
+            // Previous releases identified signed-in accounts. Clear that persisted identity
+            // before allowing the first anonymous product-usage event after this upgrade.
+            if (hasLegacyIdentity) await analytics.reset();
+
+            analytics.setGlobalContext({
+              platform: isDesktop ? 'desktop' : 'web',
+            });
+            setIsCaptureReady(true);
+          };
+
+          void finishPrivacyInitialization();
         }}
       >
         {children}

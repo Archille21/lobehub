@@ -40,7 +40,7 @@ describe('SettingsAction', () => {
 
       // Assert that the state has been updated
       expect(userService.updateUserSettings).toHaveBeenCalledWith(
-        { general: { themeMode: 'dark' } },
+        { general: { telemetry: false, themeMode: 'dark' } },
         expect.any(AbortSignal),
       );
 
@@ -104,6 +104,19 @@ describe('SettingsAction', () => {
 
       expect(userService.updateUserSettings).toHaveBeenLastCalledWith(
         expect.objectContaining({ memory: { enabled: true } }),
+        expect.any(AbortSignal),
+      );
+    });
+
+    it('should persist an explicit telemetry denial even though false is the default', async () => {
+      const { result } = renderHook(() => useUserStore());
+
+      await act(async () => {
+        await result.current.updateGeneralConfig({ telemetry: false });
+      });
+
+      expect(userService.updateUserSettings).toHaveBeenLastCalledWith(
+        { general: { telemetry: false } },
         expect.any(AbortSignal),
       );
     });
