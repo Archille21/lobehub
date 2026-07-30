@@ -8,6 +8,9 @@ import type { ModelProviderCard } from '../types';
  * distributions (BRANDING_NAME override) get their own name and drop the
  * LobeHub marketing copy/links automatically.
  */
+// @ts-ignore -- under a custom BRANDING_NAME tsc narrows this to a literal type
+// with no overlap and flags the comparison; the runtime check is the point.
+// Same pattern as isCustomBranding in @lobechat/const's version.ts.
 const isCustomBranding = BRANDING_NAME !== 'LobeHub';
 
 const LobeHub: ModelProviderCard = {

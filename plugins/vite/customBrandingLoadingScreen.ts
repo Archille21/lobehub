@@ -24,6 +24,9 @@ export const customBrandingLoadingScreen = (): Plugin => ({
   name: 'custom-branding-loading-screen',
   transformIndexHtml: {
     handler(html) {
+      // @ts-ignore -- see the note on isCustomBranding in @lobechat/const's
+      // version.ts: a custom BRANDING_NAME narrows this to a non-overlapping
+      // literal type, but the runtime comparison is exactly what we want.
       if (BRANDING_NAME === 'LobeHub') return html;
 
       return html.replace(
