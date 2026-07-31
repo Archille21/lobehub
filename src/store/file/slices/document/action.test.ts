@@ -4,9 +4,12 @@ import {
   DERIVED_DOCUMENT_SOURCE_TYPE,
 } from '@lobechat/const';
 import { act, renderHook } from '@testing-library/react';
+import type { ScopedMutator } from 'swr/_internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { setScopedMutate } from '@/libs/swr';
 import { documentService } from '@/services/document';
+import { documentSWRKeys } from '@/services/document/swrKeys';
 import { DocumentSourceType, type LobeDocument } from '@/types/document';
 import { type ResourceItem } from '@/types/resource';
 
@@ -60,8 +63,19 @@ const createResourceFixture = (overrides: Partial<ResourceItem> = {}): ResourceI
   ...overrides,
 });
 
+const cache = new Map<string, unknown>();
+
 beforeEach(() => {
   vi.clearAllMocks();
+  cache.clear();
+  setScopedMutate((async (key, data) => {
+    const keyString = JSON.stringify(key);
+    if (data === undefined) return cache.get(keyString);
+
+    const nextData = typeof data === 'function' ? await data(cache.get(keyString)) : data;
+    cache.set(keyString, nextData);
+    return nextData;
+  }) as ScopedMutator);
 
   useStore.setState(
     {
@@ -178,14 +192,75 @@ describe('DocumentAction', () => {
     });
   });
 
+  it('keeps updated document detail in the SWR snapshot used on remount', async () => {
+    const { result } = renderHook(() => useStore());
+    const existingDocument = createDocumentFixture();
+    const key = JSON.stringify(documentSWRKeys.fileDetail(existingDocument.id));
+    cache.set(key, existingDocument);
+    vi.mocked(documentService.updateDocument).mockResolvedValue({
+      historyAppended: false,
+      id: existingDocument.id,
+    });
+
+    act(() => {
+      useStore.setState({ documents: [existingDocument] }, false);
+    });
+
+    await act(async () => {
+      await result.current.updateDocument(existingDocument.id, { title: 'Renamed title' });
+    });
+
+    expect(cache.get(key)).toMatchObject({ id: existingDocument.id, title: 'Renamed title' });
+
+    act(() => {
+      useStore.setState({
+        localDocumentMap: new Map([[existingDocument.id, cache.get(key) as LobeDocument]]),
+      });
+    });
+    expect(useStore.getState().localDocumentMap.get(existingDocument.id)).toMatchObject({
+      title: 'Renamed title',
+    });
+  });
+
+  it('keeps deleted document detail out of the SWR snapshot used on remount', async () => {
+    const { result } = renderHook(() => useStore());
+    const existingDocument = createDocumentFixture();
+    const key = JSON.stringify(documentSWRKeys.fileDetail(existingDocument.id));
+    cache.set(key, existingDocument);
+    vi.mocked(documentService.deleteDocument).mockResolvedValue(undefined);
+
+    act(() => {
+      useStore.setState({
+        documents: [existingDocument],
+        localDocumentMap: new Map([[existingDocument.id, existingDocument]]),
+      });
+    });
+
+    await act(async () => {
+      await result.current.removeDocument(existingDocument.id);
+    });
+
+    expect(cache.get(key)).toBeNull();
+
+    act(() => {
+      useStore.setState({ localDocumentMap: new Map() });
+      const hydratedDocument = cache.get(key) as LobeDocument | null;
+      if (hydratedDocument) {
+        useStore.setState({
+          localDocumentMap: new Map([[existingDocument.id, hydratedDocument]]),
+        });
+      }
+    });
+    expect(useStore.getState().localDocumentMap.has(existingDocument.id)).toBe(false);
+  });
+
   it('updates the resource optimistically and clears the marker after sync', async () => {
     const { result } = renderHook(() => useStore());
     const existingDocument = createDocumentFixture();
     const existingResource = createResourceFixture();
 
     let resolveUpdate:
-      | ((value: { historyAppended: boolean; id: string; savedAt?: string }) => void)
-      | undefined;
+      ((value: { historyAppended: boolean; id: string; savedAt?: string }) => void) | undefined;
     vi.mocked(documentService.updateDocument).mockImplementation(
       () =>
         new Promise((resolve) => {

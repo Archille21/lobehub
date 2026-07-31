@@ -1,7 +1,7 @@
 import { CUSTOM_DOCUMENT_FILE_TYPE } from '@lobechat/const';
 import { type SWRResponse } from 'swr';
 
-import { useClientDataSWRWithSync } from '@/libs/swr';
+import { mutate, useClientDataSWRWithSync } from '@/libs/swr';
 import { documentService } from '@/services/document';
 import { documentSWRKeys } from '@/services/document/swrKeys';
 import { type StoreSetter } from '@/store/types';
@@ -221,6 +221,7 @@ export class CrudActionImpl {
     };
 
     this.#get().internal_dispatchDocuments({ document: editorPage, type: 'addDocument' });
+    this.#get().internal_writeThroughDocumentsCache();
 
     return newPage;
   };
@@ -241,6 +242,8 @@ export class CrudActionImpl {
 
     // Remove from documents array via internal dispatch (optimistic update)
     this.#get().internal_dispatchDocuments({ id: pageId, type: 'removeDocument' });
+    this.#get().internal_writeThroughDocumentsCache();
+    void mutate(documentSWRKeys.pageDetail(pageId), null, { revalidate: false });
 
     // Clear selected page ID if the deleted page is currently selected
     if (selectedPageId === pageId) {
@@ -259,6 +262,11 @@ export class CrudActionImpl {
           documents: originalDocuments,
           type: 'setDocuments',
         });
+        this.#get().internal_writeThroughDocumentsCache();
+        const originalPage = originalDocuments.find((document) => document.id === pageId);
+        if (originalPage) {
+          void mutate(documentSWRKeys.pageDetail(pageId), originalPage, { revalidate: false });
+        }
       }
       if (selectedPageId === pageId) {
         this.#set({ selectedPageId: pageId }, false, n('removePage/restoreSelection'));
@@ -290,6 +298,7 @@ export class CrudActionImpl {
       oldId: tempId,
       type: 'replaceDocument',
     });
+    this.#get().internal_writeThroughDocumentsCache();
   };
 
   updatePage = async (id: string, updates: Partial<LobeDocument>): Promise<void> => {
@@ -305,6 +314,43 @@ export class CrudActionImpl {
       parentId: updates.parentId !== undefined ? updates.parentId : undefined,
       title: updates.title,
     });
+
+    const existingPage = this.#get().documents?.find((document) => document.id === id);
+    if (existingPage) {
+      const updatedPage = {
+        ...existingPage,
+        ...updates,
+        metadata:
+          updates.metadata === undefined
+            ? existingPage.metadata
+            : { ...existingPage.metadata, ...updates.metadata },
+        updatedAt: new Date(),
+      };
+      this.#get().internal_dispatchDocuments({
+        document: updatedPage,
+        id,
+        type: 'updateDocument',
+      });
+      this.#get().internal_writeThroughDocumentsCache();
+    }
+
+    void mutate(
+      documentSWRKeys.pageDetail(id),
+      (document: LobeDocument | null | undefined) => {
+        if (!document) return document;
+
+        return {
+          ...document,
+          ...updates,
+          metadata:
+            updates.metadata === undefined
+              ? document.metadata
+              : { ...document.metadata, ...updates.metadata },
+          updatedAt: new Date(),
+        };
+      },
+      { revalidate: false },
+    );
     await this.#get().refreshDocuments();
   };
 
@@ -343,8 +389,21 @@ export class CrudActionImpl {
       id: pageId,
       type: 'updateDocument',
     });
+    this.#get().internal_writeThroughDocumentsCache();
+    void mutate(
+      documentSWRKeys.pageDetail(pageId),
+      (document: LobeDocument | null | undefined) =>
+        document
+          ? {
+              ...document,
+              metadata: updatedPage.metadata,
+              title: updatedPage.title,
+              updatedAt: updatedPage.updatedAt,
+            }
+          : document,
+      { revalidate: false },
+    );
 
-    // Queue background sync to DB
     try {
       await documentService.updateDocument({
         id: pageId,
@@ -352,17 +411,38 @@ export class CrudActionImpl {
         parentId: updatedPage.parentId || undefined,
         title: updatedPage.title || updatedPage.filename,
       });
-
-      // After successful sync, refresh document list to get server state
-      await this.#get().refreshDocuments();
     } catch (error) {
       console.error('[updatePageOptimistically] Failed to sync to DB:', error);
-      // On error, revert by restoring original page
       this.#get().internal_dispatchDocuments({
         document: existingPage,
         id: pageId,
         type: 'updateDocument',
       });
+      this.#get().internal_writeThroughDocumentsCache();
+      void mutate(
+        documentSWRKeys.pageDetail(pageId),
+        (document: LobeDocument | null | undefined) =>
+          document
+            ? {
+                ...document,
+                metadata: existingPage.metadata,
+                title: existingPage.title,
+                updatedAt: existingPage.updatedAt,
+              }
+            : document,
+        { revalidate: false },
+      );
+      return;
+    }
+
+    /**
+     * A refresh failure must not roll back a server-confirmed mutation. Keep the
+     * submitted snapshot in Zustand and SWR until a later revalidation succeeds.
+     */
+    try {
+      await this.#get().refreshDocuments();
+    } catch (error) {
+      console.error('[updatePageOptimistically] Failed to refresh documents:', error);
     }
   };
 

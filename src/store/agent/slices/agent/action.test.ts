@@ -1,5 +1,6 @@
 import { CHAT_GROUP_SESSION_ID_PREFIX } from '@lobechat/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import type { ScopedMutator } from 'swr/_internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { message } from '@/components/AntdStaticMethods';
@@ -880,6 +881,55 @@ describe('AgentSlice Actions', () => {
         title: 'New Title',
       });
       expect(result.current.availableAgents).toBeUndefined();
+    });
+
+    it('keeps server-confirmed metadata in the config SWR snapshot used on remount', async () => {
+      const { result } = renderHook(() => useAgentStore());
+      const cache = new Map<string, unknown>();
+      const key = JSON.stringify(agentConfigKeys.config('agent-1'));
+      cache.set(key, {
+        id: 'agent-1',
+        model: 'gpt-4',
+        title: 'Old Title',
+      });
+      setScopedMutate((async (swrKey, data) => {
+        const keyString = JSON.stringify(swrKey);
+        if (data === undefined) return cache.get(keyString);
+
+        const nextData = typeof data === 'function' ? await data(cache.get(keyString)) : data;
+        cache.set(keyString, nextData);
+        return nextData;
+      }) as ScopedMutator);
+      vi.mocked(agentService.updateAgentMeta).mockResolvedValue({
+        agent: {
+          id: 'agent-1',
+          model: 'gpt-4',
+          title: 'New Title',
+        } as LobeAgentConfig,
+        success: true,
+      });
+
+      act(() => {
+        useAgentStore.setState({
+          agentMap: {
+            'agent-1': { id: 'agent-1', model: 'gpt-4', title: 'Old Title' } as LobeAgentConfig,
+          },
+        });
+      });
+
+      await act(async () => {
+        await result.current.optimisticUpdateAgentMeta('agent-1', { title: 'New Title' });
+      });
+
+      expect(cache.get(key)).toMatchObject({ id: 'agent-1', title: 'New Title' });
+
+      act(() => {
+        useAgentStore.setState({ agentMap: {} });
+        result.current.internal_dispatchAgentMap('agent-1', cache.get(key) as LobeAgentConfig);
+      });
+      expect(useAgentStore.getState().agentMap['agent-1']).toMatchObject({
+        title: 'New Title',
+      });
     });
 
     // Note: refreshSessions is no longer called after optimistic update

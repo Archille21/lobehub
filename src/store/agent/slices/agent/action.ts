@@ -680,6 +680,17 @@ export class AgentSliceActionImpl {
       // 3. Use returned data directly (no refetch needed!)
       if (result?.success && result.agent) {
         internal_dispatchAgentMap(id, result.agent);
+        const confirmedAgent = this.#get().agentMap[id];
+        /**
+         * Agent config is persisted and hydrates agentMap on remount. Keep the
+         * cache on the same server-confirmed snapshot as the Zustand mirror.
+         */
+        void mutate(
+          agentConfigKeys.config(id),
+          (cachedAgent: LobeAgentConfig | undefined) =>
+            merge(cachedAgent ?? {}, confirmedAgent ?? {}) as LobeAgentConfig,
+          { revalidate: false },
+        );
         this.#get().invalidateAvailableAgents();
       }
       updateSaveStatus('saved');

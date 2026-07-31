@@ -1,8 +1,11 @@
 import { act, renderHook } from '@testing-library/react';
+import type { ScopedMutator } from 'swr/_internal';
 import { describe, expect, it, vi } from 'vitest';
 
 import { EMPTY_EDITOR_STATE } from '@/libs/editor/constants';
+import { setScopedMutate } from '@/libs/swr';
 import { documentService } from '@/services/document';
+import { documentSWRKeys } from '@/services/document/swrKeys';
 
 import { useDocumentStore } from '../../store';
 
@@ -41,7 +44,18 @@ const createValidMockEditor = () => ({
 });
 
 describe('DocumentStore - Editor Actions', () => {
+  const cache = new Map<string, unknown>();
+
   beforeEach(() => {
+    cache.clear();
+    setScopedMutate((async (key, data) => {
+      const keyString = JSON.stringify(key);
+      if (data === undefined) return cache.get(keyString);
+
+      const nextData = typeof data === 'function' ? await data(cache.get(keyString)) : data;
+      cache.set(keyString, nextData);
+      return nextData;
+    }) as ScopedMutator);
     vi.mocked(documentService.updateDocument).mockResolvedValue({
       historyAppended: false,
       id: 'doc-1',
@@ -1047,6 +1061,56 @@ name: skill-name
         }),
       );
       expect(result.current.documents['doc-1'].isDirty).toBe(false);
+    });
+
+    it('keeps saved content in the editor SWR snapshot used on remount', async () => {
+      const { result } = renderHook(() => useDocumentStore());
+      const mockEditor = createValidMockEditor() as any;
+      const key = JSON.stringify(documentSWRKeys.editor('doc-1'));
+      cache.set(key, {
+        content: '# Old content',
+        editorData: { root: { children: [], type: 'root' } },
+        id: 'doc-1',
+        metadata: {},
+        title: 'Old title',
+      });
+
+      act(() => {
+        result.current.initDocumentWithEditor({
+          content: '# Old content',
+          documentId: 'doc-1',
+          editor: mockEditor,
+          sourceType: 'page',
+        });
+        result.current.markDirty('doc-1');
+      });
+
+      await act(async () => {
+        await result.current.performSave('doc-1');
+      });
+
+      const savedSnapshot = cache.get(key) as {
+        content: string;
+        editorData: unknown;
+      };
+      expect(savedSnapshot).toMatchObject({
+        content: '# Test',
+        editorData: {
+          root: { children: [{ children: [], type: 'paragraph' }], type: 'root' },
+        },
+      });
+
+      act(() => {
+        result.current.closeDocument('doc-1');
+        result.current.initDocumentWithEditor({
+          content: savedSnapshot.content,
+          documentId: 'doc-1',
+          editor: mockEditor,
+          editorData: savedSnapshot.editorData,
+          sourceType: 'page',
+        });
+      });
+      expect(result.current.documents['doc-1'].content).toBe('# Test');
     });
 
     it('should save and persist raw editorData with diff nodes (pending human review)', async () => {

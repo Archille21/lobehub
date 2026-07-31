@@ -6,8 +6,9 @@ import {
 import { createNanoId } from '@lobechat/utils';
 import { type SWRResponse } from 'swr';
 
-import { useClientDataSWRWithSync } from '@/libs/swr';
+import { mutate, useClientDataSWRWithSync } from '@/libs/swr';
 import { documentService } from '@/services/document';
+import { documentSWRKeys } from '@/services/document/swrKeys';
 import { useGlobalStore } from '@/store/global';
 import { type StoreSetter } from '@/store/types';
 import { type LobeDocument } from '@/types/document';
@@ -570,6 +571,7 @@ export class DocumentActionImpl {
       false,
       n('removeDocument/optimistic'),
     );
+    void mutate(documentSWRKeys.fileDetail(documentId), null, { revalidate: false });
 
     try {
       // Delete from documents table
@@ -587,6 +589,14 @@ export class DocumentActionImpl {
         false,
         n('removeDocument/restore'),
       );
+      const originalDocument =
+        localDocumentMap.get(documentId) ??
+        documents.find((document) => document.id === documentId);
+      if (originalDocument) {
+        void mutate(documentSWRKeys.fileDetail(documentId), originalDocument, {
+          revalidate: false,
+        });
+      }
       throw error;
     }
   };
@@ -630,6 +640,7 @@ export class DocumentActionImpl {
     if (existingDocument) {
       const updatedDocument = this.#createUpdatedDocument(existingDocument, updates);
       this.#setLocalDocument(id, updatedDocument, n('updateDocument'));
+      void mutate(documentSWRKeys.fileDetail(id), updatedDocument, { revalidate: false });
       this.#syncResourceItem(
         this.#createResourceItem(updatedDocument, this.#get().resourceMap.get(id)),
       );
@@ -678,6 +689,7 @@ export class DocumentActionImpl {
 
     // Update local map immediately for optimistic UI
     this.#setLocalDocument(documentId, updatedPage, n('updateDocumentOptimistically'));
+    void mutate(documentSWRKeys.fileDetail(documentId), updatedPage, { revalidate: false });
 
     if (existingResource) {
       this.#syncResourceItem(
@@ -715,6 +727,7 @@ export class DocumentActionImpl {
         revertMap.delete(documentId);
       }
       this.#set({ localDocumentMap: revertMap }, false, n('revertOptimisticUpdate'));
+      void mutate(documentSWRKeys.fileDetail(documentId), existingPage, { revalidate: false });
 
       if (existingResource) {
         this.#syncResourceItem(existingResource);
@@ -723,7 +736,7 @@ export class DocumentActionImpl {
   };
 
   useFetchDocumentDetail = (documentId: string | undefined): SWRResponse<LobeDocument | null> => {
-    const swrKey = documentId ? ['documentDetail', documentId] : null;
+    const swrKey = documentId ? documentSWRKeys.fileDetail(documentId) : null;
 
     return useClientDataSWRWithSync<LobeDocument | null>(
       swrKey,

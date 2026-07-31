@@ -1,5 +1,6 @@
 'use client';
 
+import type { DocumentItem } from '@lobechat/database/schemas';
 import type { IEditor } from '@lobehub/editor';
 import type { EditorState as LobehubEditorState } from '@lobehub/editor/react';
 import isEqual from 'fast-deep-equal';
@@ -8,7 +9,9 @@ import { t } from 'i18next';
 import { message } from '@/components/AntdStaticMethods';
 import { EMPTY_EDITOR_STATE } from '@/libs/editor/constants';
 import { isValidEditorData } from '@/libs/editor/isValidEditorData';
+import { mutate } from '@/libs/swr';
 import { documentService } from '@/services/document';
+import { documentSWRKeys } from '@/services/document/swrKeys';
 import type { StoreSetter } from '@/store/types';
 import { composeSkillMarkdown, parseSkillMarkdownFrontmatter } from '@/utils/skillMarkdown';
 import { setNamespace } from '@/utils/storeDebug';
@@ -352,6 +355,30 @@ export class EditorActionImpl {
           saveStatus: 'saved',
         },
       });
+
+      /**
+       * The editor cache is persisted and hydrates DocumentStore on remount.
+       * Patch it with the saved snapshot so navigation cannot replay pre-save content.
+       */
+      void mutate(
+        documentSWRKeys.editor(id),
+        (document: DocumentItem | null | undefined) => {
+          if (!document) return document;
+
+          return {
+            ...document,
+            content: currentContent,
+            editorData: structuredClone(currentEditorData),
+            metadata:
+              metadata?.emoji === undefined
+                ? document.metadata
+                : { ...document.metadata, emoji: metadata.emoji },
+            title: metadata?.title ?? document.title,
+            updatedAt: result.savedAt ? new Date(result.savedAt) : new Date(),
+          };
+        },
+        { revalidate: false },
+      );
     } catch (error) {
       // The server rejects writes to a workspace document another collaborator is
       // actively editing (CONFLICT). Surface it as a lock block so the editor can

@@ -2,7 +2,7 @@ import { CUSTOM_DOCUMENT_FILE_TYPE } from '@lobechat/const';
 import { type DocumentItem } from '@lobechat/database/schemas';
 import { type SWRResponse } from 'swr';
 
-import { useClientDataSWRWithSync } from '@/libs/swr';
+import { mutate, useClientDataSWRWithSync } from '@/libs/swr';
 import { documentService } from '@/services/document';
 import { documentSWRKeys } from '@/services/document/swrKeys';
 import { useGlobalStore } from '@/store/global';
@@ -62,6 +62,33 @@ export class ListActionImpl {
     this.#get = get;
   }
 
+  #writeThroughVisibilityCaches = (
+    documentIds: string[],
+    visibility: 'private' | 'public',
+  ): void => {
+    const documentIdSet = new Set(documentIds);
+    const { documents } = this.#get();
+    if (documents) {
+      const nextDocuments = documents.map((document) =>
+        documentIdSet.has(document.id) ? { ...document, visibility } : document,
+      );
+      this.#get().internal_dispatchDocuments({
+        documents: nextDocuments,
+        type: 'setDocuments',
+      });
+      this.internal_writeThroughDocumentsCache();
+    }
+
+    for (const documentId of documentIds) {
+      void mutate(
+        documentSWRKeys.pageDetail(documentId),
+        (document: LobeDocument | null | undefined) =>
+          document ? { ...document, visibility } : document,
+        { revalidate: false },
+      );
+    }
+  };
+
   fetchDocuments = async (): Promise<void> => {
     try {
       const pageSize = useGlobalStore.getState().status.pagePageSize || 20;
@@ -85,6 +112,7 @@ export class ListActionImpl {
         false,
         n('fetchDocuments/success'),
       );
+      this.internal_writeThroughDocumentsCache(documents);
     } catch (error) {
       console.error('Failed to fetch documents:', error);
       throw error;
@@ -140,6 +168,19 @@ export class ListActionImpl {
   };
 
   /**
+   * Keep the persisted first-page SWR snapshot aligned with the Zustand mirror.
+   * Otherwise a route remount can hydrate an older list before revalidation.
+   */
+  internal_writeThroughDocumentsCache = (documents = this.#get().documents): void => {
+    if (!documents) return;
+
+    const pageSize = useGlobalStore.getState().status.pagePageSize || 20;
+    void mutate(documentSWRKeys.pageDocuments(), documents.slice(0, pageSize), {
+      revalidate: false,
+    });
+  };
+
+  /**
    * Publish a private page (and its whole subtree) to the workspace, then
    * refetch the sidebar so the item hops from the "Private" accordion into
    * "Workspace" immediately. Errors bubble up so the caller can surface a
@@ -147,6 +188,7 @@ export class ListActionImpl {
    */
   publishPageToWorkspace = async (pageId: string): Promise<{ documentIds: string[] }> => {
     const result = await documentService.publishDocumentToWorkspace(pageId);
+    this.#writeThroughVisibilityCaches(result.documentIds, 'public');
     await this.#get().refreshDocuments();
     return result;
   };
@@ -161,6 +203,7 @@ export class ListActionImpl {
     visibility: 'private' | 'public',
   ): Promise<{ documentIds: string[] }> => {
     const result = await documentService.setDocumentVisibility(pageId, visibility);
+    this.#writeThroughVisibilityCaches(result.documentIds, visibility);
     await this.#get().refreshDocuments();
     return result;
   };
