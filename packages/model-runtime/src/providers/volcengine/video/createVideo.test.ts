@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CreateVideoOptions } from '../../../core/openaiCompatibleFactory';
 import type { CreateVideoPayload } from '../../../types/video';
-import { createVolcengineVideo } from './createVideo';
+import { createVolcengineVideo, pollVolcengineVideoStatus } from './createVideo';
 
 vi.mock('debug', () => ({
   default: vi.fn(() => vi.fn()),
@@ -40,15 +40,27 @@ describe('createVolcengineVideo', () => {
 
       const result = await createVolcengineVideo(payload, options);
 
-      expect(result).toEqual({ inferenceId: 'task-abc-123', useWebhook: true });
+      expect(result).toEqual({ inferenceId: 'task-abc-123', useWebhook: false });
     });
 
-    it('should return useWebhook: true to indicate webhook-based async flow', async () => {
+    it('should return useWebhook: false when no callbackUrl is configured, so the caller falls back to polling', async () => {
+      mockFetch.mockResolvedValue({
+        json: () => Promise.resolve({ id: 'task-poll' }),
+        ok: true,
+      });
+
+      const result = await createVolcengineVideo(payload, options);
+
+      expect((result as any).useWebhook).toBe(false);
+    });
+
+    it('should return useWebhook: true when callbackUrl is configured', async () => {
       mockFetch.mockResolvedValue({
         json: () => Promise.resolve({ id: 'task-webhook' }),
         ok: true,
       });
 
+      payload.callbackUrl = 'https://example.com/webhook';
       const result = await createVolcengineVideo(payload, options);
 
       expect((result as any).useWebhook).toBe(true);
@@ -283,5 +295,107 @@ describe('createVolcengineVideo', () => {
         'Invalid response: missing task id',
       );
     });
+  });
+});
+
+describe('pollVolcengineVideoStatus', () => {
+  const apiKey = 'test-api-key';
+  const baseURL = 'https://ark.cn-beijing.volces.com/api/v3';
+
+  it('should query the task status endpoint', async () => {
+    mockFetch.mockResolvedValue({
+      json: () => Promise.resolve({ id: 'task-123', status: 'running' }),
+      ok: true,
+    });
+
+    await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks/task-123',
+      { headers: { Authorization: 'Bearer test-api-key' }, method: 'GET' },
+    );
+  });
+
+  it('should return pending for queued status', async () => {
+    mockFetch.mockResolvedValue({
+      json: () => Promise.resolve({ status: 'queued' }),
+      ok: true,
+    });
+
+    const result = await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
+
+    expect(result).toEqual({ status: 'pending' });
+  });
+
+  it('should return pending for running status', async () => {
+    mockFetch.mockResolvedValue({
+      json: () => Promise.resolve({ status: 'running' }),
+      ok: true,
+    });
+
+    const result = await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
+
+    expect(result).toEqual({ status: 'pending' });
+  });
+
+  it('should return success with videoUrl when succeeded', async () => {
+    mockFetch.mockResolvedValue({
+      json: () =>
+        Promise.resolve({
+          content: { video_url: 'https://example.com/video.mp4' },
+          status: 'succeeded',
+        }),
+      ok: true,
+    });
+
+    const result = await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
+
+    expect(result).toEqual({ status: 'success', videoUrl: 'https://example.com/video.mp4' });
+  });
+
+  it('should return failed when succeeded but no video URL', async () => {
+    mockFetch.mockResolvedValue({
+      json: () => Promise.resolve({ content: {}, status: 'succeeded' }),
+      ok: true,
+    });
+
+    const result = await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
+
+    expect(result).toEqual({ error: 'Task succeeded but no video URL found', status: 'failed' });
+  });
+
+  it('should return failed with error message on failed status', async () => {
+    mockFetch.mockResolvedValue({
+      json: () =>
+        Promise.resolve({ error: { message: 'Content policy violation' }, status: 'failed' }),
+      ok: true,
+    });
+
+    const result = await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
+
+    expect(result).toEqual({ error: 'Content policy violation', status: 'failed' });
+  });
+
+  it('should return failed with expired message on expired status', async () => {
+    mockFetch.mockResolvedValue({
+      json: () => Promise.resolve({ status: 'expired' }),
+      ok: true,
+    });
+
+    const result = await pollVolcengineVideoStatus('task-123', apiKey, baseURL);
+
+    expect(result).toEqual({ error: 'Video generation task expired', status: 'failed' });
+  });
+
+  it('should throw on HTTP error', async () => {
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: () => Promise.resolve('Internal Server Error'),
+    });
+
+    await expect(pollVolcengineVideoStatus('task-123', apiKey, baseURL)).rejects.toThrow(
+      'Failed to query task status for task-123 (500): Internal Server Error',
+    );
   });
 });

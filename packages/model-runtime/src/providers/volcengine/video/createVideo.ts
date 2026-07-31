@@ -1,9 +1,74 @@
 import createDebug from 'debug';
 
 import type { CreateVideoOptions } from '../../../core/openaiCompatibleFactory';
-import type { CreateVideoPayload, CreateVideoResponse } from '../../../types/video';
+import type {
+  CreateVideoPayload,
+  CreateVideoResponse,
+  PollVideoStatusResult,
+} from '../../../types/video';
 
 const log = createDebug('lobe-video:volcengine');
+
+interface VolcengineVideoTaskResponse {
+  content?: {
+    video_url?: string;
+  };
+  error?: {
+    code?: string;
+    message?: string;
+  };
+  id?: string;
+  status?: string;
+}
+
+/**
+ * Poll the status of a Volcengine video generation task.
+ *
+ * Volcengine's task response shape is identical whether it arrives via webhook
+ * push (see `handleCreateVideoWebhook.ts`) or this GET poll, so the
+ * queued/running/succeeded/failed/expired parsing mirrors that handler.
+ */
+export async function pollVolcengineVideoStatus(
+  taskId: string,
+  apiKey: string,
+  baseURL: string,
+): Promise<PollVideoStatusResult> {
+  const url = `${baseURL}/contents/generations/tasks/${taskId}`;
+
+  log('Polling task status for: %s', taskId);
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    method: 'GET',
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to query task status for ${taskId} (${response.status}): ${errorText}`);
+  }
+
+  const data: VolcengineVideoTaskResponse = await response.json();
+
+  if (data.status === 'succeeded') {
+    const videoUrl = data.content?.video_url;
+    if (!videoUrl) {
+      return { error: 'Task succeeded but no video URL found', status: 'failed' };
+    }
+    return { status: 'success', videoUrl };
+  }
+
+  if (data.status === 'failed' || data.status === 'expired') {
+    const errorMessage =
+      data.error?.message ||
+      (data.status === 'expired' ? 'Video generation task expired' : 'Video generation failed');
+    return { error: errorMessage, status: 'failed' };
+  }
+
+  // queued, running, or any other in-flight status
+  return { status: 'pending' };
+}
 
 /**
  * Volcengine video generation implementation
@@ -95,5 +160,9 @@ export async function createVolcengineVideo(
     throw new Error('Invalid response: missing task id');
   }
 
-  return { inferenceId: data.id, useWebhook: true };
+  // Only the webhook path is push-based; without a callback URL configured on
+  // this request, the caller must fall back to `handlePollVideoStatus` polling
+  // (some private/self-hosted deployments have no public endpoint for a
+  // provider to call back into, so they never configure callbackUrl).
+  return { inferenceId: data.id, useWebhook: !!payload.callbackUrl };
 }

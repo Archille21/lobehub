@@ -3,7 +3,7 @@ import { ModelProvider } from 'model-bank';
 import { createOpenAICompatibleRuntime } from '../../core/openaiCompatibleFactory';
 import type { ChatStreamPayload } from '../../types';
 import { createVolcengineImage } from './createImage';
-import { createVolcengineVideo } from './video/createVideo';
+import { createVolcengineVideo, pollVolcengineVideoStatus } from './video/createVideo';
 import { handleVolcengineVideoWebhook } from './video/handleCreateVideoWebhook';
 
 const resolveVolcengineReasoningParams = (
@@ -70,6 +70,10 @@ export const LobeVolcengineAI = createOpenAICompatibleRuntime({
     responses: () => process.env.DEBUG_VOLCENGINE_RESPONSES === '1',
   },
   handleCreateVideoWebhook: handleVolcengineVideoWebhook,
+  handlePollVideoStatus: async (inferenceId, options) => {
+    const baseURL = options.baseURL || 'https://ark.cn-beijing.volces.com/api/v3';
+    return pollVolcengineVideoStatus(inferenceId, options.apiKey || '', baseURL);
+  },
   provider: ModelProvider.Volcengine,
   responses: {
     handlePayload: (payload) => {
