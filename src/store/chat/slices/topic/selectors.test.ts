@@ -257,7 +257,7 @@ describe('topicSelectors', () => {
       const state = {
         activeAgentId: 'test',
         topicDataMap,
-      } as ChatStore;
+      } as unknown as ChatStore;
 
       expect(topicSelectors.getTopicById('topic1')(state)).toEqual(topicItems[0]);
       expect(topicSelectors.getTopicById('notfound')(state)).toBeUndefined();

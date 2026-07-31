@@ -1135,7 +1135,17 @@ describe('topic action', () => {
       const { result } = renderHook(() => useChatStore());
       const activeAgentId = 'test-session-id';
       await act(async () => {
-        useChatStore.setState({ activeAgentId });
+        useChatStore.setState({
+          activeAgentId,
+          topicDetailMap: {
+            'cached-topic': {
+              createdAt: 1,
+              id: 'cached-topic',
+              title: 'Cached topic',
+              updatedAt: 1,
+            },
+          },
+        });
       });
       const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic');
       const switchTopicSpy = vi.spyOn(result.current, 'switchTopic');
@@ -1147,6 +1157,7 @@ describe('topic action', () => {
       expect(topicService.removeTopicsByAgentId).toHaveBeenCalledWith(activeAgentId, 'own');
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalled();
+      expect(useChatStore.getState().topicDetailMap).toEqual({});
     });
 
     it('forwards explicit workspace scope for an owner full delete', async () => {
@@ -1165,6 +1176,16 @@ describe('topic action', () => {
       const groupId = 'group-delete';
       const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic').mockResolvedValue(undefined);
       const switchTopicSpy = vi.spyOn(result.current, 'switchTopic').mockResolvedValue(undefined);
+      useChatStore.setState({
+        topicDetailMap: {
+          'cached-topic': {
+            createdAt: 1,
+            id: 'cached-topic',
+            title: 'Cached topic',
+            updatedAt: 1,
+          },
+        },
+      });
 
       await act(async () => {
         await result.current.removeGroupTopics(groupId);
@@ -1173,6 +1194,7 @@ describe('topic action', () => {
       expect(topicService.removeTopicsByGroupId).toHaveBeenCalledWith(groupId, 'own');
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalled();
+      expect(useChatStore.getState().topicDetailMap).toEqual({});
     });
 
     it('forwards explicit workspace scope through the group endpoint', async () => {
@@ -1207,6 +1229,38 @@ describe('topic action', () => {
 
       expect(topicService.removeAllTopic).toHaveBeenCalled();
       expect(refreshTopicSpy).toHaveBeenCalled();
+      expect(useChatStore.getState().topicDetailMap).toEqual({});
+    });
+
+    it('ignores an in-flight topic detail response after the cache is cleared', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const topicId = 'stale-topic';
+      const topicDetail: ChatTopic = {
+        createdAt: 1,
+        id: topicId,
+        title: 'Stale topic',
+        updatedAt: 1,
+      };
+      let resolveDetail!: (topic: ChatTopic) => void;
+      const detailRequest = new Promise<ChatTopic>((resolve) => {
+        resolveDetail = resolve;
+      });
+      (topicService.getTopicDetail as Mock).mockReturnValueOnce(detailRequest);
+
+      await act(async () => {
+        await result.current.switchTopic(topicId, { skipRefreshMessage: true });
+      });
+      expect(topicService.getTopicDetail).toHaveBeenCalledWith(topicId);
+
+      act(() => {
+        result.current.internal_clearTopicDetails();
+      });
+      await act(async () => {
+        resolveDetail(topicDetail);
+        await detailRequest;
+        await Promise.resolve();
+      });
+
       expect(useChatStore.getState().topicDetailMap).toEqual({});
     });
   });
@@ -1487,6 +1541,7 @@ describe('topic action', () => {
               pageSize: 20,
             },
           },
+          topicDetailMap: Object.fromEntries(topics.map((topic) => [topic.id, topic])),
         });
       });
       const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic');
@@ -1499,6 +1554,7 @@ describe('topic action', () => {
       expect(topicService.batchRemoveTopics).toHaveBeenCalledWith(['topic-1', 'topic-3']);
       expect(refreshTopicSpy).toHaveBeenCalled();
       expect(switchTopicSpy).toHaveBeenCalled();
+      expect(Object.keys(useChatStore.getState().topicDetailMap)).toEqual(['topic-2']);
     });
 
     it('removes only the signed-in user’s unstarred topics when onlyOwn is enabled', async () => {

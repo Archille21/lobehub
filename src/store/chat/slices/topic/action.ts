@@ -128,6 +128,13 @@ export class ChatTopicActionImpl {
 
   #staleRunningTopicCleanupInFlight = false;
 
+  /**
+   * Requests capture this generation before fetching. Cache-boundary resets
+   * advance it so late responses cannot repopulate a new workspace or restore
+   * topics that were deleted while their detail request was in flight.
+   */
+  #topicDetailCacheGeneration = 0;
+
   #topicDetailRequests = new Map<string, Promise<ChatTopic | null>>();
 
   constructor(set: Setter, get: () => ChatStore, _api?: unknown) {
@@ -143,11 +150,13 @@ export class ChatTopicActionImpl {
     const pendingRequest = this.#topicDetailRequests.get(id);
     if (pendingRequest) return pendingRequest;
 
+    const cacheGeneration = this.#topicDetailCacheGeneration;
     const request = topicService.getTopicDetail(id);
     this.#topicDetailRequests.set(id, request);
 
     try {
       const topic = await request;
+      if (cacheGeneration !== this.#topicDetailCacheGeneration) return null;
       if (topic) this.#get().internal_setTopicDetail(topic);
       return topic;
     } finally {
@@ -1288,6 +1297,7 @@ export class ChatTopicActionImpl {
     if (!activeAgentId) return;
 
     await topicService.removeTopicsByAgentId(activeAgentId, scope);
+    this.#get().internal_clearTopicDetails();
     await refreshTopic();
     // drop every deleted topic's message cache (all belong to this agent)
     void evictMessageCache((ctx) => ctx.agentId === activeAgentId);
@@ -1303,6 +1313,7 @@ export class ChatTopicActionImpl {
     const { switchTopic, refreshTopic } = this.#get();
 
     await topicService.removeTopicsByGroupId(groupId, scope);
+    this.#get().internal_clearTopicDetails();
     await refreshTopic();
     // drop every deleted topic's message cache (all belong to this group)
     void evictMessageCache((ctx) => ctx.groupId === groupId);
@@ -1315,7 +1326,7 @@ export class ChatTopicActionImpl {
     const { refreshTopic } = this.#get();
 
     await topicService.removeAllTopic();
-    this.#set({ topicDetailMap: {} }, false, n('removeAllTopics/clearDetails'));
+    this.#get().internal_clearTopicDetails();
     await refreshTopic();
     // every topic is gone — wipe all cached message lists
     void evictMessageCache(() => true);
@@ -1328,6 +1339,7 @@ export class ChatTopicActionImpl {
 
     // remove topic (and optionally its uploaded attachments)
     await topicService.removeTopic(id, removeFiles);
+    this.#get().internal_clearTopicDetails([id]);
     this.#get().internal_dispatchTopic({ type: 'deleteTopic', id }, 'removeTopic');
     await refreshTopic();
     // drop the deleted topic's message cache so it doesn't orphan in IndexedDB
@@ -1346,6 +1358,7 @@ export class ChatTopicActionImpl {
       .map((topic) => topic.id);
 
     await topicService.batchRemoveTopics(topicIds);
+    this.#get().internal_clearTopicDetails(topicIds);
     await refreshTopic();
     // drop the deleted topics' message caches
     const removed = new Set(topicIds);
@@ -1361,6 +1374,7 @@ export class ChatTopicActionImpl {
     const { activeTopicId, switchTopic, refreshTopic } = this.#get();
 
     await topicService.batchMoveTopics(topicIds, targetAgentId);
+    this.#get().internal_clearTopicDetails(topicIds);
 
     // Moved topics leave the current agent's list — drop them locally so the UI
     // updates immediately, then refetch to reconcile with the server.
@@ -1599,6 +1613,24 @@ export class ChatTopicActionImpl {
     this.#get().internal_updateTopicLoading(topicId, false);
 
     return topicId;
+  };
+
+  /**
+   * Clear independently fetched topic rows and invalidate requests that started
+   * before this cache boundary. Without the generation bump, a late response
+   * could restore a deleted topic or leak the previous workspace into the next.
+   */
+  internal_clearTopicDetails = (ids?: string[]): void => {
+    this.#topicDetailCacheGeneration += 1;
+    this.#topicDetailRequests.clear();
+
+    const currentMap = this.#get().topicDetailMap ?? {};
+    const nextMap = ids
+      ? ids.reduce((map, id) => topicDetailReducer(map, { type: 'deleteTopic', id }), currentMap)
+      : {};
+
+    if (isEqual(nextMap, currentMap)) return;
+    this.#set({ topicDetailMap: nextMap }, false, n('clearTopicDetails'));
   };
 
   /**
