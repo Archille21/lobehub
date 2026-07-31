@@ -8,15 +8,6 @@ import { memo, type ReactNode, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useWorkspaceMemberProfiles } from '@/business/client/hooks/useWorkspaceMemberProfiles';
-import AsyncError from '@/components/AsyncError';
-import TaskStatusIcon from '@/features/AgentTasks/features/TaskStatusIcon';
-import { taskDetailPath } from '@/features/AgentTasks/shared/taskDetailPath';
-import { useAgentDisplayMeta } from '@/features/AgentTasks/shared/useAgentDisplayMeta';
-import HomeInbox from '@/features/HomeInbox';
-import AuthorChip from '@/features/HomeInbox/AuthorChip';
-import { useHomeInboxTopics } from '@/features/HomeInbox/useHomeInboxTopics';
-import Recommendations from '@/features/Recommendations';
-import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import {
   useHomeBriefIds,
   useHomeBriefsRequest,
@@ -28,7 +19,16 @@ import {
   useHomeTaskIds,
   useHomeTasksIndex,
   useHomeTasksRequest,
-} from '@/store/entity';
+} from '@/client-data';
+import AsyncError from '@/components/AsyncError';
+import TaskStatusIcon from '@/features/AgentTasks/features/TaskStatusIcon';
+import { taskDetailPath } from '@/features/AgentTasks/shared/taskDetailPath';
+import { useAgentDisplayMeta } from '@/features/AgentTasks/shared/useAgentDisplayMeta';
+import HomeInbox from '@/features/HomeInbox';
+import AuthorChip from '@/features/HomeInbox/AuthorChip';
+import { useHomeInboxTopics } from '@/features/HomeInbox/useHomeInboxTopics';
+import Recommendations from '@/features/Recommendations';
+import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import { useUserStore } from '@/store/user';
