@@ -1,3 +1,4 @@
+import { isRecord } from '@lobechat/utils/object';
 import isEqual from 'fast-deep-equal';
 import type { PartialDeep } from 'type-fest';
 
@@ -23,6 +24,19 @@ import { settingsSelectors } from './selectors/settings';
 type Setter = StoreSetter<UserStore>;
 
 type SystemAgentDiff = Partial<Record<string, unknown>>;
+
+const stripTelemetryFromImportedSettings = (
+  settings: PartialDeep<UserSettings>,
+): PartialDeep<UserSettings> => {
+  if (!Object.hasOwn(settings, 'general')) return settings;
+
+  const { general: importedGeneral, ...rest } = settings;
+  if (!isRecord(importedGeneral)) return rest;
+
+  const { telemetry: _, ...general } = importedGeneral;
+
+  return { ...rest, general } as PartialDeep<UserSettings>;
+};
 
 export const createSettingsSlice = (set: Setter, get: () => UserStore, _api?: unknown) =>
   new UserSettingsActionImpl(set, get, _api);
@@ -54,7 +68,7 @@ export class UserSettingsActionImpl {
   importAppSettings = async (importAppSettings: UserSettings): Promise<void> => {
     const { setSettings } = this.#get();
 
-    await setSettings(importAppSettings);
+    await setSettings(stripTelemetryFromImportedSettings(importAppSettings));
   };
 
   importUrlShareSettings = async (settingsParams: string | null): Promise<void> => {
@@ -65,7 +79,7 @@ export class UserSettingsActionImpl {
         return;
       }
 
-      await this.#get().setSettings(importSettings.data);
+      await this.#get().setSettings(stripTelemetryFromImportedSettings(importSettings.data));
     }
   };
 
@@ -196,7 +210,14 @@ export class UserSettingsActionImpl {
     this.#set({ settings: diffs }, false, 'optimistic_updateSettings');
 
     const abortController = this.#get().internal_createSignal();
-    await userService.updateUserSettings(diffs, abortController.signal);
+    try {
+      await userService.updateUserSettings(diffs, abortController.signal);
+    } catch (error) {
+      if (this.#get().settings === diffs) {
+        this.#set({ settings: prevSetting }, false, 'revert_updateSettings');
+      }
+      throw error;
+    }
     await this.#get().refreshUserState();
   };
 
