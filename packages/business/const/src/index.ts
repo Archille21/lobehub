@@ -16,6 +16,16 @@ export const ENABLE_BUSINESS_FEATURES = false;
  */
 export const AGENT_ONBOARDING_ENABLED = false;
 
+/**
+ * Whether the classic onboarding flow ends with the agent-marketplace picker.
+ *
+ * The picker lists templates fetched from the hosted marketplace
+ * (`market.agent.getOnboardingFull`). A self-hosted deployment with no route to
+ * that service can only ever render an empty grid, so the step is dead weight
+ * there — turn this off and the flow finishes on the last form step instead.
+ */
+export const ONBOARDING_AGENT_PICKER_ENABLED = true;
+
 export const OFFICIAL_PROVIDER_DISABLE_ERROR = 'The official provider cannot be disabled.';
 
 export const isOfficialProvider = (id: string) =>

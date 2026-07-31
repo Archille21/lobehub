@@ -15,10 +15,24 @@ const mocks = vi.hoisted(() => ({
   commonStepsCompleted: true,
   currentStep: 1,
   enableComposio: true,
+  finishOnboarding: vi.fn(),
   goToNextStep: vi.fn(),
   goToPreviousStep: vi.fn(),
   isUserStateInit: true,
+  // Pinned per-test rather than read from the installed business-const, whose
+  // value differs between the upstream package and a distribution override.
+  pickerEnabled: true,
   serverConfigInit: true,
+}));
+
+vi.mock('@lobechat/business-const', () => ({
+  get ONBOARDING_AGENT_PICKER_ENABLED() {
+    return mocks.pickerEnabled;
+  },
+}));
+
+vi.mock('@/features/Onboarding/useFinishOnboarding', () => ({
+  useFinishOnboarding: () => mocks.finishOnboarding,
 }));
 
 vi.mock('@lobehub/ui', () => ({
@@ -153,9 +167,12 @@ beforeEach(() => {
   mocks.commonStepsCompleted = true;
   mocks.currentStep = 1;
   mocks.enableComposio = true;
+  mocks.finishOnboarding.mockReset();
+  mocks.finishOnboarding.mockResolvedValue(undefined);
   mocks.goToNextStep.mockReset();
   mocks.goToPreviousStep.mockReset();
   mocks.isUserStateInit = true;
+  mocks.pickerEnabled = true;
   mocks.serverConfigInit = true;
   metrics.trackOnboardingStepCompleted.mockReset();
   metrics.trackOnboardingStepViewed.mockReset();
@@ -253,6 +270,80 @@ describe('ClassicOnboardingPage', () => {
       stepIndex: 3,
     });
     expect(screen.queryByText('ProSettingsStep')).not.toBeInTheDocument();
+  });
+
+  describe('with the agent picker disabled', () => {
+    beforeEach(() => {
+      mocks.pickerEnabled = false;
+    });
+
+    it('finishes from interests when ProSettings is also skipped', async () => {
+      mocks.currentStep = 2;
+      mocks.enableComposio = false;
+
+      renderClassic();
+      fireEvent.click(screen.getByText('interests-next'));
+
+      await waitFor(() => expect(mocks.finishOnboarding).toHaveBeenCalledTimes(1));
+      // The step event is handed to finishOnboarding so it lands after the
+      // store write, rather than being emitted separately beforehand.
+      expect(mocks.finishOnboarding).toHaveBeenCalledWith({
+        flow: 'classic',
+        skippedNextStep: 'prosettings',
+        step: 'interests',
+        stepIndex: 2,
+      });
+      expect(mocks.goToNextStep).not.toHaveBeenCalled();
+    });
+
+    it('finishes from ProSettings when Composio keeps that step', async () => {
+      mocks.currentStep = 3;
+      mocks.enableComposio = true;
+
+      renderClassic();
+      fireEvent.click(screen.getByText('pro-next'));
+
+      await waitFor(() => expect(mocks.finishOnboarding).toHaveBeenCalledTimes(1));
+      expect(mocks.finishOnboarding).toHaveBeenCalledWith({
+        flow: 'classic',
+        step: 'prosettings',
+        stepIndex: 3,
+      });
+      expect(mocks.goToNextStep).not.toHaveBeenCalled();
+    });
+
+    it('never advances into the removed picker step', async () => {
+      // Regression: the auto-skip effect used to push a persisted ProSettings
+      // step forward unconditionally, landing on a step that no longer renders.
+      mocks.currentStep = 3;
+      mocks.enableComposio = false;
+
+      renderClassic();
+
+      await waitFor(() => expect(mocks.finishOnboarding).toHaveBeenCalledTimes(1));
+      expect(mocks.goToNextStep).not.toHaveBeenCalled();
+      expect(screen.queryByText('AgentPickerStep')).not.toBeInTheDocument();
+    });
+
+    it('finishes instead of stranding a user on a persisted picker step', async () => {
+      // A user mid-flow when the picker was turned off has currentStep === 4
+      // persisted; without this they would see a screen they can never leave.
+      mocks.currentStep = MAX_ONBOARDING_STEPS;
+
+      renderClassic();
+
+      await waitFor(() => expect(mocks.finishOnboarding).toHaveBeenCalledTimes(1));
+      expect(screen.queryByText('AgentPickerStep')).not.toBeInTheDocument();
+    });
+
+    it('still renders the earlier steps normally', () => {
+      mocks.currentStep = 1;
+
+      renderClassic();
+
+      expect(screen.getByText('FullNameStep')).toBeInTheDocument();
+      expect(mocks.finishOnboarding).not.toHaveBeenCalled();
+    });
   });
 
   it('does not skip while shared prefix steps are incomplete', async () => {

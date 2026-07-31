@@ -1,5 +1,6 @@
 'use client';
 
+import { ONBOARDING_AGENT_PICKER_ENABLED } from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import { MAX_ONBOARDING_STEPS } from '@lobechat/types';
 import { Flexbox } from '@lobehub/ui';
@@ -63,7 +64,11 @@ const CommonOnboardingPage = memo(() => {
   const hasStepParam = searchParams.has('step');
   const viewedStepKeysRef = useRef<Set<string>>(new Set());
 
-  useOnboardingAgentTemplates(isUserStateInit && (!commonStepsCompleted || hasStepParam));
+  // Prefetch only when the picker can actually consume it — otherwise this is a
+  // guaranteed-failing call to a hosted service the deployment cannot reach.
+  useOnboardingAgentTemplates(
+    ONBOARDING_AGENT_PICKER_ENABLED && isUserStateInit && (!commonStepsCompleted || hasStepParam),
+  );
 
   // One-time legacy migration: when the user lands on the shared prefix, if
   // their persisted `currentStep` was authored under the old 5-step schema,

@@ -1,5 +1,6 @@
 'use client';
 
+import { ONBOARDING_AGENT_PICKER_ENABLED } from '@lobechat/business-const';
 import { MAX_ONBOARDING_STEPS } from '@lobechat/types';
 import { Flexbox } from '@lobehub/ui';
 import { memo, useCallback, useEffect, useRef } from 'react';
@@ -7,6 +8,7 @@ import { Navigate, useNavigate } from 'react-router';
 
 import Loading from '@/components/Loading/BrandTextLoading';
 import ModeSwitch from '@/features/Onboarding/components/ModeSwitch';
+import { useFinishOnboarding } from '@/features/Onboarding/useFinishOnboarding';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useOnboardingAgentTemplates } from '@/hooks/useOnboardingAgentTemplates';
 import OnboardingContainer from '@/routes/onboarding/_layout';
@@ -53,7 +55,24 @@ const ClassicOnboardingPage = memo(() => {
   const autoSkippedStepKeysRef = useRef<Set<string>>(new Set());
   const viewedStepKeysRef = useRef<Set<string>>(new Set());
 
-  useOnboardingAgentTemplates(isUserStateInit && commonStepsCompleted);
+  // Which step the user actually lands on last, and therefore which "next"
+  // finishes onboarding rather than advancing. Without the agent picker the
+  // flow ends on pro-settings — or on interests, since pro-settings is itself
+  // auto-skipped when Composio is off.
+  const lastStep = ONBOARDING_AGENT_PICKER_ENABLED
+    ? MAX_ONBOARDING_STEPS
+    : shouldSkipProSettingsStep
+      ? INTERESTS_STEP
+      : PRO_SETTINGS_STEP;
+
+  const finishOnboarding = useFinishOnboarding('classic');
+
+  // Prefetching the marketplace is only worth a request when the picker can
+  // actually render it; otherwise it is a guaranteed-failing call on a network
+  // that cannot reach the hosted service.
+  useOnboardingAgentTemplates(
+    ONBOARDING_AGENT_PICKER_ENABLED && isUserStateInit && commonStepsCompleted,
+  );
 
   // FullNameStep is the branch's first step, so its back button leaves the
   // branch and re-enters the shared prefix's ResponseLanguageStep (step 2).
@@ -66,7 +85,11 @@ const ClassicOnboardingPage = memo(() => {
       !isUserStateInit ||
       !commonStepsCompleted ||
       currentStep !== PRO_SETTINGS_STEP ||
-      !shouldSkipProSettingsStep
+      !shouldSkipProSettingsStep ||
+      // Nothing follows pro-settings, so there is no step to skip *to* — the
+      // stale-step effect below finishes the flow instead of advancing into a
+      // step that no longer renders.
+      lastStep <= PRO_SETTINGS_STEP
     ) {
       return;
     }
@@ -81,7 +104,35 @@ const ClassicOnboardingPage = memo(() => {
       skipped: true,
     });
     goToNextStep();
-  }, [commonStepsCompleted, currentStep, goToNextStep, isUserStateInit, shouldSkipProSettingsStep]);
+  }, [
+    commonStepsCompleted,
+    currentStep,
+    goToNextStep,
+    isUserStateInit,
+    lastStep,
+    shouldSkipProSettingsStep,
+  ]);
+
+  // A persisted `currentStep` can point past the last step that still exists —
+  // a user who was mid-flow when the agent picker was turned off, the legacy
+  // remap in the shared prefix, or an `?entry=skip` link that jumps to the end.
+  // Finish rather than render nothing; otherwise onboarding is a dead screen
+  // the user can never leave.
+  const staleStepHandledRef = useRef(false);
+  useEffect(() => {
+    if (!isUserStateInit || !commonStepsCompleted || !serverConfigInit) return;
+    if (currentStep <= lastStep || staleStepHandledRef.current) return;
+
+    staleStepHandledRef.current = true;
+    void finishOnboarding();
+  }, [
+    commonStepsCompleted,
+    currentStep,
+    finishOnboarding,
+    isUserStateInit,
+    lastStep,
+    serverConfigInit,
+  ]);
 
   useEffect(() => {
     if (!isUserStateInit || !commonStepsCompleted) return;
@@ -108,14 +159,18 @@ const ClassicOnboardingPage = memo(() => {
   }, [goToNextStep]);
 
   const goToNextStepFromInterests = useCallback(() => {
-    trackOnboardingStepCompleted(
-      shouldSkipProSettingsStep
-        ? {
-            ...CLASSIC_STEP_TRACKING[INTERESTS_STEP],
-            skippedNextStep: 'prosettings',
-          }
-        : CLASSIC_STEP_TRACKING[INTERESTS_STEP],
-    );
+    const payload = shouldSkipProSettingsStep
+      ? { ...CLASSIC_STEP_TRACKING[INTERESTS_STEP], skippedNextStep: 'prosettings' }
+      : CLASSIC_STEP_TRACKING[INTERESTS_STEP];
+
+    // Last step: finishOnboarding emits the step event itself, so the store
+    // write lands before it — same ordering the agent picker always had.
+    if (lastStep === INTERESTS_STEP) {
+      void finishOnboarding(payload);
+      return;
+    }
+
+    trackOnboardingStepCompleted(payload);
 
     if (shouldSkipProSettingsStep) {
       goToNextStep();
@@ -124,12 +179,17 @@ const ClassicOnboardingPage = memo(() => {
     }
 
     goToNextStep();
-  }, [goToNextStep, shouldSkipProSettingsStep]);
+  }, [finishOnboarding, goToNextStep, lastStep, shouldSkipProSettingsStep]);
 
   const goToNextStepFromProSettings = useCallback(() => {
+    if (lastStep === PRO_SETTINGS_STEP) {
+      void finishOnboarding(CLASSIC_STEP_TRACKING[PRO_SETTINGS_STEP]);
+      return;
+    }
+
     trackOnboardingStepCompleted(CLASSIC_STEP_TRACKING[PRO_SETTINGS_STEP]);
     goToNextStep();
-  }, [goToNextStep]);
+  }, [finishOnboarding, goToNextStep, lastStep]);
 
   const goToPreviousStepFromAgentPicker = useCallback(() => {
     if (shouldSkipProSettingsStep) {
@@ -161,11 +221,23 @@ const ClassicOnboardingPage = memo(() => {
       }
       case PRO_SETTINGS_STEP: {
         if (!serverConfigInit) return <Loading debugId="ClassicOnboarding/serverConfig" />;
-        if (shouldSkipProSettingsStep) return null;
+        if (shouldSkipProSettingsStep) {
+          // Transient either way — the auto-skip effect advances, or, when this
+          // is already past the last step, the stale-step effect finishes.
+          return lastStep <= PRO_SETTINGS_STEP ? (
+            <Loading debugId="ClassicOnboarding/finishing" />
+          ) : null;
+        }
 
         return <ProSettingsStep onBack={goToPreviousStep} onNext={goToNextStepFromProSettings} />;
       }
       case MAX_ONBOARDING_STEPS: {
+        // Only reachable with the picker off via a stale persisted step; the
+        // stale-step effect is already finishing the flow.
+        if (!ONBOARDING_AGENT_PICKER_ENABLED) {
+          return <Loading debugId="ClassicOnboarding/finishing" />;
+        }
+
         return <AgentPickerStep onBack={goToPreviousStepFromAgentPicker} />;
       }
       default: {

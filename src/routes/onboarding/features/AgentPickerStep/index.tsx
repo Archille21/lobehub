@@ -11,19 +11,17 @@ import { cssVar } from 'antd-style';
 import { Undo2Icon } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useSearchParams } from 'react-router';
 
+import { useFinishOnboarding } from '@/features/Onboarding/useFinishOnboarding';
 import { useOnboardingAgentTemplates } from '@/hooks/useOnboardingAgentTemplates';
 import { installMarketplaceAgents } from '@/services/installMarketplaceAgents';
 import {
-  trackOnboardingCompleted,
   trackOnboardingMarketplacePicked,
   trackOnboardingMarketplaceShown,
-  trackOnboardingStepCompleted,
 } from '@/services/onboardingMetrics';
 import { useUserStore } from '@/store/user';
 import { userProfileSelectors } from '@/store/user/selectors';
-import { consumeOnboardingCallbackUrl } from '@/utils/onboardingRedirect';
 
 import LobeMessage from '../../components/LobeMessage';
 import { interestsToCategoryHints } from '../../interestCategoryMap';
@@ -41,13 +39,12 @@ const EMPTY_TEMPLATES: AgentTemplate[] = [];
 const AgentPickerStep = memo<AgentPickerStepProps>(({ onBack }) => {
   const { t } = useTranslation('onboarding');
   const { t: tTool } = useTranslation('tool');
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isAgentSkipEntry = searchParams.get('entry') === 'skip';
   const showBack = !isAgentSkipEntry;
   const completionFlow = isAgentSkipEntry ? 'agent' : 'classic';
 
-  const finishOnboarding = useUserStore((s) => s.finishOnboarding);
+  const finishOnboarding = useFinishOnboarding(completionFlow);
   const interests = useUserStore(userProfileSelectors.interests);
 
   const categoryHints = useMemo(() => interestsToCategoryHints(interests), [interests]);
@@ -102,8 +99,7 @@ const AgentPickerStep = memo<AgentPickerStepProps>(({ onBack }) => {
 
   const finish = useCallback(
     async (action: 'continue' | 'skip', selectedCount: number) => {
-      await finishOnboarding();
-      trackOnboardingStepCompleted({
+      await finishOnboarding({
         action,
         entry: isAgentSkipEntry ? 'agent_skip' : 'classic',
         flow: completionFlow,
@@ -111,12 +107,8 @@ const AgentPickerStep = memo<AgentPickerStepProps>(({ onBack }) => {
         step: 'agentpicker',
         stepIndex: 4,
       });
-      // Restore the original signup target (threaded through onboarding), if any
-      const targetUrl = consumeOnboardingCallbackUrl() || '/';
-      trackOnboardingCompleted({ flow: completionFlow, targetUrl });
-      navigate(targetUrl);
     },
-    [completionFlow, finishOnboarding, isAgentSkipEntry, navigate],
+    [completionFlow, finishOnboarding, isAgentSkipEntry],
   );
 
   const handleSkip = useCallback(async () => {

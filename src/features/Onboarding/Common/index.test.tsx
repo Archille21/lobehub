@@ -15,6 +15,7 @@ interface RenderOptions {
   finishedAt?: string;
   initialEntry?: string;
   isUserStateInit?: boolean;
+  ONBOARDING_AGENT_PICKER_ENABLED?: boolean;
   persistedStep?: number;
   serverConfigInit?: boolean;
   setOnboardingStep?: ReturnType<typeof vi.fn>;
@@ -42,6 +43,7 @@ const renderCommon = async ({
   finishedAt,
   initialEntry = '/onboarding',
   isUserStateInit = true,
+  ONBOARDING_AGENT_PICKER_ENABLED = true,
   persistedStep,
   serverConfigInit = true,
   setOnboardingStep = vi.fn(),
@@ -53,6 +55,7 @@ const renderCommon = async ({
 
   vi.doMock('@lobechat/business-const', () => ({
     AGENT_ONBOARDING_ENABLED,
+    ONBOARDING_AGENT_PICKER_ENABLED,
   }));
   vi.doMock('@lobechat/const', () => ({ isDesktop: desktop }));
   vi.doMock('@lobehub/ui', () => ({
