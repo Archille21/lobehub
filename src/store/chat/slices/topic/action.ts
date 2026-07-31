@@ -1616,13 +1616,27 @@ export class ChatTopicActionImpl {
   };
 
   /**
-   * Clear independently fetched topic rows and invalidate requests that started
-   * before this cache boundary. Without the generation bump, a late response
-   * could restore a deleted topic or leak the previous workspace into the next.
+   * Clear independently fetched topic rows, their SWR entries, and requests
+   * that started before this cache boundary. Without clearing both cache
+   * layers, a late response or SWR sync could restore a deleted topic.
    */
   internal_clearTopicDetails = (ids?: string[]): void => {
     this.#topicDetailCacheGeneration += 1;
     this.#topicDetailRequests.clear();
+
+    const idSet = ids ? new Set(ids) : undefined;
+    void Promise.resolve(
+      mutate(
+        (key) =>
+          Array.isArray(key) &&
+          key[0] === topicKeys.detail.root &&
+          (!idSet || (typeof key[1] === 'string' && idSet.has(key[1]))),
+        undefined,
+        { revalidate: false },
+      ),
+    ).catch((error) => {
+      console.error('[internal_clearTopicDetails] failed to clear SWR cache:', error);
+    });
 
     const currentMap = this.#get().topicDetailMap ?? {};
     const nextMap = ids

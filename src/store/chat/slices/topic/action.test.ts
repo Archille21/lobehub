@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { LOADING_FLAT } from '@/const/message';
 import { mutate } from '@/libs/swr';
+import { topicKeys } from '@/libs/swr/keys';
 import { chatService } from '@/services/chat';
 import { messageService } from '@/services/message';
 import { topicService } from '@/services/topic';
@@ -74,6 +75,8 @@ vi.mock('i18next', () => ({
 beforeEach(() => {
   // Setup initial state and mocks before each test
   vi.clearAllMocks();
+  (mutate as Mock).mockReset();
+  (mutate as Mock).mockResolvedValue(undefined);
   useChatStore.setState(
     {
       activeAgentId: undefined,
@@ -1262,6 +1265,21 @@ describe('topic action', () => {
       });
 
       expect(useChatStore.getState().topicDetailMap).toEqual({});
+    });
+
+    it('clears only matching topic detail SWR entries for a targeted reset', () => {
+      const { result } = renderHook(() => useChatStore());
+
+      act(() => {
+        result.current.internal_clearTopicDetails(['topic-1']);
+      });
+
+      expect(mutate).toHaveBeenCalledWith(expect.any(Function), undefined, { revalidate: false });
+      const matcher = (mutate as Mock).mock.calls[0][0] as (key: unknown) => boolean;
+      expect(matcher(topicKeys.detail('topic-1'))).toBe(true);
+      expect(matcher([...topicKeys.detail('topic-1'), 'workspace-1'])).toBe(true);
+      expect(matcher(topicKeys.detail('topic-2'))).toBe(false);
+      expect(matcher(topicKeys.list('agent-1', {}))).toBe(false);
     });
   });
   describe('removeTopic', () => {
