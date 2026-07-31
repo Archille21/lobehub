@@ -5,13 +5,16 @@ import type { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  accountGuardModuleLoaded: vi.fn(),
+  authEnv: {
+    ENABLE_OIDC: true,
+  },
   createNodeRequest: vi.fn(),
   createNodeResponse: vi.fn(),
-  getUserAuth: vi.fn(),
+  getOIDCProvider: vi.fn(),
+  guardOIDCAuthorizationAccount: vi.fn(),
   middleware: vi.fn(),
   providerCallback: vi.fn(),
-  reconcileInteractionAccount: vi.fn(),
-  reconcileCurrentOIDCSession: vi.fn(),
 }));
 
 vi.mock('debug', () => ({
@@ -19,17 +22,7 @@ vi.mock('debug', () => ({
 }));
 
 vi.mock('@/envs/auth', () => ({
-  authEnv: {
-    ENABLE_OIDC: true,
-  },
-}));
-
-vi.mock('@lobechat/database', () => ({
-  serverDB: { id: 'server-db' },
-}));
-
-vi.mock('@lobechat/utils/server', () => ({
-  getUserAuth: mocks.getUserAuth,
+  authEnv: mocks.authEnv,
 }));
 
 vi.mock('@/libs/oidc-provider/http-adapter', () => ({
@@ -37,26 +30,27 @@ vi.mock('@/libs/oidc-provider/http-adapter', () => ({
   createNodeResponse: mocks.createNodeResponse,
 }));
 
-vi.mock('@/libs/oidc-provider/session-cleanup', () => ({
-  reconcileCurrentOIDCSession: mocks.reconcileCurrentOIDCSession,
-}));
-
-vi.mock('@/server/services/oidc', () => ({
-  OIDCService: class {
-    reconcileInteractionAccount = mocks.reconcileInteractionAccount;
-  },
-}));
+vi.mock('@/server/services/oidc/accountGuard', () => {
+  mocks.accountGuardModuleLoaded();
+  return {
+    guardOIDCAuthorizationAccount: mocks.guardOIDCAuthorizationAccount,
+  };
+});
 
 vi.mock('@/server/services/oidc/oidcProvider', () => ({
-  getOIDCProvider: vi.fn(async () => ({
-    callback: mocks.providerCallback,
-  })),
+  getOIDCProvider: mocks.getOIDCProvider,
 }));
 
 describe('OIDC route', () => {
   beforeEach(() => {
+    vi.resetModules();
     vi.clearAllMocks();
 
+    mocks.authEnv.ENABLE_OIDC = true;
+    mocks.getOIDCProvider.mockResolvedValue({
+      callback: mocks.providerCallback,
+    });
+    mocks.guardOIDCAuthorizationAccount.mockResolvedValue(null);
     mocks.providerCallback.mockReturnValue(mocks.middleware);
     mocks.middleware.mockImplementation(
       (_request: unknown, _response: unknown, next: (error?: Error) => void) => next(),
@@ -68,18 +62,15 @@ describe('OIDC route', () => {
       responseHeaders: {},
       responseStatus: 200,
     });
-    mocks.getUserAuth.mockResolvedValue({ userId: undefined });
-    mocks.reconcileInteractionAccount.mockResolvedValue('matched');
-    mocks.reconcileCurrentOIDCSession.mockResolvedValue({ status: 'missing' });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('reconciles the current browser session before an authorization request', async () => {
-    mocks.getUserAuth.mockResolvedValueOnce({ userId: 'user-b' });
-    mocks.reconcileCurrentOIDCSession.mockResolvedValueOnce({
+  it('loads the account guard after OIDC is enabled', async () => {
+    mocks.guardOIDCAuthorizationAccount.mockResolvedValueOnce({
+      path: 'authorization',
       reason: 'account_mismatch',
       status: 'recovered',
     });
@@ -98,38 +89,35 @@ describe('OIDC route', () => {
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(mocks.reconcileCurrentOIDCSession).toHaveBeenCalledWith(
-      { id: 'server-db' },
-      'user-b',
-      expect.objectContaining({ getCookie: expect.any(Function) }),
-    );
-    const cookieReader = mocks.reconcileCurrentOIDCSession.mock.calls[0][2];
-    expect(cookieReader.getCookie('_session')).toBe('oidc-session-a');
+    expect(mocks.accountGuardModuleLoaded).toHaveBeenCalledTimes(1);
+    expect(mocks.guardOIDCAuthorizationAccount).toHaveBeenCalledWith({
+      getCookie: expect.any(Function),
+      pathname: '/oidc/auth',
+      provider: expect.objectContaining({ callback: mocks.providerCallback }),
+    });
+    const { getCookie: readCookie } = mocks.guardOIDCAuthorizationAccount.mock.calls[0][0];
+    expect(readCookie('_session')).toBe('oidc-session-a');
     expect(mocks.middleware).toHaveBeenCalledTimes(1);
   });
 
-  it('replaces a stale interaction result before resuming authorization', async () => {
-    mocks.getUserAuth.mockResolvedValueOnce({ userId: 'user-b' });
-    mocks.reconcileInteractionAccount.mockResolvedValueOnce('recovered');
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-
+  it('does not load server account dependencies when OIDC is disabled', async () => {
+    mocks.authEnv.ENABLE_OIDC = false;
     const { GET } = await import('./route');
     const request = {
       cookies: { get: vi.fn() },
       method: 'GET',
-      url: 'https://example.com/oidc/auth/interaction-1',
+      url: 'https://example.com/oidc/auth',
     } as unknown as NextRequest;
 
     const response = await GET(request);
 
-    expect(response.status).toBe(200);
-    expect(mocks.reconcileInteractionAccount).toHaveBeenCalledWith('interaction-1', 'user-b');
-    expect(mocks.reconcileCurrentOIDCSession).not.toHaveBeenCalled();
-    expect(mocks.middleware).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(404);
+    expect(mocks.accountGuardModuleLoaded).not.toHaveBeenCalled();
+    expect(mocks.getOIDCProvider).not.toHaveBeenCalled();
   });
 
   it('fails closed when the authorization account check fails', async () => {
-    mocks.getUserAuth.mockRejectedValueOnce(new Error('auth unavailable'));
+    mocks.guardOIDCAuthorizationAccount.mockRejectedValueOnce(new Error('auth unavailable'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const { GET } = await import('./route');
