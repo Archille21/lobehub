@@ -105,7 +105,11 @@ export async function processBackgroundVideoPolling(
 
     log('Video processing completed successfully for task: %s', asyncTaskId);
   } catch (error) {
-    log('Background video polling error for task: %s', asyncTaskId, error);
+    // Always visible regardless of DEBUG: this is the terminal "why the video
+    // never showed up" reason, not routine per-attempt tracing — matches the
+    // console.error already used for the infra-level catch in the caller
+    // (routers/lambda/video/index.ts).
+    console.error(`[video] Background polling failed for task ${asyncTaskId}:`, error);
 
     const asyncTaskModel = new AsyncTaskModel(db, userId, workspaceId);
     const providerContentPolicyMessage = await getProviderContentPolicyErrorMessage({
@@ -147,15 +151,30 @@ async function pollUntilCompletion(
 ): Promise<{ headers?: Record<string, string>; videoUrl: string } | null> {
   const maxRetries = 120;
   const pollingInterval = 5000;
+  const startedAt = Date.now();
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+
     try {
-      log('Polling attempt %d/%d for task: %s', attempt + 1, maxRetries, inferenceId);
+      // Log the raw result (not just the status label) so a "failed" from the
+      // upstream provider is diagnosable from this line alone, and the elapsed
+      // time so a mid-flight platform kill (no further lines after this one)
+      // can be told apart from a genuine multi-minute in-progress wait.
+      log(
+        'Polling attempt %d/%d for task: %s (elapsed %ds)',
+        attempt + 1,
+        maxRetries,
+        inferenceId,
+        elapsedSec,
+      );
 
       const result = await modelRuntime.handlePollVideoStatus(inferenceId);
 
+      log('Poll result for task %s at %ds: %O', inferenceId, elapsedSec, result);
+
       if (result.status === 'success') {
-        log('Video generation succeeded for task: %s', inferenceId);
+        log('Video generation succeeded for task: %s after %ds', inferenceId, elapsedSec);
         return { headers: result.headers, videoUrl: result.videoUrl };
       }
 
@@ -163,13 +182,18 @@ async function pollUntilCompletion(
         throw new Error(`Video generation failed: ${result.error}`);
       }
 
-      log('Task %s still in progress', inferenceId);
       await sleep(pollingInterval);
     } catch (error) {
       if (error instanceof Error && error.message.includes('failed')) {
         throw error;
       }
-      log('Polling attempt %d failed for task: %s: %O', attempt + 1, inferenceId, error);
+      log(
+        'Polling attempt %d failed for task: %s at %ds: %O',
+        attempt + 1,
+        inferenceId,
+        elapsedSec,
+        error,
+      );
       await sleep(pollingInterval);
     }
   }
