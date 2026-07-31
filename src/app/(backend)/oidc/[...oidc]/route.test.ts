@@ -100,6 +100,26 @@ describe('OIDC route', () => {
     expect(mocks.middleware).toHaveBeenCalledTimes(1);
   });
 
+  it('continues first-time authorization without an OIDC session', async () => {
+    mocks.guardOIDCAuthorizationAccount.mockResolvedValueOnce({
+      path: 'authorization',
+      status: 'missing',
+    });
+
+    const { GET } = await import('./route');
+    const request = {
+      cookies: { get: vi.fn() },
+      method: 'GET',
+      url: 'https://example.com/oidc/auth?client_id=client-1',
+    } as unknown as NextRequest;
+
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(mocks.providerCallback).toHaveBeenCalledTimes(1);
+    expect(mocks.middleware).toHaveBeenCalledTimes(1);
+  });
+
   it('does not load server account dependencies when OIDC is disabled', async () => {
     mocks.authEnv.ENABLE_OIDC = false;
     const { GET } = await import('./route');

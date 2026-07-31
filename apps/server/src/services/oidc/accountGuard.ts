@@ -1,6 +1,7 @@
 import { getServerDB } from '@lobechat/database';
 import { getUserAuth } from '@lobechat/utils/server';
 
+import { OIDC_SESSION_COOKIE_NAME } from '@/libs/oidc-provider/cookies';
 import type { OIDCProvider } from '@/libs/oidc-provider/provider';
 import type { OIDCSessionReconciliationResult } from '@/libs/oidc-provider/session-cleanup';
 import { reconcileCurrentOIDCSession } from '@/libs/oidc-provider/session-cleanup';
@@ -52,6 +53,10 @@ export const guardOIDCAuthorizationAccount = async ({
 }: GuardOIDCAuthorizationAccountParams): Promise<OIDCAccountGuardResult | null> => {
   const stage = getAuthorizationStage(pathname);
   if (!stage) return null;
+
+  if (stage.name === 'authorization' && !getCookie(OIDC_SESSION_COOKIE_NAME)) {
+    return { path: stage.name, status: 'missing' };
+  }
 
   const { userId } = await getUserAuth();
   if (!userId) return { path: stage.name, status: 'missing_app_session' };

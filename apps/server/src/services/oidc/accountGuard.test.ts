@@ -47,11 +47,23 @@ describe('guardOIDCAuthorizationAccount', () => {
     expect(getServerDB).not.toHaveBeenCalled();
   });
 
+  it('allows first-time authorization without an OIDC session', async () => {
+    const result = await guardOIDCAuthorizationAccount({
+      getCookie: vi.fn(() => null),
+      pathname: '/oidc/auth',
+      provider,
+    });
+
+    expect(result).toEqual({ path: 'authorization', status: 'missing' });
+    expect(getUserAuth).not.toHaveBeenCalled();
+    expect(getServerDB).not.toHaveBeenCalled();
+  });
+
   it('reports a missing application session before reading OIDC state', async () => {
     vi.mocked(getUserAuth).mockResolvedValueOnce({ betterAuth: null, userId: undefined });
 
     const result = await guardOIDCAuthorizationAccount({
-      getCookie: vi.fn(),
+      getCookie: vi.fn((name) => (name === '_session' ? 'oidc-session-a' : null)),
       pathname: '/oidc/auth',
       provider,
     });
@@ -65,7 +77,7 @@ describe('guardOIDCAuthorizationAccount', () => {
       reason: 'account_mismatch',
       status: 'recovered',
     });
-    const getCookie = vi.fn();
+    const getCookie = vi.fn((name) => (name === '_session' ? 'oidc-session-a' : null));
 
     const result = await guardOIDCAuthorizationAccount({
       getCookie,
