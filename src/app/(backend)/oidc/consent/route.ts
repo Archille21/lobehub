@@ -52,6 +52,16 @@ export async function POST(request: NextRequest) {
       const { userId } = await getUserAuth();
       log('Obtained userId: %s', userId);
 
+      if (!userId) {
+        return NextResponse.json(
+          {
+            error: 'unauthorized',
+            error_description: 'Authentication is required to continue authorization',
+          },
+          { status: 401 },
+        );
+      }
+
       if (details.prompt.name === 'login') {
         result = {
           login: { accountId: userId, remember: true },
@@ -59,46 +69,58 @@ export async function POST(request: NextRequest) {
       } else {
         log(`Handling 'consent' prompt`);
 
-        // 1. Get necessary IDs
-        const clientId = details.params.client_id as string;
+        if (details.session?.accountId !== userId) {
+          /**
+           * Submitting a login result lets oidc-provider rotate the old account session through its
+           * built-in resume and end-session flow. Creating a grant here would bind the new account
+           * to the old session and fail later with `accountId mismatch`.
+           */
+          result = {
+            login: { accountId: userId, remember: true },
+          };
+          console.warn('[OIDC Account Guard] recovered path=consent reason=account_mismatch');
+        } else {
+          // 1. Get necessary IDs
+          const clientId = details.params.client_id as string;
 
-        // 2. Find or create Grant object
-        const grant = await oidcService.findOrCreateGrants(userId!, clientId, details.grantId);
+          // 2. Find or create Grant object
+          const grant = await oidcService.findOrCreateGrants(userId, clientId, details.grantId);
 
-        // 3. Add user-consented scopes and claims to Grant object
-        //    This information is typically in details.prompt.details
-        const missingOIDCScope = (prompt.details.missingOIDCScope as string[]) || [];
-        if (missingOIDCScope) {
-          grant.addOIDCScope(missingOIDCScope.join(' '));
-          log('Added OIDC scopes to grant: %s', missingOIDCScope.join(' '));
-        }
-        const missingOIDCClaims = (prompt.details.missingOIDCClaims as string[]) || [];
-        if (missingOIDCClaims) {
-          grant.addOIDCClaims(missingOIDCClaims);
-          log('Added OIDC claims to grant: %s', missingOIDCClaims.join(' '));
-        }
-
-        const missingResourceScopes =
-          (prompt.details.missingResourceScopes as Record<string, string[]>) || {};
-        if (missingResourceScopes) {
-          for (const [indicator, scopes] of Object.entries(missingResourceScopes)) {
-            grant.addResourceScope(indicator, scopes.join(' '));
-            log('Added resource scopes for %s to grant: %s', indicator, scopes.join(' '));
+          // 3. Add user-consented scopes and claims to Grant object
+          //    This information is typically in details.prompt.details
+          const missingOIDCScope = (prompt.details.missingOIDCScope as string[]) || [];
+          if (missingOIDCScope) {
+            grant.addOIDCScope(missingOIDCScope.join(' '));
+            log('Added OIDC scopes to grant: %s', missingOIDCScope.join(' '));
           }
+          const missingOIDCClaims = (prompt.details.missingOIDCClaims as string[]) || [];
+          if (missingOIDCClaims) {
+            grant.addOIDCClaims(missingOIDCClaims);
+            log('Added OIDC claims to grant: %s', missingOIDCClaims.join(' '));
+          }
+
+          const missingResourceScopes =
+            (prompt.details.missingResourceScopes as Record<string, string[]>) || {};
+          if (missingResourceScopes) {
+            for (const [indicator, scopes] of Object.entries(missingResourceScopes)) {
+              grant.addResourceScope(indicator, scopes.join(' '));
+              log('Added resource scopes for %s to grant: %s', indicator, scopes.join(' '));
+            }
+          }
+          // If RAR (Rich Authorization Requests) is used, it also needs to be added to grant
+          // if (prompt.details.rar) {
+          //   prompt.details.rar.forEach(detail => grant.addRar(detail));
+          // }
+
+          // 4. Save Grant object to get its jti (grantId)
+          const newGrantId = await grant.save();
+          log('Saved grant with ID: %s', newGrantId);
+
+          // 5. Prepare result containing grantId
+          result = { consent: { grantId: newGrantId } };
+
+          log('Consent result prepared with grantId');
         }
-        // If RAR (Rich Authorization Requests) is used, it also needs to be added to grant
-        // if (prompt.details.rar) {
-        //   prompt.details.rar.forEach(detail => grant.addRar(detail));
-        // }
-
-        // 4. Save Grant object to get its jti (grantId)
-        const newGrantId = await grant.save();
-        log('Saved grant with ID: %s', newGrantId);
-
-        // 5. Prepare result containing grantId
-        result = { consent: { grantId: newGrantId } };
-
-        log('Consent result prepared with grantId');
       }
       log('User %s the authorization', consent);
     } else {

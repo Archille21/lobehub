@@ -8,8 +8,11 @@ import {
   verifyOIDCCookieSignature,
 } from './cookies';
 
-export interface OIDCSessionCookieContext {
+export interface OIDCSessionCookieReader {
   getCookie: (name: string) => string | null;
+}
+
+export interface OIDCSessionCookieContext extends OIDCSessionCookieReader {
   setCookie: (
     name: string,
     value: string,
@@ -19,6 +22,14 @@ export interface OIDCSessionCookieContext {
 
 type OIDCSessionCookieResult =
   { status: 'invalid' } | { status: 'missing' } | { sessionId: string; status: 'valid' };
+
+export type OIDCSessionReconciliationResult =
+  | { status: 'matched' }
+  | { status: 'missing' }
+  | {
+      reason: 'account_mismatch' | 'dangling_session' | 'invalid_cookie';
+      status: 'recovered';
+    };
 
 const expireOIDCSessionCookies = (context: OIDCSessionCookieContext) => {
   for (const name of OIDC_SESSION_COOKIE_NAMES) {
@@ -30,17 +41,56 @@ const expireOIDCSessionCookies = (context: OIDCSessionCookieContext) => {
   }
 };
 
-const getOIDCSessionCookie = (context: OIDCSessionCookieContext): OIDCSessionCookieResult => {
+const getOIDCSessionCookie = (context: OIDCSessionCookieReader): OIDCSessionCookieResult => {
   const sessionId = context.getCookie(OIDC_SESSION_COOKIE_NAME);
   if (!sessionId) return { status: 'missing' };
 
   const signature = context.getCookie(`${OIDC_SESSION_COOKIE_NAME}.sig`);
   if (!signature || !verifyOIDCCookieSignature(OIDC_SESSION_COOKIE_NAME, sessionId, signature)) {
-    expireOIDCSessionCookies(context);
     return { status: 'invalid' };
   }
 
   return { sessionId, status: 'valid' };
+};
+
+/**
+ * Reconciles the OIDC session referenced by the current browser with the active application user.
+ *
+ * Deleting only the persisted session is intentional for authorization requests: oidc-provider
+ * treats the still-signed cookie as a missing session, rotates it through its own middleware, and
+ * restarts login without carrying the previous account binding into code or token issuance.
+ */
+export const reconcileCurrentOIDCSession = async (
+  db: LobeChatDatabase,
+  userId: string,
+  context: OIDCSessionCookieReader,
+  onRecovery?: () => void,
+): Promise<OIDCSessionReconciliationResult> => {
+  const cookie = getOIDCSessionCookie(context);
+  if (cookie.status === 'missing') return { status: 'missing' };
+
+  if (cookie.status === 'invalid') {
+    onRecovery?.();
+    return { reason: 'invalid_cookie', status: 'recovered' };
+  }
+
+  const [session] = await db
+    .select({ userId: oidcSessions.userId })
+    .from(oidcSessions)
+    .where(eq(oidcSessions.id, cookie.sessionId))
+    .limit(1);
+
+  if (session?.userId === userId) return { status: 'matched' };
+
+  if (session) {
+    await db.delete(oidcSessions).where(eq(oidcSessions.id, cookie.sessionId));
+  }
+
+  onRecovery?.();
+  return {
+    reason: session ? 'account_mismatch' : 'dangling_session',
+    status: 'recovered',
+  };
 };
 
 /**
@@ -51,7 +101,11 @@ export const clearCurrentOIDCSession = async (
   context: OIDCSessionCookieContext,
 ) => {
   const cookie = getOIDCSessionCookie(context);
-  if (cookie.status !== 'valid') return false;
+  if (cookie.status === 'invalid') {
+    expireOIDCSessionCookies(context);
+    return false;
+  }
+  if (cookie.status === 'missing') return false;
 
   await db.delete(oidcSessions).where(eq(oidcSessions.id, cookie.sessionId));
   expireOIDCSessionCookies(context);
@@ -72,22 +126,8 @@ export const clearMismatchedOIDCSession = async (
 ) => {
   if (!context) return false;
 
-  const cookie = getOIDCSessionCookie(context);
-  if (cookie.status === 'missing') return false;
-  if (cookie.status === 'invalid') return true;
-
-  const [session] = await db
-    .select({ userId: oidcSessions.userId })
-    .from(oidcSessions)
-    .where(eq(oidcSessions.id, cookie.sessionId))
-    .limit(1);
-
-  if (session?.userId === userId) return false;
-
-  if (session) {
-    await db.delete(oidcSessions).where(eq(oidcSessions.id, cookie.sessionId));
-  }
-
-  expireOIDCSessionCookies(context);
-  return true;
+  const result = await reconcileCurrentOIDCSession(db, userId, context, () =>
+    expireOIDCSessionCookies(context),
+  );
+  return result.status === 'recovered';
 };

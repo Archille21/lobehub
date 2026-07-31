@@ -134,6 +134,45 @@ describe('OIDCService', () => {
     );
   });
 
+  it('reconcileInteractionAccount should replace a mismatched result with a login result', async () => {
+    const provider = createMockProvider();
+    provider.interactionDetails.mockResolvedValue({
+      session: { accountId: 'account-a' },
+    });
+    provider.interactionResult.mockResolvedValue('/oidc/auth/uid-4');
+    vi.mocked(createContextForInteractionDetails).mockResolvedValue({
+      req: { id: 'req' },
+      res: { id: 'res' },
+    } as any);
+
+    const service = new OIDCService(provider as any);
+    const result = await service.reconcileInteractionAccount('uid-4', 'account-b');
+
+    expect(result).toBe('recovered');
+    expect(provider.interactionResult).toHaveBeenCalledWith(
+      { id: 'req' },
+      { id: 'res' },
+      { login: { accountId: 'account-b', remember: true } },
+    );
+  });
+
+  it('reconcileInteractionAccount should preserve a matching interaction', async () => {
+    const provider = createMockProvider();
+    provider.interactionDetails.mockResolvedValue({
+      session: { accountId: 'account-a' },
+    });
+    vi.mocked(createContextForInteractionDetails).mockResolvedValue({
+      req: { id: 'req' },
+      res: { id: 'res' },
+    } as any);
+
+    const service = new OIDCService(provider as any);
+    const result = await service.reconcileInteractionAccount('uid-5', 'account-a');
+
+    expect(result).toBe('matched');
+    expect(provider.interactionResult).not.toHaveBeenCalled();
+  });
+
   it('findOrCreateGrants should reuse existing matching grant', async () => {
     const provider = createMockProvider();
     const existingGrant = { accountId: 'account-1', clientId: 'client-1' };
@@ -147,7 +186,7 @@ describe('OIDCService', () => {
     expect(grant).toBe(existingGrant);
   });
 
-  it('findOrCreateGrants should destroy mismatched grant and create a new one', async () => {
+  it('findOrCreateGrants should reject an account mismatch without destroying the grant', async () => {
     const provider = createMockProvider();
     const staleGrant = {
       accountId: 'other-account',
@@ -156,15 +195,13 @@ describe('OIDCService', () => {
     };
     provider.Grant.find.mockResolvedValue(staleGrant as any);
 
-    const createdGrant = { accountId: 'account-2', clientId: 'client-1' };
-    provider.Grant.mockImplementation(() => createdGrant as any);
-
     const service = new OIDCService(provider as any);
-    const grant = await service.findOrCreateGrants('account-2', 'client-1', 'grant-2');
+    await expect(service.findOrCreateGrants('account-2', 'client-1', 'grant-2')).rejects.toThrow(
+      'OIDC grant account does not match the authorization session',
+    );
 
-    expect(staleGrant.destroy).toHaveBeenCalledTimes(1);
-    expect(provider.Grant).toHaveBeenCalledWith({ accountId: 'account-2', clientId: 'client-1' });
-    expect(grant).toBe(createdGrant);
+    expect(staleGrant.destroy).not.toHaveBeenCalled();
+    expect(provider.Grant).not.toHaveBeenCalled();
   });
 
   it('findOrCreateGrants should create new grant when no existing id is provided', async () => {
@@ -194,7 +231,7 @@ describe('OIDCService', () => {
     expect(grant).toBe(createdGrant);
   });
 
-  it('findOrCreateGrants should recreate grant if client mismatch occurs', async () => {
+  it('findOrCreateGrants should reject a client mismatch without destroying the grant', async () => {
     const provider = createMockProvider();
     const staleGrant = {
       accountId: 'account-5',
@@ -203,39 +240,13 @@ describe('OIDCService', () => {
     };
     provider.Grant.find.mockResolvedValue(staleGrant as any);
 
-    const createdGrant = { accountId: 'account-5', clientId: 'client-5' };
-    provider.Grant.mockImplementation(() => createdGrant as any);
-
     const service = new OIDCService(provider as any);
-    const grant = await service.findOrCreateGrants(
-      'account-5',
-      'client-5',
-      'grant-client-mismatch',
-    );
+    await expect(
+      service.findOrCreateGrants('account-5', 'client-5', 'grant-client-mismatch'),
+    ).rejects.toThrow('OIDC grant client does not match the authorization request');
 
-    expect(staleGrant.destroy).toHaveBeenCalledTimes(1);
-    expect(provider.Grant).toHaveBeenCalledWith({ accountId: 'account-5', clientId: 'client-5' });
-    expect(grant).toBe(createdGrant);
-  });
-
-  it('findOrCreateGrants should continue when destroy throws during mismatch cleanup', async () => {
-    const provider = createMockProvider();
-    const staleGrant = {
-      accountId: 'wrong-account',
-      clientId: 'client-6',
-      destroy: vi.fn().mockRejectedValue(new Error('destroy failed')),
-    };
-    provider.Grant.find.mockResolvedValue(staleGrant as any);
-
-    const createdGrant = { accountId: 'account-6', clientId: 'client-6' };
-    provider.Grant.mockImplementation(() => createdGrant as any);
-
-    const service = new OIDCService(provider as any);
-    const grant = await service.findOrCreateGrants('account-6', 'client-6', 'grant-error');
-
-    expect(staleGrant.destroy).toHaveBeenCalledTimes(1);
-    expect(provider.Grant).toHaveBeenCalledWith({ accountId: 'account-6', clientId: 'client-6' });
-    expect(grant).toBe(createdGrant);
+    expect(staleGrant.destroy).not.toHaveBeenCalled();
+    expect(provider.Grant).not.toHaveBeenCalled();
   });
 
   it('getClientMetadata should return metadata from client lookup', async () => {

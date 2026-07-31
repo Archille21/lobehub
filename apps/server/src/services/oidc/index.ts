@@ -48,6 +48,23 @@ export class OIDCService {
     return this.provider.interactionFinished(req, res, result, { mergeWithLastSubmission: true });
   }
 
+  async reconcileInteractionAccount(uid: string, accountId: string) {
+    const details = await this.getInteractionDetails(uid);
+    const interactionAccountId = details.session?.accountId;
+
+    if (!interactionAccountId) return 'missing';
+    if (interactionAccountId === accountId) return 'matched';
+
+    /**
+     * Replacing a stale consent result with a login result delegates account switching to
+     * oidc-provider's resume and end-session flow before it loads an account-bound grant.
+     */
+    await this.getInteractionResult(uid, {
+      login: { accountId, remember: true },
+    });
+    return 'recovered';
+  }
+
   async findOrCreateGrants(accountId: string, clientId: string, existingGrantId?: string) {
     // 2. Find or create Grant object
     let grant;
@@ -56,25 +73,16 @@ export class OIDCService {
       grant = await this.provider.Grant.find(existingGrantId);
       log('Found existing grantId: %s', existingGrantId);
       if (grant) {
-        const accountMismatch = grant.accountId && grant.accountId !== accountId;
-        const clientMismatch = grant.clientId && grant.clientId !== clientId;
-
-        if (accountMismatch || clientMismatch) {
-          log(
-            'Discarding stale grant %s due to mismatch (stored account=%s, client=%s; expected account=%s, client=%s)',
-            existingGrantId,
-            grant.accountId,
-            grant.clientId,
-            accountId,
-            clientId,
-          );
-          try {
-            await grant.destroy();
-            log('Destroyed mismatched grant: %s', existingGrantId);
-          } catch (error) {
-            log('Failed to destroy mismatched grant %s: %O', existingGrantId, error);
-          }
-          grant = undefined;
+        /**
+         * An interaction grant is already bound to its account and client. Replacing a mismatched
+         * grant would hide a stale session binding and could destroy another account's grant.
+         * Account recovery must rotate the OIDC session before consent reaches this method.
+         */
+        if (grant.accountId !== accountId) {
+          throw new Error('OIDC grant account does not match the authorization session');
+        }
+        if (grant.clientId !== clientId) {
+          throw new Error('OIDC grant client does not match the authorization request');
         }
       } else {
         log('Existing grantId %s not found in storage, will create a new grant', existingGrantId);

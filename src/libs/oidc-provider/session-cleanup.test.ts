@@ -3,7 +3,11 @@ import Keygrip from 'keygrip';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { OIDC_SESSION_COOKIE_NAMES } from './cookies';
-import { clearCurrentOIDCSession, clearMismatchedOIDCSession } from './session-cleanup';
+import {
+  clearCurrentOIDCSession,
+  clearMismatchedOIDCSession,
+  reconcileCurrentOIDCSession,
+} from './session-cleanup';
 
 const TEST_COOKIE_KEY = 'test-cookie-key';
 
@@ -41,6 +45,57 @@ const createCookieContext = (
     return null;
   }),
   setCookie: vi.fn(),
+});
+
+describe('reconcileCurrentOIDCSession', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('deletes the current browser session when it belongs to another user', async () => {
+    const { db, delete_, deleteWhere } = createDb([{ userId: 'user-a' }]);
+    const context = createCookieContext('oidc-session-a');
+
+    const result = await reconcileCurrentOIDCSession(
+      db as unknown as Parameters<typeof reconcileCurrentOIDCSession>[0],
+      'user-b',
+      context,
+    );
+
+    expect(result).toEqual({ reason: 'account_mismatch', status: 'recovered' });
+    expect(delete_).toHaveBeenCalledWith(oidcSessions);
+    expect(deleteWhere).toHaveBeenCalledOnce();
+    expect(context.setCookie).not.toHaveBeenCalled();
+  });
+
+  it('preserves a session that already belongs to the active user', async () => {
+    const { db, delete_ } = createDb([{ userId: 'user-a' }]);
+    const context = createCookieContext('oidc-session-a');
+
+    const result = await reconcileCurrentOIDCSession(
+      db as unknown as Parameters<typeof reconcileCurrentOIDCSession>[0],
+      'user-a',
+      context,
+    );
+
+    expect(result).toEqual({ status: 'matched' });
+    expect(delete_).not.toHaveBeenCalled();
+  });
+
+  it('does not query storage for an invalid signed cookie', async () => {
+    const { db, delete_ } = createDb([{ userId: 'user-a' }]);
+    const context = createCookieContext('oidc-session-a', 'invalid-signature');
+
+    const result = await reconcileCurrentOIDCSession(
+      db as unknown as Parameters<typeof reconcileCurrentOIDCSession>[0],
+      'user-b',
+      context,
+    );
+
+    expect(result).toEqual({ reason: 'invalid_cookie', status: 'recovered' });
+    expect(db.select).not.toHaveBeenCalled();
+    expect(delete_).not.toHaveBeenCalled();
+  });
 });
 
 describe('clearMismatchedOIDCSession', () => {
