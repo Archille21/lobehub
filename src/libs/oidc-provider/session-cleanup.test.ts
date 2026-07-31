@@ -18,7 +18,7 @@ vi.mock('@/config/db', () => ({
 const signSessionCookie = (sessionId: string) =>
   new Keygrip([TEST_COOKIE_KEY]).sign(`_session=${sessionId}`);
 
-const createDb = (sessions: Array<{ userId: string }>) => {
+const createDb = (sessions: Array<{ expiresAt?: Date; userId: string }>) => {
   const limit = vi.fn().mockResolvedValue(sessions);
   const selectWhere = vi.fn(() => ({ limit }));
   const from = vi.fn(() => ({ where: selectWhere }));
@@ -108,6 +108,22 @@ describe('reconcileCurrentOIDCSession', () => {
     );
 
     expect(result).toEqual({ reason: 'dangling_session', status: 'recovered' });
+    expect(delete_).not.toHaveBeenCalled();
+  });
+
+  it('recovers an expired session without an active user', async () => {
+    const { db, delete_ } = createDb([
+      { expiresAt: new Date(Date.now() - 1000), userId: 'user-a' },
+    ]);
+    const context = createCookieContext('expired-session');
+
+    const result = await reconcileCurrentOIDCSession(
+      db as unknown as Parameters<typeof reconcileCurrentOIDCSession>[0],
+      undefined,
+      context,
+    );
+
+    expect(result).toEqual({ reason: 'expired_session', status: 'recovered' });
     expect(delete_).not.toHaveBeenCalled();
   });
 

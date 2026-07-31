@@ -75,7 +75,7 @@ describe('guardOIDCAuthorizationAccount', () => {
     expect(getServerDB).toHaveBeenCalledOnce();
   });
 
-  it.each(['dangling_session', 'invalid_cookie'] as const)(
+  it.each(['dangling_session', 'expired_session', 'invalid_cookie'] as const)(
     'recovers a stale %s without requiring an application session',
     async (reason) => {
       vi.mocked(getUserAuth).mockResolvedValueOnce({ betterAuth: null, userId: undefined });
