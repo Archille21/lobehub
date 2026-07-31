@@ -9,14 +9,14 @@ import { LoadingDots } from '@lobehub/ui/chat';
 import { Steps } from 'antd';
 import { cssVar } from 'antd-style';
 import { BrainIcon, HeartHandshakeIcon, PencilRulerIcon, ShieldCheck } from 'lucide-react';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 
 import { ProductLogo } from '@/components/Branding';
 import { PRIVACY_URL, TERMS_URL } from '@/const/url';
+import { useTelemetrySubmit } from '@/features/Onboarding';
 import { useUserStore } from '@/store/user';
-
-import { useTelemetrySubmit } from './useTelemetrySubmit';
+import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 
 interface TelemetryStepProps {
   onNext: () => Promise<void> | void;
@@ -25,12 +25,14 @@ interface TelemetryStepProps {
 const TelemetryStep = memo<TelemetryStepProps>(({ onNext }) => {
   const { t, i18n } = useTranslation('onboarding');
   const locale = i18n.language;
-  const [check, setCheck] = useState(false);
+  const persistedTelemetryEnabled = useUserStore(userGeneralSettingsSelectors.telemetry);
   const updateGeneralConfig = useUserStore((s) => s.updateGeneralConfig);
-  const { handleChoice, hasSaveError, isSaving } = useTelemetrySubmit({
-    onNext,
-    updateGeneralConfig,
-  });
+  const { handleSubmit, hasSaveError, isSaving, setTelemetryEnabled, telemetryEnabled } =
+    useTelemetrySubmit({
+      initialTelemetryEnabled: persistedTelemetryEnabled,
+      onNext,
+      updateGeneralConfig,
+    });
 
   // eslint-disable-next-line @eslint-react/no-nested-component-definitions
   const IconAvatar = useCallback(({ icon }: { icon: IconProps['icon'] }) => {
@@ -123,12 +125,12 @@ const TelemetryStep = memo<TelemetryStepProps>(({ onNext }) => {
         </Text>
         <Flexbox horizontal align="center" gap={8}>
           <Switch
-            checked={check}
+            checked={telemetryEnabled}
             disabled={isSaving}
             size={'small'}
-            onChange={(v) => setCheck(v)}
+            onChange={setTelemetryEnabled}
           />
-          <Text fontSize={12} type={check ? undefined : 'secondary'}>
+          <Text fontSize={12} type={telemetryEnabled ? undefined : 'secondary'}>
             {t('telemetry.rows.privacy.title', { appName: BRANDING_NAME })}
           </Text>
         </Flexbox>
@@ -142,7 +144,7 @@ const TelemetryStep = memo<TelemetryStepProps>(({ onNext }) => {
           marginBlock: 8,
           maxWidth: 240,
         }}
-        onClick={() => handleChoice(check)}
+        onClick={handleSubmit}
       >
         {t('telemetry.next')}
       </Button>
@@ -151,7 +153,7 @@ const TelemetryStep = memo<TelemetryStepProps>(({ onNext }) => {
           {t('telemetry.saveFailed')}
         </Text>
       )}
-      {check && (
+      {telemetryEnabled && (
         <Block horizontal align="flex-start" gap={8} variant={'borderless'}>
           <Icon
             icon={ShieldCheck}

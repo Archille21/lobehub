@@ -4,6 +4,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { useTelemetrySubmit } from './useTelemetrySubmit';
 
 describe('useTelemetrySubmit', () => {
+  it('initializes the choice from persisted telemetry consent', () => {
+    const { result } = renderHook(() =>
+      useTelemetrySubmit({
+        initialTelemetryEnabled: true,
+        onNext: vi.fn(),
+        updateGeneralConfig: vi.fn(),
+      }),
+    );
+
+    expect(result.current.telemetryEnabled).toBe(true);
+  });
+
   it('waits for telemetry persistence before advancing', async () => {
     let resolveSave!: () => void;
     const save = new Promise<void>((resolve) => {
@@ -11,11 +23,17 @@ describe('useTelemetrySubmit', () => {
     });
     const updateGeneralConfig = vi.fn().mockReturnValue(save);
     const onNext = vi.fn();
-    const { result } = renderHook(() => useTelemetrySubmit({ onNext, updateGeneralConfig }));
+    const { result } = renderHook(() =>
+      useTelemetrySubmit({
+        initialTelemetryEnabled: false,
+        onNext,
+        updateGeneralConfig,
+      }),
+    );
 
     let submit!: Promise<void>;
     act(() => {
-      submit = result.current.handleChoice(false);
+      submit = result.current.handleSubmit();
     });
 
     expect(updateGeneralConfig).toHaveBeenCalledWith({ telemetry: false });
@@ -36,10 +54,16 @@ describe('useTelemetrySubmit', () => {
     const updateGeneralConfig = vi.fn().mockRejectedValueOnce(error).mockResolvedValue(undefined);
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const onNext = vi.fn();
-    const { result } = renderHook(() => useTelemetrySubmit({ onNext, updateGeneralConfig }));
+    const { result } = renderHook(() =>
+      useTelemetrySubmit({
+        initialTelemetryEnabled: true,
+        onNext,
+        updateGeneralConfig,
+      }),
+    );
 
     await act(async () => {
-      await result.current.handleChoice(true);
+      await result.current.handleSubmit();
     });
 
     expect(onNext).not.toHaveBeenCalled();
@@ -51,7 +75,7 @@ describe('useTelemetrySubmit', () => {
     );
 
     await act(async () => {
-      await result.current.handleChoice(true);
+      await result.current.handleSubmit();
     });
 
     expect(onNext).toHaveBeenCalledTimes(1);

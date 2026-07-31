@@ -4,17 +4,15 @@ import { Block, Checkbox, Empty, Flexbox, Text } from '@lobehub/ui';
 import { Button } from '@lobehub/ui/base-ui';
 import { cssVar } from 'antd-style';
 import { HeartHandshake, Undo2Icon } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useTelemetrySubmit } from '@/features/Onboarding';
 import { useUserStore } from '@/store/user';
 import { userGeneralSettingsSelectors } from '@/store/user/selectors';
 
 import LobeMessage from '../components/LobeMessage';
 import OnboardingFooterActions from '../components/OnboardingFooterActions';
-import { useDataModeSubmit } from './useDataModeSubmit';
-
-type DataMode = 'share' | 'privacy';
 
 interface DataModeStepProps {
   onBack: () => void;
@@ -23,16 +21,14 @@ interface DataModeStepProps {
 
 const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
   const { t } = useTranslation('desktop-onboarding');
-  const telemetryEnabled = useUserStore(userGeneralSettingsSelectors.telemetry);
+  const persistedTelemetryEnabled = useUserStore(userGeneralSettingsSelectors.telemetry);
   const updateGeneralConfig = useUserStore((s) => s.updateGeneralConfig);
-  const [selectedMode, setSelectedMode] = useState<DataMode>(
-    telemetryEnabled ? 'share' : 'privacy',
-  );
-  const { handleNext, hasSaveError, isSaving } = useDataModeSubmit({
-    onNext,
-    selectedMode,
-    updateGeneralConfig,
-  });
+  const { handleSubmit, hasSaveError, isSaving, setTelemetryEnabled, telemetryEnabled } =
+    useTelemetrySubmit({
+      initialTelemetryEnabled: persistedTelemetryEnabled,
+      onNext,
+      updateGeneralConfig,
+    });
 
   const checkIcon = (
     <Checkbox
@@ -57,11 +53,11 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
           flex={1}
           gap={16}
           padding={16}
-          style={{ borderColor: selectedMode === 'share' ? cssVar.colorSuccess : undefined }}
+          style={{ borderColor: telemetryEnabled ? cssVar.colorSuccess : undefined }}
           variant={'outlined'}
-          onClick={() => setSelectedMode('share')}
+          onClick={() => setTelemetryEnabled(true)}
         >
-          {selectedMode === 'share' && checkIcon}
+          {telemetryEnabled && checkIcon}
           <Empty
             description={t('screen4.share.description')}
             icon={HeartHandshake}
@@ -94,11 +90,11 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
           flex={1}
           gap={6}
           padding={16}
-          style={{ borderColor: selectedMode === 'privacy' ? cssVar.colorSuccess : undefined }}
+          style={{ borderColor: !telemetryEnabled ? cssVar.colorSuccess : undefined }}
           variant={'outlined'}
-          onClick={() => setSelectedMode('privacy')}
+          onClick={() => setTelemetryEnabled(false)}
         >
-          {selectedMode === 'privacy' && checkIcon}
+          {!telemetryEnabled && checkIcon}
           <Text strong fontSize={18}>
             {t('screen4.privacy.title')}
           </Text>
@@ -128,7 +124,7 @@ const DataModeStep = memo<DataModeStepProps>(({ onBack, onNext }) => {
           </Button>
         }
         right={
-          <Button disabled={isSaving} loading={isSaving} type={'primary'} onClick={handleNext}>
+          <Button disabled={isSaving} loading={isSaving} type={'primary'} onClick={handleSubmit}>
             {t('next')}
           </Button>
         }
