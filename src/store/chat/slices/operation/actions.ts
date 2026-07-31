@@ -723,7 +723,7 @@ export class OperationActionsImpl {
     const state = this.#get();
     const topic =
       state.topicDataMap[key]?.items?.find((t) => t.id === topicId) ??
-      state.topicDetailMap[topicId];
+      state.topicDetailMap?.[topicId];
     if (topic?.status !== 'unread') return;
 
     void this.#get()

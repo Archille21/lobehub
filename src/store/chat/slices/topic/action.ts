@@ -523,7 +523,7 @@ export class ChatTopicActionImpl {
     });
     const topic =
       state.topicDataMap[key]?.items?.find((t) => t.id === topicId) ??
-      state.topicDetailMap[topicId];
+      state.topicDetailMap?.[topicId];
 
     // Already at the target status — both the in-memory and DB writes are no-ops.
     if (topic?.status === status) return;
@@ -596,7 +596,7 @@ export class ChatTopicActionImpl {
     const state = this.#get();
     const currentTopic =
       state.topicDataMap[key]?.items.find((item) => item.id === topic.id) ??
-      state.topicDetailMap[topic.id];
+      state.topicDetailMap?.[topic.id];
     const metadata = currentTopic?.metadata ?? topic.metadata;
 
     await topicService.updateTopicMetadata(topic.id, { runningOperation: null });

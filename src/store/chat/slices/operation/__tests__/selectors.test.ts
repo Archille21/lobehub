@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { useChatStore } from '@/store/chat/store';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
+import { topicMapKey } from '@/store/chat/utils/topicMapKey';
 
 import { operationSelectors } from '../selectors';
 import {
@@ -1311,5 +1312,40 @@ describe('Operation topic detail selectors', () => {
     expect(
       operationSelectors.isTopicUnreadCompleted('deep-linked-topic')(useChatStore.getState()),
     ).toBe(true);
+  });
+
+  it('prefers the loaded list row over a stale cached detail', () => {
+    const topicId = 'loaded-topic';
+    useChatStore.setState({
+      activeAgentId: 'agent-1',
+      topicDataMap: {
+        [topicMapKey({ agentId: 'agent-1' })]: {
+          currentPage: 0,
+          hasMore: false,
+          items: [
+            {
+              createdAt: 1,
+              id: topicId,
+              status: 'active',
+              title: 'Loaded topic',
+              updatedAt: 2,
+            },
+          ],
+          pageSize: 20,
+          total: 1,
+        },
+      },
+      topicDetailMap: {
+        [topicId]: {
+          createdAt: 1,
+          id: topicId,
+          status: 'unread',
+          title: 'Stale detail',
+          updatedAt: 1,
+        },
+      },
+    });
+
+    expect(operationSelectors.isTopicUnreadCompleted(topicId)(useChatStore.getState())).toBe(false);
   });
 });

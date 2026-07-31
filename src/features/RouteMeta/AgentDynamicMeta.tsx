@@ -19,7 +19,7 @@ const useTopicTitle = (
   useChatStore((state) => {
     if (!agentId || !topicId || routeWorkspaceId === undefined) return undefined;
 
-    const topic = topicSelectors.getTopicById(topicId)(state);
+    const topic = topicSelectors.getTopicByIdForContext(topicId, { agentId })(state);
     return topic?.title || undefined;
   });
 

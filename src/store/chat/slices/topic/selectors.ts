@@ -18,6 +18,7 @@ import {
 } from '@/utils/client/topic';
 
 import { type ChatStoreState } from '../../initialState';
+import type { TopicMapKeyInput } from '../../utils/topicMapKey';
 import { topicMapKey } from '../../utils/topicMapKey';
 import { operationSelectors } from '../operation/selectors';
 import { type TopicData } from './initialState';
@@ -40,10 +41,26 @@ const currentTopicsWithoutCron = (s: ChatStoreState): ChatTopic[] | undefined =>
   return topics.filter((topic) => topic.trigger !== 'cron');
 };
 
+/**
+ * Keep the detail fallback compatible with partial store states that only
+ * provide the paginated topic map, such as isolated consumers and tests.
+ */
+const getTopicDetailById = (id: string, s: ChatStoreState): ChatTopic | undefined =>
+  s.topicDetailMap?.[id];
+
+const getTopicByIdForContext =
+  (id: string, context: TopicMapKeyInput) =>
+  (s: ChatStoreState): ChatTopic | undefined =>
+    s.topicDataMap[topicMapKey(context)]?.items?.find((topic) => topic.id === id) ??
+    getTopicDetailById(id, s);
+
 const getTopicById =
   (id: string) =>
   (s: ChatStoreState): ChatTopic | undefined =>
-    currentTopics(s)?.find((topic) => topic.id === id) ?? s.topicDetailMap[id];
+    getTopicByIdForContext(id, {
+      agentId: s.activeAgentId,
+      groupId: s.activeGroupId,
+    })(s);
 
 const currentActiveTopic = (s: ChatStoreState): ChatTopic | undefined => {
   return s.activeTopicId ? getTopicById(s.activeTopicId)(s) : undefined;
@@ -329,6 +346,7 @@ export const topicSelectors = {
   displayTopics,
   displayTopicsForSidebar,
   getTopicById,
+  getTopicByIdForContext,
   getTopicModelById,
   getTopicWorkingDirectory,
   getTopicsByAgentId,

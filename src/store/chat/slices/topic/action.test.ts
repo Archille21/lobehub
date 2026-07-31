@@ -1569,7 +1569,7 @@ describe('topic action', () => {
       });
 
       (topicService.getTopicDetail as Mock).mockResolvedValueOnce(deepLinkedTopic);
-      vi.spyOn(topicService, 'updateTopic').mockResolvedValueOnce(undefined);
+      vi.spyOn(topicService, 'updateTopic').mockResolvedValueOnce([]);
 
       await act(async () => {
         await result.current.updateTopicModel(topicId, {

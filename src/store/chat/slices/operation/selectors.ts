@@ -777,13 +777,11 @@ const isAgentUnreadCompleted =
 const isTopicUnreadCompleted =
   (topicId: string) =>
   (s: ChatStoreState): boolean => {
-    if (s.topicDetailMap[topicId]?.status === 'unread') return true;
-
     for (const data of Object.values(s.topicDataMap)) {
       const topic = data.items?.find((t) => t.id === topicId);
       if (topic) return topic.status === 'unread';
     }
-    return false;
+    return s.topicDetailMap?.[topicId]?.status === 'unread';
   };
 
 /**

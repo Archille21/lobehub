@@ -1016,7 +1016,7 @@ export class GatewayActionImpl {
     });
     const existingTopic =
       state.topicDataMap[key]?.items?.find((t) => t.id === topicId) ??
-      state.topicDetailMap[topicId];
+      state.topicDetailMap?.[topicId];
     if (existingTopic?.metadata?.runningOperation?.operationId !== operationId) return;
 
     state.internal_dispatchTopic({

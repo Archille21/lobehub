@@ -252,6 +252,63 @@ describe('topicSelectors', () => {
 
       expect(topicSelectors.getTopicById(detail.id)(state)).toEqual(detail);
     });
+
+    it('supports partial list-only store states without a detail cache', () => {
+      const state = {
+        activeAgentId: 'test',
+        topicDataMap,
+      } as ChatStore;
+
+      expect(topicSelectors.getTopicById('topic1')(state)).toEqual(topicItems[0]);
+      expect(topicSelectors.getTopicById('notfound')(state)).toBeUndefined();
+    });
+  });
+
+  describe('getTopicByIdForContext', () => {
+    it('uses the requested route context instead of the globally active context', () => {
+      const routeTopic = { id: 'route-topic', title: 'Route topic' };
+      const state = merge(initialStore, {
+        activeAgentId: 'active-agent',
+        topicDataMap: {
+          [topicMapKey({ agentId: 'active-agent' })]: {
+            currentPage: 0,
+            hasMore: false,
+            items: [],
+            pageSize: 20,
+            total: 0,
+          },
+          [topicMapKey({ agentId: 'route-agent' })]: {
+            currentPage: 0,
+            hasMore: false,
+            items: [routeTopic],
+            pageSize: 20,
+            total: 1,
+          },
+        },
+      });
+
+      expect(
+        topicSelectors.getTopicByIdForContext('route-topic', { agentId: 'route-agent' })(state),
+      ).toEqual(routeTopic);
+      expect(topicSelectors.getTopicById('route-topic')(state)).toBeUndefined();
+    });
+
+    it('falls back to the detail cache when the route-scoped list does not contain the topic', () => {
+      const detail = {
+        createdAt: 1,
+        id: 'older-topic',
+        title: 'Older topic',
+        updatedAt: 1,
+      };
+      const state = merge(initialStore, {
+        topicDataMap: {},
+        topicDetailMap: { [detail.id]: detail },
+      });
+
+      expect(
+        topicSelectors.getTopicByIdForContext(detail.id, { groupId: 'route-group' })(state),
+      ).toEqual(detail);
+    });
   });
 
   describe('getTopicWorkingDirectory', () => {

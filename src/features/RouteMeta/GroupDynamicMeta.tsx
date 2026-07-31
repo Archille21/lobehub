@@ -22,7 +22,7 @@ const useTopicTitle = (
   useChatStore((state) => {
     if (!groupId || !topicId || routeWorkspaceId === undefined) return undefined;
 
-    const topic = topicSelectors.getTopicById(topicId)(state);
+    const topic = topicSelectors.getTopicByIdForContext(topicId, { groupId })(state);
     return topic?.title || undefined;
   });
 
