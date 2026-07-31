@@ -1,7 +1,6 @@
 import { getServerDB } from '@lobechat/database';
 import { getUserAuth } from '@lobechat/utils/server';
 
-import { OIDC_SESSION_COOKIE_NAME } from '@/libs/oidc-provider/cookies';
 import type { OIDCProvider } from '@/libs/oidc-provider/provider';
 import type { OIDCSessionReconciliationResult } from '@/libs/oidc-provider/session-cleanup';
 import { reconcileCurrentOIDCSession } from '@/libs/oidc-provider/session-cleanup';
@@ -54,14 +53,11 @@ export const guardOIDCAuthorizationAccount = async ({
   const stage = getAuthorizationStage(pathname);
   if (!stage) return null;
 
-  if (stage.name === 'authorization' && !getCookie(OIDC_SESSION_COOKIE_NAME)) {
-    return { path: stage.name, status: 'missing' };
-  }
-
   const { userId } = await getUserAuth();
-  if (!userId) return { path: stage.name, status: 'missing_app_session' };
 
   if (stage.name === 'resume') {
+    if (!userId) return { path: stage.name, status: 'missing_app_session' };
+
     const status = await new OIDCService(provider).reconcileInteractionAccount(stage.uid, userId);
 
     return status === 'recovered'
@@ -71,6 +67,10 @@ export const guardOIDCAuthorizationAccount = async ({
 
   const db = await getServerDB();
   const result = await reconcileCurrentOIDCSession(db, userId, { getCookie });
+
+  if (result.status === 'unverified') {
+    return { path: stage.name, status: 'missing_app_session' };
+  }
 
   return { path: stage.name, ...result };
 };

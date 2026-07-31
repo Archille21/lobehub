@@ -48,6 +48,8 @@ describe('guardOIDCAuthorizationAccount', () => {
   });
 
   it('allows first-time authorization without an OIDC session', async () => {
+    vi.mocked(reconcileCurrentOIDCSession).mockResolvedValueOnce({ status: 'missing' });
+
     const result = await guardOIDCAuthorizationAccount({
       getCookie: vi.fn(() => null),
       pathname: '/oidc/auth',
@@ -55,12 +57,13 @@ describe('guardOIDCAuthorizationAccount', () => {
     });
 
     expect(result).toEqual({ path: 'authorization', status: 'missing' });
-    expect(getUserAuth).not.toHaveBeenCalled();
-    expect(getServerDB).not.toHaveBeenCalled();
+    expect(getUserAuth).toHaveBeenCalledOnce();
+    expect(getServerDB).toHaveBeenCalledOnce();
   });
 
-  it('reports a missing application session before reading OIDC state', async () => {
+  it('blocks an existing OIDC session when the application session is missing', async () => {
     vi.mocked(getUserAuth).mockResolvedValueOnce({ betterAuth: null, userId: undefined });
+    vi.mocked(reconcileCurrentOIDCSession).mockResolvedValueOnce({ status: 'unverified' });
 
     const result = await guardOIDCAuthorizationAccount({
       getCookie: vi.fn((name) => (name === '_session' ? 'oidc-session-a' : null)),
@@ -69,8 +72,27 @@ describe('guardOIDCAuthorizationAccount', () => {
     });
 
     expect(result).toEqual({ path: 'authorization', status: 'missing_app_session' });
-    expect(getServerDB).not.toHaveBeenCalled();
+    expect(getServerDB).toHaveBeenCalledOnce();
   });
+
+  it.each(['dangling_session', 'invalid_cookie'] as const)(
+    'recovers a stale %s without requiring an application session',
+    async (reason) => {
+      vi.mocked(getUserAuth).mockResolvedValueOnce({ betterAuth: null, userId: undefined });
+      vi.mocked(reconcileCurrentOIDCSession).mockResolvedValueOnce({
+        reason,
+        status: 'recovered',
+      });
+
+      const result = await guardOIDCAuthorizationAccount({
+        getCookie: vi.fn(),
+        pathname: '/oidc/auth',
+        provider,
+      });
+
+      expect(result).toEqual({ path: 'authorization', reason, status: 'recovered' });
+    },
+  );
 
   it('reconciles the persisted session at authorization entry', async () => {
     vi.mocked(reconcileCurrentOIDCSession).mockResolvedValueOnce({

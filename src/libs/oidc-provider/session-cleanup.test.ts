@@ -82,18 +82,46 @@ describe('reconcileCurrentOIDCSession', () => {
     expect(delete_).not.toHaveBeenCalled();
   });
 
-  it('does not query storage for an invalid signed cookie', async () => {
+  it('recovers an invalid signed cookie without an active user', async () => {
     const { db, delete_ } = createDb([{ userId: 'user-a' }]);
     const context = createCookieContext('oidc-session-a', 'invalid-signature');
 
     const result = await reconcileCurrentOIDCSession(
       db as unknown as Parameters<typeof reconcileCurrentOIDCSession>[0],
-      'user-b',
+      undefined,
       context,
     );
 
     expect(result).toEqual({ reason: 'invalid_cookie', status: 'recovered' });
     expect(db.select).not.toHaveBeenCalled();
+    expect(delete_).not.toHaveBeenCalled();
+  });
+
+  it('recovers a dangling session without an active user', async () => {
+    const { db, delete_ } = createDb([]);
+    const context = createCookieContext('missing-session');
+
+    const result = await reconcileCurrentOIDCSession(
+      db as unknown as Parameters<typeof reconcileCurrentOIDCSession>[0],
+      undefined,
+      context,
+    );
+
+    expect(result).toEqual({ reason: 'dangling_session', status: 'recovered' });
+    expect(delete_).not.toHaveBeenCalled();
+  });
+
+  it('leaves an existing session unverified when there is no active user', async () => {
+    const { db, delete_ } = createDb([{ userId: 'user-a' }]);
+    const context = createCookieContext('oidc-session-a');
+
+    const result = await reconcileCurrentOIDCSession(
+      db as unknown as Parameters<typeof reconcileCurrentOIDCSession>[0],
+      undefined,
+      context,
+    );
+
+    expect(result).toEqual({ status: 'unverified' });
     expect(delete_).not.toHaveBeenCalled();
   });
 });

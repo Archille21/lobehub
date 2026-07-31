@@ -26,6 +26,7 @@ type OIDCSessionCookieResult =
 export type OIDCSessionReconciliationResult =
   | { status: 'matched' }
   | { status: 'missing' }
+  | { status: 'unverified' }
   | {
       reason: 'account_mismatch' | 'dangling_session' | 'invalid_cookie';
       status: 'recovered';
@@ -59,10 +60,12 @@ const getOIDCSessionCookie = (context: OIDCSessionCookieReader): OIDCSessionCook
  * Deleting only the persisted session is intentional for authorization requests: oidc-provider
  * treats the still-signed cookie as a missing session, rotates it through its own middleware, and
  * restarts login without carrying the previous account binding into code or token issuance.
+ * Without an active user, invalid or dangling sessions can still recover safely, while an existing
+ * account-bound session remains untouched and is reported as unverified.
  */
 export const reconcileCurrentOIDCSession = async (
   db: LobeChatDatabase,
-  userId: string,
+  userId: string | undefined,
   context: OIDCSessionCookieReader,
   onRecovery?: () => void,
 ): Promise<OIDCSessionReconciliationResult> => {
@@ -80,17 +83,17 @@ export const reconcileCurrentOIDCSession = async (
     .where(eq(oidcSessions.id, cookie.sessionId))
     .limit(1);
 
-  if (session?.userId === userId) return { status: 'matched' };
-
-  if (session) {
-    await db.delete(oidcSessions).where(eq(oidcSessions.id, cookie.sessionId));
+  if (!session) {
+    onRecovery?.();
+    return { reason: 'dangling_session', status: 'recovered' };
   }
 
+  if (!userId) return { status: 'unverified' };
+  if (session.userId === userId) return { status: 'matched' };
+
+  await db.delete(oidcSessions).where(eq(oidcSessions.id, cookie.sessionId));
   onRecovery?.();
-  return {
-    reason: session ? 'account_mismatch' : 'dangling_session',
-    status: 'recovered',
-  };
+  return { reason: 'account_mismatch', status: 'recovered' };
 };
 
 /**
