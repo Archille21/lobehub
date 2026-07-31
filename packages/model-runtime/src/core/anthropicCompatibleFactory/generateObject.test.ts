@@ -24,7 +24,7 @@ describe('Anthropic generateObject', () => {
     );
   });
 
-  it('should strip trailing assistant messages for models without prefill support (LOBE-12572)', async () => {
+  it('should strip trailing assistant messages for models without prefill support (failed-run placeholder rows)', async () => {
     const { requestParams } = await buildAnthropicGenerateObjectRequest({
       messages: [
         { content: 'Generate data', role: 'user' as const },

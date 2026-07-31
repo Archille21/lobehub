@@ -1328,7 +1328,7 @@ describe.skipIf(!isServerDB)('SearchRepo', () => {
     });
   });
 
-  // Regression guard for LOBE-12379: the BM25 scans were split into an inner
+  // Regression guard: the BM25 scans were split into an inner
   // single-table subquery (so ParadeDB can pick its TopN custom scan) with the
   // joins and — in personal mode — the `workspace_id IS NULL` check moved above
   // it. These tests pin the two things that split could break: rows leaking
@@ -1534,9 +1534,10 @@ describe.skipIf(!isServerDB)('SearchRepo', () => {
   });
   // The workspace-scoping tests above pin *results*, and this change is
   // deliberately result-neutral — they pass against the pre-fix implementation
-  // too. What actually fixes LOBE-12379 is the *shape* of the emitted SQL, so
-  // it needs its own guard: ParadeDB only picks `TopNScanExecState` when the
-  // scan node itself carries the whole `ORDER BY paradedb.score() LIMIT n`.
+  // too. What actually fixes the CommandMenu search latency regression is
+  // the *shape* of the emitted SQL, so it needs its own guard: ParadeDB only
+  // picks `TopNScanExecState` when the scan node itself carries the whole
+  // `ORDER BY paradedb.score() LIMIT n`.
   //
   // Asserting the plan directly is not an option in CI: the container runs a
   // newer pg_search than production, and its `heap_filter` keeps TopN even with

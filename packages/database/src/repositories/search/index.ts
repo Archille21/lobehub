@@ -222,7 +222,9 @@ const RECENCY_CANDIDATE_MULTIPLIER = 4;
  * reach TopN. It is kept inline on purpose — `agent_id` is far more selective
  * than the ownership predicate, so lifting it above the scan would drop most of
  * the requested rows rather than merely risk a short result set. The fix is to
- * index the column; tracked with the other missing fast fields in LOBE-12381.
+ * index the column; tracked with the other missing fast fields pending the
+ * index-level fix (adding `workspace_id` and `visibility` fast fields to the
+ * BM25 indexes across all searchable tables).
  *
  * @see https://linear.app/lobehub/issue/LOBE-12379
  */
@@ -244,11 +246,12 @@ const WORKSPACE_FILTER_MIN_CANDIDATES = 500;
 
 /**
  * Flip to `true` once every BM25 index used by this repo carries `workspace_id`
- * as a fast keyword field (LOBE-12381). pg_search then pushes `workspace_id IS
- * NULL` down as `must_not: exists(workspace_id)` and `workspace_id = ?` as a
- * `term`, so the ownership predicate can stay inline and personal search becomes
- * exact again (no candidate over-fetch, no dropped rows) while workspace-mode
- * search gets TopN for free.
+ * as a fast keyword field (index-level fix: adding `workspace_id` and
+ * `visibility` fast fields to the BM25 indexes). pg_search then pushes
+ * `workspace_id IS NULL` down as `must_not: exists(workspace_id)` and
+ * `workspace_id = ?` as a `term`, so the ownership predicate can stay inline
+ * and personal search becomes exact again (no candidate over-fetch, no dropped
+ * rows) while workspace-mode search gets TopN for free.
  */
 const WORKSPACE_ID_IN_BM25_INDEX = false;
 
@@ -286,7 +289,8 @@ export class SearchRepo {
    * approximation. Workspace mode has no such pushdown-able owner column — its
    * rows are a tiny slice of a global TopN — so lifting the filter there would
    * silently return nothing. It keeps the exact inline predicate and stays on
-   * the slow plan until LOBE-12381 lands.
+   * the slow plan until the index-level fix adds the missing fast fields
+   * (`workspace_id` + `visibility`) to the BM25 indexes.
    */
   private get liftsWorkspaceFilter() {
     return !WORKSPACE_ID_IN_BM25_INDEX && !this.workspaceId;
@@ -955,7 +959,8 @@ export class SearchRepo {
    * the plain index-scan plan: `knowledge_base_id` is not in the BM25 index
    * either, so isolating the scan would not buy TopN. The KB filter does bound
    * the match set to one knowledge base (via its btree index), which keeps it
-   * workable until LOBE-12381 adds the missing fast fields.
+   * workable until the index-level fix adds the missing fast fields
+   * (`workspace_id` + `visibility`) to the BM25 indexes.
    */
   async searchKnowledgeBaseDocuments(
     query: string,

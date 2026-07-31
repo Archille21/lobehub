@@ -14,8 +14,8 @@ describe('stripUnsupportedClaudeAssistantPrefill', () => {
   });
 
   it('should strip ALL stacked trailing assistant messages', () => {
-    // Regression LOBE-12572: failed-run placeholders can stack multiple
-    // assistant turns at the tail; popping only one still returns 400.
+    // Regression: failed-run placeholders can stack multiple assistant turns at
+    // the tail; popping only one still returns 400 on Claude 4.6+.
     const messages = [
       user('hi'),
       assistant('a'),

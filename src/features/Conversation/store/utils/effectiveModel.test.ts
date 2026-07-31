@@ -22,7 +22,9 @@ afterEach(() => {
 describe('getEffectiveConversationModel', () => {
   it('prefers the topic-scoped model override over the agent default', () => {
     // A topic switched to a Claude 5 model must drive capability guards even
-    // when the agent default is still a prefill-capable model (LOBE-12572).
+    // when the agent default is still a prefill-capable model.
+    // Failed-run assistant placeholder rows can stack at the payload tail and
+    // trigger Claude 4.6+ prefill validation errors on every subsequent send.
     useAgentStore.setState({
       agentMap: { [AGENT_ID]: { chatConfig: {}, model: 'gpt-5.2' } },
     } as any);
