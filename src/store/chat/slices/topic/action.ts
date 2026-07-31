@@ -76,6 +76,15 @@ type TopicPatchScope = {
   scope?: TopicMapScope;
 };
 
+interface TopicDetailRequest {
+  invalidated: boolean;
+  promise: Promise<ChatTopic | null>;
+}
+
+interface TopicDetailUpdate {
+  invalidated: boolean;
+}
+
 /**
  * Options for switchTopic action
  */
@@ -135,7 +144,9 @@ export class ChatTopicActionImpl {
    */
   #topicDetailCacheGeneration = 0;
 
-  #topicDetailRequests = new Map<string, Promise<ChatTopic | null>>();
+  #topicDetailRequests = new Map<string, TopicDetailRequest>();
+
+  #topicDetailUpdates = new Map<string, Set<TopicDetailUpdate>>();
 
   constructor(set: Setter, get: () => ChatStore, _api?: unknown) {
     void _api;
@@ -147,16 +158,22 @@ export class ChatTopicActionImpl {
     const stored = topicSelectors.getTopicById(id)(this.#get());
     if (stored) return stored;
 
-    const pendingRequest = this.#topicDetailRequests.get(id);
-    if (pendingRequest) return pendingRequest;
+    let request = this.#topicDetailRequests.get(id);
 
     const cacheGeneration = this.#topicDetailCacheGeneration;
-    const request = topicService.getTopicDetail(id);
-    this.#topicDetailRequests.set(id, request);
+    if (!request) {
+      request = {
+        invalidated: false,
+        promise: topicService.getTopicDetail(id),
+      };
+      this.#topicDetailRequests.set(id, request);
+    }
 
     try {
-      const topic = await request;
-      if (cacheGeneration !== this.#topicDetailCacheGeneration) return null;
+      const topic = await request.promise;
+      if (request.invalidated || cacheGeneration !== this.#topicDetailCacheGeneration) {
+        return null;
+      }
       if (topic) this.#get().internal_setTopicDetail(topic);
       return topic;
     } finally {
@@ -1504,17 +1521,31 @@ export class ChatTopicActionImpl {
 
   internal_updateTopic = async (id: string, data: Partial<ChatTopic>): Promise<void> => {
     if (!topicSelectors.getTopicById(id)(this.#get())) {
+      const update: TopicDetailUpdate = { invalidated: false };
+      const updates = this.#topicDetailUpdates.get(id) ?? new Set<TopicDetailUpdate>();
+      updates.add(update);
+      this.#topicDetailUpdates.set(id, updates);
+
       try {
         await this.#fetchTopicDetail(id);
       } catch (error) {
-        /**
-         * Detail hydration is an optimization for the local optimistic write,
-         * not a prerequisite for persisting the user's edit. In particular,
-         * an Electron proxy blip must not turn a model switch into a client-side
-         * no-op before the update request is even attempted.
-         */
-        console.error('[internal_updateTopic] failed to hydrate topic detail:', error);
+        if (!update.invalidated) {
+          /**
+           * Detail hydration is an optimization for the local optimistic write,
+           * not a prerequisite for persisting the user's edit. In particular,
+           * an Electron proxy blip must not turn a model switch into a client-side
+           * no-op before the update request is even attempted.
+           */
+          console.error('[internal_updateTopic] failed to hydrate topic detail:', error);
+        }
+      } finally {
+        updates.delete(update);
+        if (updates.size === 0 && this.#topicDetailUpdates.get(id) === updates) {
+          this.#topicDetailUpdates.delete(id);
+        }
       }
+
+      if (update.invalidated) return;
     }
 
     this.#get().internal_dispatchTopic({ type: 'updateTopic', id, value: data });
@@ -1618,11 +1649,29 @@ export class ChatTopicActionImpl {
   /**
    * Clear independently fetched topic rows, their SWR entries, and requests
    * that started before this cache boundary. Without clearing both cache
-   * layers, a late response or SWR sync could restore a deleted topic.
+   * layers, a late response or SWR sync could restore a deleted topic. Targeted
+   * clears invalidate only matching requests so unrelated deep links keep loading.
    */
   internal_clearTopicDetails = (ids?: string[]): void => {
-    this.#topicDetailCacheGeneration += 1;
-    this.#topicDetailRequests.clear();
+    if (ids) {
+      for (const id of ids) {
+        const request = this.#topicDetailRequests.get(id);
+        if (request) request.invalidated = true;
+        this.#topicDetailRequests.delete(id);
+
+        const updates = this.#topicDetailUpdates.get(id);
+        for (const update of updates ?? []) update.invalidated = true;
+        this.#topicDetailUpdates.delete(id);
+      }
+    } else {
+      this.#topicDetailCacheGeneration += 1;
+      for (const request of this.#topicDetailRequests.values()) request.invalidated = true;
+      this.#topicDetailRequests.clear();
+      for (const updates of this.#topicDetailUpdates.values()) {
+        for (const update of updates) update.invalidated = true;
+      }
+      this.#topicDetailUpdates.clear();
+    }
 
     const idSet = ids ? new Set(ids) : undefined;
     void Promise.resolve(

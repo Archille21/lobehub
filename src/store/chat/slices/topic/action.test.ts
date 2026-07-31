@@ -1267,6 +1267,36 @@ describe('topic action', () => {
       expect(useChatStore.getState().topicDetailMap).toEqual({});
     });
 
+    it('preserves an unrelated in-flight topic detail response during a targeted clear', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const topicId = 'active-topic';
+      const topicDetail: ChatTopic = {
+        createdAt: 1,
+        id: topicId,
+        title: 'Active topic',
+        updatedAt: 1,
+      };
+      let resolveDetail!: (topic: ChatTopic) => void;
+      const detailRequest = new Promise<ChatTopic>((resolve) => {
+        resolveDetail = resolve;
+      });
+      (topicService.getTopicDetail as Mock).mockReturnValueOnce(detailRequest);
+
+      await act(async () => {
+        await result.current.switchTopic(topicId, { skipRefreshMessage: true });
+      });
+      act(() => {
+        result.current.internal_clearTopicDetails(['deleted-topic']);
+      });
+      await act(async () => {
+        resolveDetail(topicDetail);
+        await detailRequest;
+        await Promise.resolve();
+      });
+
+      expect(useChatStore.getState().topicDetailMap[topicId]).toEqual(topicDetail);
+    });
+
     it('clears only matching topic detail SWR entries for a targeted reset', () => {
       const { result } = renderHook(() => useChatStore());
 
@@ -1693,6 +1723,35 @@ describe('topic action', () => {
       });
       expect(useChatStore.getState().topicDetailMap[topicId]).toEqual(persistedTopic);
       expect(useChatStore.getState().topicDataMap).toEqual({});
+    });
+
+    it('aborts a pending update when its topic detail request is invalidated', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const topicId = 'deep-linked-topic';
+      const topicDetail: ChatTopic = {
+        createdAt: 1,
+        id: topicId,
+        title: 'Older topic',
+        updatedAt: 1,
+      };
+      let resolveDetail!: (topic: ChatTopic) => void;
+      const detailRequest = new Promise<ChatTopic>((resolve) => {
+        resolveDetail = resolve;
+      });
+      (topicService.getTopicDetail as Mock).mockReturnValueOnce(detailRequest);
+      const updateTopicSpy = vi.spyOn(topicService, 'updateTopic').mockResolvedValueOnce([]);
+
+      const updatePromise = result.current.internal_updateTopic(topicId, { title: 'New' });
+      act(() => {
+        result.current.internal_clearTopicDetails();
+      });
+      await act(async () => {
+        resolveDetail(topicDetail);
+        await updatePromise;
+      });
+
+      expect(updateTopicSpy).not.toHaveBeenCalled();
+      expect(useChatStore.getState().topicDetailMap).toEqual({});
     });
 
     it('should release the loading owner when updating a topic fails', async () => {
