@@ -1818,6 +1818,43 @@ describe('topic action', () => {
       expect(useChatStore.getState().topicDetailMap).toEqual({});
     });
 
+    it('does not restore a cleared topic from an in-flight update response', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const topicId = 'cached-topic';
+      const topic: ChatTopic = {
+        createdAt: 1,
+        id: topicId,
+        title: 'Cached topic',
+        updatedAt: 1,
+      };
+      const persistedTopic: ChatTopic = {
+        ...topic,
+        title: 'Updated topic',
+        updatedAt: 2,
+      };
+      let resolveUpdate!: (topics: ChatTopic[]) => void;
+      const updateRequest = new Promise<ChatTopic[]>((resolve) => {
+        resolveUpdate = resolve;
+      });
+      useChatStore.setState({ topicDetailMap: { [topicId]: topic } });
+      vi.spyOn(topicService, 'updateTopic').mockReturnValueOnce(updateRequest as any);
+      const refreshTopicSpy = vi.spyOn(result.current, 'refreshTopic');
+
+      const updatePromise = result.current.internal_updateTopic(topicId, {
+        title: persistedTopic.title,
+      });
+      act(() => {
+        result.current.internal_clearTopicDetails([topicId]);
+      });
+      await act(async () => {
+        resolveUpdate([persistedTopic]);
+        await updatePromise;
+      });
+
+      expect(useChatStore.getState().topicDetailMap).toEqual({});
+      expect(refreshTopicSpy).not.toHaveBeenCalled();
+    });
+
     it('should release the loading owner when updating a topic fails', async () => {
       const { result } = renderHook(() => useChatStore());
       const agentId = 'agent-1';

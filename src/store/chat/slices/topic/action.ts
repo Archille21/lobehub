@@ -1521,47 +1521,51 @@ export class ChatTopicActionImpl {
   };
 
   internal_updateTopic = async (id: string, data: Partial<ChatTopic>): Promise<void> => {
-    if (!topicSelectors.getTopicById(id)(this.#get())) {
-      const update: TopicDetailUpdate = { invalidated: false };
-      const updates = this.#topicDetailUpdates.get(id) ?? new Set<TopicDetailUpdate>();
-      updates.add(update);
-      this.#topicDetailUpdates.set(id, updates);
+    const update: TopicDetailUpdate = { invalidated: false };
+    const updates = this.#topicDetailUpdates.get(id) ?? new Set<TopicDetailUpdate>();
+    updates.add(update);
+    this.#topicDetailUpdates.set(id, updates);
 
-      try {
-        await this.#fetchTopicDetail(id);
-      } catch (error) {
-        if (!update.invalidated) {
-          /**
-           * Detail hydration is an optimization for the local optimistic write,
-           * not a prerequisite for persisting the user's edit. In particular,
-           * an Electron proxy blip must not turn a model switch into a client-side
-           * no-op before the update request is even attempted.
-           */
-          console.error('[internal_updateTopic] failed to hydrate topic detail:', error);
-        }
-      } finally {
-        updates.delete(update);
-        if (updates.size === 0 && this.#topicDetailUpdates.get(id) === updates) {
-          this.#topicDetailUpdates.delete(id);
-        }
-      }
-
-      if (update.invalidated) return;
-    }
-
-    this.#get().internal_dispatchTopic({ type: 'updateTopic', id, value: data });
-
-    this.#get().internal_updateTopicLoading(id, true);
     try {
-      const persistedTopics = await topicService.updateTopic(id, data);
-      const persistedTopic = persistedTopics?.[0];
-      if (persistedTopic) {
-        this.#get().internal_setTopicDetail(persistedTopic as unknown as ChatTopic);
+      if (!topicSelectors.getTopicById(id)(this.#get())) {
+        try {
+          await this.#fetchTopicDetail(id);
+        } catch (error) {
+          if (!update.invalidated) {
+            /**
+             * Detail hydration is an optimization for the local optimistic write,
+             * not a prerequisite for persisting the user's edit. In particular,
+             * an Electron proxy blip must not turn a model switch into a client-side
+             * no-op before the update request is even attempted.
+             */
+            console.error('[internal_updateTopic] failed to hydrate topic detail:', error);
+          }
+        }
+
+        if (update.invalidated) return;
       }
-      await this.#get().refreshTopic();
+
+      this.#get().internal_dispatchTopic({ type: 'updateTopic', id, value: data });
+
+      this.#get().internal_updateTopicLoading(id, true);
+      try {
+        const persistedTopics = await topicService.updateTopic(id, data);
+        if (update.invalidated) return;
+
+        const persistedTopic = persistedTopics?.[0];
+        if (persistedTopic) {
+          this.#get().internal_setTopicDetail(persistedTopic as unknown as ChatTopic);
+        }
+        await this.#get().refreshTopic();
+      } finally {
+        // Rename "Topic" -> "New" can fail after opening a loading owner; always release it.
+        this.#get().internal_updateTopicLoading(id, false);
+      }
     } finally {
-      // Rename "Topic" -> "New" can fail after opening a loading owner; always release it.
-      this.#get().internal_updateTopicLoading(id, false);
+      updates.delete(update);
+      if (updates.size === 0 && this.#topicDetailUpdates.get(id) === updates) {
+        this.#topicDetailUpdates.delete(id);
+      }
     }
   };
 
