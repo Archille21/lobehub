@@ -39,6 +39,16 @@ const handler = async (req: NextRequest) => {
         provider,
       });
 
+      if (reconciliation?.status === 'missing_app_session') {
+        return NextResponse.json(
+          {
+            error: 'unauthorized',
+            error_description: 'Authentication is required to continue authorization',
+          },
+          { status: 401 },
+        );
+      }
+
       if (reconciliation?.status === 'recovered') {
         console.warn(
           `[OIDC Account Guard] recovered path=${reconciliation.path} reason=${reconciliation.reason}`,

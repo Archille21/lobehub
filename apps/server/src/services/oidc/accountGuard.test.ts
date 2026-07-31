@@ -27,7 +27,7 @@ const serverDB = { id: 'server-db' } as unknown as LobeChatDatabase;
 describe('guardOIDCAuthorizationAccount', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getUserAuth).mockResolvedValue({ betterAuth: undefined, userId: 'user-b' });
+    vi.mocked(getUserAuth).mockResolvedValue({ betterAuth: null, userId: 'user-b' });
     vi.mocked(getServerDB).mockResolvedValue(serverDB);
   });
 
@@ -48,7 +48,7 @@ describe('guardOIDCAuthorizationAccount', () => {
   });
 
   it('reports a missing application session before reading OIDC state', async () => {
-    vi.mocked(getUserAuth).mockResolvedValueOnce({ betterAuth: undefined, userId: undefined });
+    vi.mocked(getUserAuth).mockResolvedValueOnce({ betterAuth: null, userId: undefined });
 
     const result = await guardOIDCAuthorizationAccount({
       getCookie: vi.fn(),

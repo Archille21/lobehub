@@ -116,6 +116,29 @@ describe('OIDC route', () => {
     expect(mocks.getOIDCProvider).not.toHaveBeenCalled();
   });
 
+  it('blocks authorization when the application session is missing', async () => {
+    mocks.guardOIDCAuthorizationAccount.mockResolvedValueOnce({
+      path: 'authorization',
+      status: 'missing_app_session',
+    });
+
+    const { GET } = await import('./route');
+    const request = {
+      cookies: { get: vi.fn() },
+      method: 'GET',
+      url: 'https://example.com/oidc/auth?client_id=client-1',
+    } as unknown as NextRequest;
+
+    const response = await GET(request);
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: 'unauthorized',
+      error_description: 'Authentication is required to continue authorization',
+    });
+    expect(mocks.providerCallback).not.toHaveBeenCalled();
+  });
+
   it('fails closed when the authorization account check fails', async () => {
     mocks.guardOIDCAuthorizationAccount.mockRejectedValueOnce(new Error('auth unavailable'));
     vi.spyOn(console, 'error').mockImplementation(() => {});
