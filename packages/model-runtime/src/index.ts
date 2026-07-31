@@ -84,6 +84,7 @@ export { consumeStreamUntilDone } from './utils/consumeStream';
 export { AgentRuntimeError } from './utils/createError';
 export { getModelPropertyWithFallback } from './utils/getFallbackModelProperty';
 export { getModelPricing } from './utils/getModelPricing';
+export { createInterceptedTextResponse } from './utils/interceptedResponse';
 export {
   applyModelExtendParams,
   type ApplyModelExtendParamsContext,
