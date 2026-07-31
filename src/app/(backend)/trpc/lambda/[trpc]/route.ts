@@ -1,4 +1,3 @@
-import { TRPC_ASYNC_MAX_DURATION } from '@lobechat/business-config/server';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { type NextRequest } from 'next/server';
 
@@ -12,7 +11,13 @@ import { lambdaRouter } from '@/server/routers/lambda';
 // background job — most notably the video-generation poll loop, which can
 // legitimately run for several minutes. Without this, the function is killed
 // under the platform's default duration well before that finishes.
-export const maxDuration = TRPC_ASYNC_MAX_DURATION;
+//
+// Route segment config exports are statically analyzed by Next.js at build
+// time, so this MUST be a literal — not a reference to an imported constant
+// (that throws "Invalid segment configuration export detected" at build
+// time). Keep in sync with TRPC_ASYNC_MAX_DURATION in
+// packages/business/config/src/server/route.ts.
+export const maxDuration = 300;
 
 const handler = (req: NextRequest) => {
   // Clone the request to avoid "Response body object should not be disturbed or locked" error
