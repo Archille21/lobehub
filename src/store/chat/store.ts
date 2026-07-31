@@ -53,6 +53,15 @@ export type ChatStore = ChatStoreAction & ChatStoreState;
 //  ===============  Aggregate createStoreFn ============ //
 
 class ChatStoreResetAction extends ResetableStoreAction<ChatStore> {
+  /**
+   * Chat topic actions own request and reconciliation state outside Zustand.
+   * Invalidate it before replacing store state so a pre-reset response cannot
+   * repopulate data for a new user or remote server.
+   */
+  protected beforeReset = (state: ChatStore) => {
+    state.internal_clearTopicDetails();
+  };
+
   protected readonly resetActionName = 'resetChatStore';
 }
 

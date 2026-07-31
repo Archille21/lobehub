@@ -566,6 +566,40 @@ describe('topic action', () => {
       // Agent-run status writes must stay a pure status update — no completedAt.
       expect(updateSpy).toHaveBeenCalledWith(topicId, { status: 'running' });
     });
+
+    it('reconciles a pending status write into an in-flight topic detail response', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const topicId = 'pending-status-deep-link';
+      const staleTopic: ChatTopic = {
+        createdAt: 1,
+        id: topicId,
+        status: 'active',
+        title: 'Deep-linked topic',
+        updatedAt: 1,
+      };
+      let resolveDetail!: (topic: ChatTopic) => void;
+      const detailRequest = new Promise<ChatTopic>((resolve) => {
+        resolveDetail = resolve;
+      });
+      (topicService.getTopicDetail as Mock).mockReturnValueOnce(detailRequest);
+      vi.spyOn(topicService, 'updateTopic').mockResolvedValueOnce([]);
+
+      await act(async () => {
+        await result.current.switchTopic(topicId, { skipRefreshMessage: true });
+      });
+      await act(async () => {
+        await result.current.updateTopicStatus({ status: 'running', topicId });
+      });
+      await act(async () => {
+        resolveDetail(staleTopic);
+        await detailRequest;
+        await Promise.resolve();
+      });
+
+      expect(useChatStore.getState().topicDetailMap[topicId]).toMatchObject({
+        status: 'running',
+      });
+    });
   });
   describe('useFetchTopics', () => {
     it('should fetch topics for a given session id', async () => {
@@ -1257,6 +1291,36 @@ describe('topic action', () => {
 
       act(() => {
         result.current.internal_clearTopicDetails();
+      });
+      await act(async () => {
+        resolveDetail(topicDetail);
+        await detailRequest;
+        await Promise.resolve();
+      });
+
+      expect(useChatStore.getState().topicDetailMap).toEqual({});
+    });
+
+    it('invalidates an in-flight topic detail response when the chat store resets', async () => {
+      const { result } = renderHook(() => useChatStore());
+      const topicId = 'pre-reset-topic';
+      const topicDetail: ChatTopic = {
+        createdAt: 1,
+        id: topicId,
+        title: 'Pre-reset topic',
+        updatedAt: 1,
+      };
+      let resolveDetail!: (topic: ChatTopic) => void;
+      const detailRequest = new Promise<ChatTopic>((resolve) => {
+        resolveDetail = resolve;
+      });
+      (topicService.getTopicDetail as Mock).mockReturnValueOnce(detailRequest);
+
+      await act(async () => {
+        await result.current.switchTopic(topicId, { skipRefreshMessage: true });
+      });
+      act(() => {
+        result.current.reset();
       });
       await act(async () => {
         resolveDetail(topicDetail);

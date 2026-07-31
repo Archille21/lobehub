@@ -174,8 +174,9 @@ export class ChatTopicActionImpl {
       if (request.invalidated || cacheGeneration !== this.#topicDetailCacheGeneration) {
         return null;
       }
-      if (topic) this.#get().internal_setTopicDetail(topic);
-      return topic;
+      const reconciledTopic = topic ? this.#reconcileFetchedTopics([topic])[0] : null;
+      if (reconciledTopic) this.#get().internal_setTopicDetail(reconciledTopic);
+      return reconciledTopic;
     } finally {
       if (this.#topicDetailRequests.get(id) === request) {
         this.#topicDetailRequests.delete(id);
@@ -1662,6 +1663,7 @@ export class ChatTopicActionImpl {
         const updates = this.#topicDetailUpdates.get(id);
         for (const update of updates ?? []) update.invalidated = true;
         this.#topicDetailUpdates.delete(id);
+        this.#pendingTopicStatusWrites.delete(id);
       }
     } else {
       this.#topicDetailCacheGeneration += 1;
@@ -1671,6 +1673,7 @@ export class ChatTopicActionImpl {
         for (const update of updates) update.invalidated = true;
       }
       this.#topicDetailUpdates.clear();
+      this.#pendingTopicStatusWrites.clear();
     }
 
     const idSet = ids ? new Set(ids) : undefined;
