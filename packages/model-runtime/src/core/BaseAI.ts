@@ -52,6 +52,10 @@ export interface LobeRuntimeAI {
 
   handlePollVideoStatus?: (
     inferenceId: string,
+    // Only consumed by RouterRuntime, which needs it to resolve the matching
+    // channel/provider before delegating to the concrete runtime below —
+    // single-provider runtimes (already bound to one provider config) ignore it.
+    model?: string,
   ) => Promise<
     | { status: 'success'; videoUrl: string }
     | { status: 'failed'; error: string }

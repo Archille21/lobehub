@@ -59,6 +59,7 @@ const checkAbortSignal = (signal: AbortSignal) => {
 async function pollUntilCompletion(
   modelRuntime: any,
   inferenceId: string,
+  model: string,
   signal: AbortSignal,
 ): Promise<{ headers?: Record<string, string>; videoUrl: string } | null> {
   const maxRetries = 120;
@@ -70,7 +71,7 @@ async function pollUntilCompletion(
     try {
       log('Polling attempt %d/%d for inferenceId: %s', attempt + 1, maxRetries, inferenceId);
 
-      const result = await modelRuntime.handlePollVideoStatus(inferenceId);
+      const result = await modelRuntime.handlePollVideoStatus(inferenceId, model);
 
       if (result.status === 'success') {
         log('Video generation succeeded for inferenceId: %s', inferenceId);
@@ -165,7 +166,12 @@ export const videoRouter = router({
 
         checkAbortSignal(signal);
 
-        const pollResult = await pollUntilCompletion(modelRuntime, inferenceId, signal);
+        const pollResult = await pollUntilCompletion(
+          modelRuntime,
+          inferenceId,
+          resolvedModelId,
+          signal,
+        );
 
         if (!pollResult) {
           log('Polling completed but no video URL returned for inferenceId: %s', inferenceId);

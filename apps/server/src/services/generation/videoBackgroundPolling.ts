@@ -58,7 +58,7 @@ export async function processBackgroundVideoPolling(
     const generationModel = new GenerationModel(db, userId, workspaceId);
 
     const modelRuntime = await initModelRuntimeFromDB(db, userId, provider, workspaceId);
-    const pollResult = await pollUntilCompletion(modelRuntime, inferenceId);
+    const pollResult = await pollUntilCompletion(modelRuntime, inferenceId, model);
 
     if (!pollResult) {
       throw new Error('Polling completed but no video URL returned');
@@ -148,6 +148,7 @@ export async function processBackgroundVideoPolling(
 async function pollUntilCompletion(
   modelRuntime: any,
   inferenceId: string,
+  model: string,
 ): Promise<{ headers?: Record<string, string>; videoUrl: string } | null> {
   const maxRetries = 120;
   const pollingInterval = 5000;
@@ -169,7 +170,7 @@ async function pollUntilCompletion(
         elapsedSec,
       );
 
-      const result = await modelRuntime.handlePollVideoStatus(inferenceId);
+      const result = await modelRuntime.handlePollVideoStatus(inferenceId, model);
 
       log('Poll result for task %s at %ds: %O', inferenceId, elapsedSec, result);
 

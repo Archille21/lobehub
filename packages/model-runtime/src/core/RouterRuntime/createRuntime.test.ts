@@ -1309,7 +1309,41 @@ describe('createRouterRuntime', () => {
         status: 'success',
         videoUrl: 'https://example.com/video.mp4',
       });
-      expect(mockHandlePollVideoStatus).toHaveBeenCalledWith('job-1');
+      expect(mockHandlePollVideoStatus).toHaveBeenCalledWith('job-1', undefined);
+    });
+
+    it('should forward the model param to both the router resolver and the matched runtime', async () => {
+      // Regression test: handlePollVideoStatus used to call resolveRouters()
+      // with no model at all, unlike chat/createImage/createVideo/webhook —
+      // any router config whose `routers` resolver requires a model (e.g. to
+      // pick the matching channel) would throw on every single poll attempt.
+      const mockHandlePollVideoStatus = vi.fn().mockResolvedValue({ status: 'pending' });
+
+      class MockRuntime implements LobeRuntimeAI {
+        handlePollVideoStatus = mockHandlePollVideoStatus;
+      }
+
+      const asyncRoutersFunction = vi.fn(async (_options: any, { model }: { model?: string }) => {
+        if (!model) {
+          throw new Error('Router model is required for runtime resolution');
+        }
+        return [{ apiType: 'openai' as const, options: {}, runtime: MockRuntime as any }];
+      });
+
+      const Runtime = createRouterRuntime({
+        id: 'test-runtime',
+        routers: asyncRoutersFunction,
+      });
+
+      const runtime = new Runtime();
+      const result = await runtime.handlePollVideoStatus('job-1', 'doubao-seedance-2-0-260128');
+
+      expect(result).toEqual({ status: 'pending' });
+      expect(asyncRoutersFunction).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ model: 'doubao-seedance-2-0-260128' }),
+      );
+      expect(mockHandlePollVideoStatus).toHaveBeenCalledWith('job-1', 'doubao-seedance-2-0-260128');
     });
   });
 
