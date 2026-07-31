@@ -6,7 +6,7 @@ user-invocable: false
 
 # Agent Works
 
-A **Work** is a durable record of something an agent produced or touched — a GitHub PR/issue, a Linear issue, an entity file (pptx/xlsx/docx/pdf), a document, a task. Works render as cards under the assistant message that produced them and accumulate **versions** across operations, so the same PR edited twice shows one card with history.
+A **Work** is a durable record of something an agent produced or touched — a GitHub PR/issue, a Linear issue, an entity file (pptx/xlsx/csv/docx/pdf), a document, a task. Works render as cards under the assistant message that produced them and accumulate **versions** across operations, so the same PR edited twice shows one card with history.
 
 Two tables (`packages/database/src/schemas/work.ts`):
 
@@ -27,7 +27,7 @@ Four write paths, two timing classes:
 | ----------------------------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Skill structured tools + sandbox `runCommand` (github / linear)         | at tool execution                   | `WorkModel.handleSkillToolResult`, called from server `toolExecution` and the client executor (`registerClientWorkFromIntent.ts` on the legacy non-gateway runtime) |
 | Shell Work scan (hetero codex/claude-code + device `lobe-local-system`) | at operation completion             | `apps/server/src/services/agentRuntime/shellWorkRegistration.ts` via `registerWorksForOperation`                                                                    |
-| File Work scan (sandbox entity files)                                   | at operation completion             | `apps/server/src/services/agentRuntime/workRegistration.ts`                                                                                                         |
+| File Work scan (sandbox entity files + sandbox exports)                 | at operation completion             | `apps/server/src/services/agentRuntime/workRegistration.ts`                                                                                                         |
 | Task / document works                                                   | at creation by their owning feature | `WorkModel.registerTask` / `registerDocument`                                                                                                                       |
 
 ### Execution-time: skill providers
@@ -65,6 +65,13 @@ Command parsing is split the same way: `packages/database/src/models/work/shellC
 - Cross-operation is independent: a later run editing the same resource appends a version with THAT run's total only.
 
 **Why file Works are not a scanner**: their unit is a file path folded across ALL records (multi-edit merge, renames, last-edit provenance), the registration is a heavy IO pipeline (idempotency probe → sandbox export → upload → version → redeploy, bounded concurrency), hetero records are deliberately EXCLUDED (the file lives on the executing device, not the exportable sandbox), and the version key is the synthetic `op:${operationId}` instead of a real toolCallId. Shoehorning that into `ShellWorkScanner` would break the interface. If a second aggregate-style scan ever appears, extract an aggregate layer then.
+
+**File Work sources — sandbox-only, proven by tool identifier.** The scan accepts exactly two record families (`workRegistration.ts`, `stateHasEntityFileEdits` / `resolveExportedSandboxPath`):
+
+- `lobe-cloud-sandbox____*` edits and exports (writeFile / editFile / moveFiles / exportFile) — the identifier itself means the file lives in the cloud sandbox; exportFile's sandbox path is `state.path`.
+- `lobe-skills____exportFile` — skill flows (e.g. the pptx skill) route ALL tool calls through the skills tool, so this export is the ONLY record carrying a python-pptx/reportlab-style binary artifact's path. Its state has no `path` (path comes from the call arguments) and a failed export persists no state, so **state presence is the success signal**; a device-routed skills exportFile throws before producing state (`serverRuntimes/skills.ts`), so a stateful row proves cloud-sandbox residence.
+
+Everything else — hetero edits, `lobe-local-system`, skills runCommand/execScript (execution env varies per routing) — never registers a file Work; those files surface only in the client's edited-files card and open via the LocalFile portal.
 
 ## Display anchor & completion marker
 
