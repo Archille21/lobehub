@@ -1,7 +1,7 @@
 'use client';
 
 import type { ClaudeCodeQuotaSnapshot } from '@lobechat/electron-client-ipc';
-import { memo, useCallback } from 'react';
+import { memo, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useAgentId } from '@/features/ChatInput/hooks/useAgentId';
@@ -57,6 +57,11 @@ const ClaudeCodeQuotaMenu = memo<ClaudeCodeQuotaMenuProps>(({ deviceId, env }) =
   const { t } = useTranslation('chat');
   const agentId = useAgentId();
   const sourceKey = createQuotaSourceKey('claude-code', deviceId ?? 'local', env);
+  // A persisted account becomes eligible for a device only after this mounted
+  // menu has observed that device return the same external account identity.
+  // This avoids painting another machine's pinned/first account on a device
+  // switch while still preserving last-known-good data after later failures.
+  const trustedDeviceAccountsRef = useRef(new Map<string, string>());
 
   /**
    * DB-first: render the persisted windows from our own database, and go to the
@@ -80,13 +85,23 @@ const ClaudeCodeQuotaMenu = memo<ClaudeCodeQuotaMenuProps>(({ deviceId, env }) =
       let accounts = initialAccounts;
       let claude = accounts.filter((a) => a.provider === 'claude-code');
       const pinnedId = bindings.find((b) => b.role === 'pinned')?.accountId;
-      let account = claude.find((a) => a.id === pinnedId) ?? claude[0];
+      const trustedExternalAccountId = deviceId
+        ? trustedDeviceAccountsRef.current.get(deviceId)
+        : undefined;
+      let account = deviceId
+        ? claude.find((a) => a.externalAccountId === trustedExternalAccountId)
+        : (claude.find((a) => a.id === pinnedId) ?? claude[0]);
       let windows = account ? await agentQuotaService.getWindows(account.id).catch(() => []) : [];
 
       // 2) Throttled live refresh + ingest. Paint the persisted windows before
       // awaiting the live fetch so the panel never blocks on it.
       let live: ClaudeCodeQuotaSnapshot | null = null;
-      if (force || options?.revalidate || isQuotaStale(windows, Date.now(), QUOTA_REFRESH_MS)) {
+      if (
+        force ||
+        options?.revalidate ||
+        (deviceId && !trustedExternalAccountId) ||
+        isQuotaStale(account?.updatedAt, Date.now(), QUOTA_REFRESH_MS)
+      ) {
         if (account && windows.length > 0) {
           options?.onInterim?.(buildClaudeSnapshotFromWindows(account, windows));
         }
@@ -94,18 +109,25 @@ const ClaudeCodeQuotaMenu = memo<ClaudeCodeQuotaMenuProps>(({ deviceId, env }) =
 
         const externalAccountId = live?.identity?.externalAccountId;
         if (live?.status === 'ok' && externalAccountId && live.readings?.length) {
+          if (deviceId) trustedDeviceAccountsRef.current.set(deviceId, externalAccountId);
+
           // A revalidation inside the main-process cache's fresh window gets the
           // readings we already persisted echoed back (same capturedAt).
           // Snapshots are append-only, so re-ingesting an echo would duplicate
           // history rows and rerun calibration without new evidence — skip it.
           const newestCapturedAt = live.readings.reduce((max, r) => Math.max(max, r.capturedAt), 0);
+          const matchingAccount = claude.find(
+            (candidate) => candidate.externalAccountId === externalAccountId,
+          );
+          const matchingWindows = matchingAccount
+            ? await agentQuotaService.getWindows(matchingAccount.id).catch(() => [])
+            : [];
           const isCachedEcho =
-            account?.externalAccountId === externalAccountId &&
-            newestCapturedAt <= newestSeenAt(windows);
+            !!matchingAccount && newestCapturedAt <= newestSeenAt(matchingWindows);
 
           if (!isCachedEcho) {
             await agentQuotaService
-              .ingestClaudeSnapshot({ identity: live.identity!, readings: live.readings })
+              .ingestClaudeSnapshot({ deviceId, identity: live.identity!, readings: live.readings })
               .catch(() => {});
             accounts = await agentQuotaService.listAccounts().catch(() => accounts);
             claude = accounts.filter((a) => a.provider === 'claude-code');
@@ -116,6 +138,9 @@ const ClaudeCodeQuotaMenu = memo<ClaudeCodeQuotaMenuProps>(({ deviceId, env }) =
             windows = account
               ? await agentQuotaService.getWindows(account.id).catch(() => windows)
               : windows;
+          } else {
+            account = matchingAccount;
+            windows = matchingWindows;
           }
         }
       }

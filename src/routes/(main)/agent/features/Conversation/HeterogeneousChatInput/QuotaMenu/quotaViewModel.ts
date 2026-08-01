@@ -26,6 +26,7 @@ export interface QuotaAccountRow {
   organizationId?: string | null;
   planTier?: string | null;
   rateLimitTier?: string | null;
+  updatedAt?: Date | string | null;
 }
 
 const toMs = (v: Date | string | null | undefined): number | null => {
@@ -70,7 +71,11 @@ export const buildClaudeSnapshotFromWindows = (
   const weekly = windows.find(isWeeklyAll);
   const scoped = windows.find((w) => w.limitType === 'weekly_scoped' && !!w.scopeKey);
 
-  const updatedAt = windows.reduce((max, w) => Math.max(max, toMs(w.lastSeenAt) ?? 0), 0);
+  // Freshness is based on when our server received the snapshot, not on the
+  // sampling device's wall clock. Device timestamps remain on the windows for
+  // history and cached-echo detection, but clock skew must not suppress or
+  // accelerate browser refreshes.
+  const updatedAt = toMs(account.updatedAt) ?? 0;
 
   return {
     error: null,
@@ -93,8 +98,12 @@ export const buildClaudeSnapshotFromWindows = (
 export const newestSeenAt = (windows: QuotaWindowRow[]): number =>
   windows.reduce((max, w) => Math.max(max, toMs(w.lastSeenAt) ?? 0), 0);
 
-/** Whether the newest persisted reading is older than `maxAgeMs`. */
-export const isQuotaStale = (windows: QuotaWindowRow[], now: number, maxAgeMs: number): boolean => {
-  const newest = newestSeenAt(windows);
-  return newest === 0 || now - newest > maxAgeMs;
+/** Whether the server receipt time is older than `maxAgeMs`. */
+export const isQuotaStale = (
+  receivedAt: Date | string | null | undefined,
+  now: number,
+  maxAgeMs: number,
+): boolean => {
+  const receivedAtMs = toMs(receivedAt);
+  return receivedAtMs === null || now - receivedAtMs > maxAgeMs;
 };
