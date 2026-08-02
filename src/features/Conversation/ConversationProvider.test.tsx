@@ -10,7 +10,7 @@ import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 
 import ChatList from './ChatList';
 import { ConversationProvider } from './ConversationProvider';
-import { dataSelectors, useConversationStore } from './store';
+import { dataSelectors, useConversationStore, useConversationStoreApi } from './store';
 
 const chatListMocks = vi.hoisted(() => ({
   isStreaming: false,
@@ -172,6 +172,22 @@ const Probe = ({
   return null;
 };
 
+/**
+ * Records one entry per distinct ConversationStore instance, so a test can tell
+ * a re-render (same store) from a remount (fresh store). Remounting is what
+ * tears the virtualized message list down and repaints it from an empty
+ * viewport — the DOM-level half of the first-send flicker, which a
+ * React-commit-level assertion cannot observe.
+ */
+const StoreIdentityProbe = ({ stores }: { stores: unknown[] }) => {
+  const storeApi = useConversationStoreApi();
+  const context = useConversationStore((s) => s.context);
+
+  if (stores.at(-1) !== storeApi) stores.push(storeApi);
+
+  return <div data-testid="store-context-key">{messageMapKey(context)}</div>;
+};
+
 const OverlayHeightSetter = () => {
   const setChatInputOverlayHeight = useConversationStore((s) => s.setChatInputOverlayHeight);
 
@@ -219,6 +235,70 @@ describe('ConversationProvider', () => {
     );
 
     expect(mismatchedNextContextSnapshots).toEqual([]);
+  });
+
+  it('keeps the same store when a new conversation materializes its topic', () => {
+    const stores: unknown[] = [];
+    const newChatContext = {
+      agentId: 'agt_old',
+      threadId: null,
+      topicId: null,
+    } satisfies ConversationContext;
+    const materializedContext = {
+      agentId: 'agt_old',
+      threadId: null,
+      topicId: 'tpc_created',
+    } satisfies ConversationContext;
+
+    const { rerender } = render(
+      <ConversationProvider hasInitMessages context={newChatContext} messages={[]}>
+        <StoreIdentityProbe stores={stores} />
+      </ConversationProvider>,
+    );
+
+    rerender(
+      <ConversationProvider hasInitMessages context={materializedContext} messages={oldMessages}>
+        <StoreIdentityProbe stores={stores} />
+      </ConversationProvider>,
+    );
+
+    // A remount here resets virtua and paints an empty list for ~50ms — the
+    // "all messages vanished then came back" flicker right after the first send.
+    expect(stores).toHaveLength(1);
+    // …and the surviving store still follows the freshly created topic.
+    expect(screen.getByTestId('store-context-key')).toHaveTextContent(
+      messageMapKey(materializedContext),
+    );
+  });
+
+  it('creates a fresh store when switching between two persisted topics', () => {
+    const stores: unknown[] = [];
+    const firstTopic = {
+      agentId: 'agt_old',
+      threadId: null,
+      topicId: 'tpc_a',
+    } satisfies ConversationContext;
+    const secondTopic = {
+      agentId: 'agt_old',
+      threadId: null,
+      topicId: 'tpc_b',
+    } satisfies ConversationContext;
+
+    const { rerender } = render(
+      <ConversationProvider hasInitMessages context={firstTopic} messages={oldMessages}>
+        <StoreIdentityProbe stores={stores} />
+      </ConversationProvider>,
+    );
+
+    rerender(
+      <ConversationProvider hasInitMessages context={secondTopic} messages={[]}>
+        <StoreIdentityProbe stores={stores} />
+      </ConversationProvider>,
+    );
+
+    // Genuine conversation switches must stay isolated — no stale messages,
+    // input or tool state carried across.
+    expect(stores).toHaveLength(2);
   });
 
   it('renders the message skeleton before the first request settles', () => {

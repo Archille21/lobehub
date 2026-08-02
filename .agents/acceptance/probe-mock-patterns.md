@@ -662,6 +662,45 @@ in-page sampler above. Either way, disarm with
 `Page.removeScriptToEvaluateOnNewDocument` and reload before capturing the settled
 state, or the comparison shot is taken against a still-crippled runtime.
 
+### Proving or disproving a conversation-surface flicker
+
+**Situation:** a user reports that messages blank out and come back (e.g. right
+after the first send in a new topic). The window is tens of milliseconds, so it
+never lands in a screenshot, and the store may be correct the whole time.
+
+**Doesn't work:** a `requestAnimationFrame` sampler over store buckets and a DOM
+node count. It under-resolves the gap — a real blank can surface as a single
+"count dipped by one" frame that reads like ordinary progressive rendering, which
+is how a genuine regression gets dismissed as not reproducible. React-render
+assertions are equally blind: the conversation list is virtualized (`virtua`), so
+a correct React commit can still paint zero rows while the virtualizer re-measures.
+An existing regression test asserting at React-commit granularity can therefore be
+green while the flicker is fully present.
+
+**Works:** attach a `MutationObserver` for sub-frame DOM truth and record the
+message **ids**, not just the count, so an in-place data swap is distinguishable
+from a teardown:
+
+```js
+const ids = () =>
+  [...document.querySelectorAll('[data-message-id]')].map((e) =>
+    e.getAttribute('data-message-id').slice(-8),
+  );
+window.__MUT = [];
+new MutationObserver(() => {
+  const sig = ids().join(',');
+  if (window.__MUT.at(-1)?.ids !== sig) {
+    window.__MUT.push({ t: Math.round(performance.now()), n: ids().length, ids: sig });
+  }
+}).observe(document.body, { childList: true, subtree: true });
+```
+
+An `n: 0` entry between two populated ones is the flicker. Pair it with a wrapper
+around `chatStore.replaceMessages` (log `action` + `context.topicId`) and a probe
+on `ConversationProvider`'s `createStore`: if the store was seeded correctly but
+the DOM still blanked, the defect is a **remount**, not a data gap — the store is
+keyed per conversation, so any context-key change tears the virtualized list down.
+
 ## Detailed references
 
 - [Probe field notes](./references/probe-field-notes.md) — all historical

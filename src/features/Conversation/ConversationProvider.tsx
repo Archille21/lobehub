@@ -4,7 +4,7 @@ import { type UIChatMessage } from '@lobechat/types';
 import debug from 'debug';
 import isEqual from 'fast-deep-equal';
 import { type ReactNode } from 'react';
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useRef } from 'react';
 
 import { useFetchAvailableAgents } from '@/hooks/useFetchAvailableAgents';
 import { messageMapKey } from '@/store/chat/utils/messageMapKey';
@@ -97,6 +97,37 @@ export const ConversationProvider = memo<ConversationProviderProps>(
   }) => {
     const contextKey = useMemo(() => messageMapKey(context), [context]);
 
+    /**
+     * Identity key for `<Provider>`.
+     *
+     * The store is keyed so a genuine conversation switch gets a fresh instance —
+     * no stale messages / input / tool state leaking across conversations.
+     *
+     * A conversation that *materializes its topic*, though, is NOT a switch:
+     * `topicId: null` → the id the server just created for this very send is the
+     * same conversation gaining an id. Remounting there tears the virtualized
+     * message list down and back up, and virtua re-measures from an empty
+     * viewport — the list paints zero rows for ~50ms, which reads as "every
+     * message vanished, then came back" right after the first send.
+     *
+     * Seeding the new store (`initialMessages`) fixes the React-data half of
+     * that flicker but cannot help the DOM half, because the remount itself is
+     * what resets the virtualizer. So absorb this one transition and keep the
+     * subtree mounted; `StoreUpdater`'s pre-paint layout effect already handles
+     * a context change within a mount.
+     */
+    const providerKeyRef = useRef(contextKey);
+    const prevContextKeyRef = useRef(contextKey);
+    if (prevContextKeyRef.current !== contextKey) {
+      const materializedTopicKey = messageMapKey({ ...context, topicId: null });
+      const isTopicMaterialization =
+        !!context.topicId && prevContextKeyRef.current === materializedTopicKey;
+
+      if (!isTopicMaterialization) providerKeyRef.current = contextKey;
+      prevContextKeyRef.current = contextKey;
+    }
+    const providerKey = providerKeyRef.current;
+
     log(
       '[Provider] render | contextKey=%s | messagesCount=%d | hasInitMessages=%s | skipFetch=%s',
       contextKey,
@@ -108,7 +139,7 @@ export const ConversationProvider = memo<ConversationProviderProps>(
     return (
       <Provider
         createStore={() => createStore({ context, hooks, initialMessages: messages, skipFetch })}
-        key={contextKey}
+        key={providerKey}
       >
         <StoreUpdater
           actionsBar={actionsBar}
