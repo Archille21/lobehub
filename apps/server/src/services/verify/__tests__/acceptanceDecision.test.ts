@@ -35,6 +35,10 @@ vi.mock('@/database/models/task', () => ({
 }));
 vi.mock('@/database/models/topic', () => ({ TopicModel: vi.fn() }));
 vi.mock('@/database/models/document', () => ({ DocumentModel: vi.fn() }));
+vi.mock('../goalLoop', () => ({
+  maybeContinueGoalLoop: vi.fn().mockResolvedValue('spawn-failed'),
+  syncGoalToolState: vi.fn(),
+}));
 vi.mock('@/server/services/task', () => ({ TaskService: vi.fn() }));
 
 const service = () => new AcceptanceService({} as any, 'user-1');
