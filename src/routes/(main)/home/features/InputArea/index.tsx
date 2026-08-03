@@ -1,4 +1,7 @@
-import { HOME_MODEL_SHOWCASE_ENABLED } from '@lobechat/business-const';
+import {
+  EXTERNAL_INTEGRATIONS_ENABLED,
+  HOME_MODEL_SHOWCASE_ENABLED,
+} from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { useMemo, useRef } from 'react';
 
@@ -43,7 +46,12 @@ const InputArea = () => {
   const isStatusInit = useGlobalStore(systemStatusSelectors.isStatusInit);
   const chatInputRef = useRef<HTMLDivElement>(null);
 
-  const showMessengerBanner = isStatusInit && !isMessengerBannerDismissed;
+  // The banner advertises talking to the assistant from Discord / Slack /
+  // Telegram / WeChat, which is the same set of external integrations gated
+  // elsewhere — offering it where none are configured sends users to set up a
+  // channel that cannot connect.
+  const showMessengerBanner =
+    EXTERNAL_INTEGRATIONS_ENABLED && isStatusInit && !isMessengerBannerDismissed;
 
   // Get agent's model info for vision support check. Falls back to an empty
   // id while the agent id resolves; the selectors return DEFAULT_MODEL /

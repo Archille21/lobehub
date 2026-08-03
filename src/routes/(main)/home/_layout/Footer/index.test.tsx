@@ -1,3 +1,4 @@
+import { DESKTOP_APP_ENABLED } from '@lobechat/business-const';
 import type * as LobechatConst from '@lobechat/const';
 import { cleanup, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -331,18 +332,42 @@ describe('Footer agent onboarding promotion', () => {
 });
 
 describe('Footer help menu tracking', () => {
-  it('shows Get App immediately before GitHub on web', async () => {
-    const user = userEvent.setup();
-    await renderFooter({ hideGitHub: false });
+  // The entry only exists where the distribution actually ships an app to
+  // download, so assert whichever half is true for this build rather than
+  // pinning the upstream default.
+  it.runIf(DESKTOP_APP_ENABLED)(
+    'shows Get App immediately before GitHub on web',
+    async () => {
+      const user = userEvent.setup();
+      await renderFooter({ hideGitHub: false });
 
-    await user.click(screen.getByRole('button', { name: 'Help' }));
+      await user.click(screen.getByRole('button', { name: 'Help' }));
 
-    const getApp = await screen.findByRole('link', { name: 'Get App' });
-    const github = screen.getByRole('link', { name: 'GitHub' });
+      const getApp = await screen.findByRole('link', { name: 'Get App' });
+      const github = screen.getByRole('link', { name: 'GitHub' });
 
-    expect(getApp).toHaveAttribute('href', '/downloads');
-    expect(getApp.compareDocumentPosition(github) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  }, 20000);
+      expect(getApp).toHaveAttribute('href', '/downloads');
+      expect(
+        getApp.compareDocumentPosition(github) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    },
+    20000,
+  );
+
+  it.runIf(!DESKTOP_APP_ENABLED)(
+    'omits Get App when the distribution ships no downloadable app',
+    async () => {
+      const user = userEvent.setup();
+      await renderFooter({ hideGitHub: false });
+
+      await user.click(screen.getByRole('button', { name: 'Help' }));
+
+      expect(screen.queryByRole('link', { name: 'Get App' })).not.toBeInTheDocument();
+      // The rest of the menu is untouched.
+      expect(screen.getByRole('link', { name: 'GitHub' })).toBeInTheDocument();
+    },
+    20000,
+  );
 
   it('does not show Get App in desktop builds', async () => {
     const user = userEvent.setup();

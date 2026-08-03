@@ -8,7 +8,7 @@ import { createStaticStyles } from 'antd-style';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { BLOG, mailTo,OFFICIAL_SITE, PRIVACY_URL, TERMS_URL } from '@/const/url';
+import { BLOG, mailTo, OFFICIAL_SITE, PRIVACY_URL, TERMS_URL } from '@/const/url';
 
 import AboutList from './AboutList';
 import ItemCard from './ItemCard';
@@ -23,8 +23,58 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
   `,
 }));
 
+/**
+ * These sections list the vendor's own channels — website, support mailbox,
+ * social accounts, terms and privacy pages. A distribution that has none of
+ * them leaves the corresponding constants empty, and rendering the headings
+ * anyway produced a "Contact us" block whose links went nowhere, under a
+ * product name that has no such channels. (It also passed `undefined` straight
+ * into `mailTo`.)
+ *
+ * So build each list from whatever is actually configured, and drop a section
+ * once nothing is left in it.
+ */
+interface AboutItem {
+  href?: string;
+  icon?: any;
+  label: string;
+  value: string;
+}
+
+type LinkedAboutItem = AboutItem & { href: string };
+
+const withLinks = (items: AboutItem[]): LinkedAboutItem[] =>
+  items.filter((item): item is LinkedAboutItem => !!item.href);
+
 const About = memo<{ mobile?: boolean }>(({ mobile }) => {
   const { t } = useTranslation('common');
+
+  const contactItems = withLinks([
+    { href: OFFICIAL_SITE, label: t('officialSite'), value: 'officialSite' },
+    {
+      href: BRANDING_EMAIL.support ? mailTo(BRANDING_EMAIL.support) : undefined,
+      label: t('mail.support'),
+      value: 'support',
+    },
+    {
+      href: BRANDING_EMAIL.business ? mailTo(BRANDING_EMAIL.business) : undefined,
+      label: t('mail.business'),
+      value: 'business',
+    },
+  ]);
+
+  const informationItems = withLinks([
+    { href: BLOG, icon: SiRss, label: t('blog'), value: 'blog' },
+    { href: SOCIAL_URL.github, icon: SiGithub, label: 'GitHub', value: 'feedback' },
+    { href: SOCIAL_URL.discord, icon: SiDiscord, label: 'Discord', value: 'discord' },
+    { href: SOCIAL_URL.x, icon: SiX as any, label: 'X / Twitter', value: 'x' },
+    { href: SOCIAL_URL.youtube, icon: SiYoutube, label: 'YouTube', value: 'youtube' },
+  ]);
+
+  const legalItems = withLinks([
+    { href: TERMS_URL, label: t('terms'), value: 'terms' },
+    { href: PRIVACY_URL, label: t('privacy'), value: 'privacy' },
+  ]);
 
   return (
     <Form.Group
@@ -37,84 +87,27 @@ const About = memo<{ mobile?: boolean }>(({ mobile }) => {
       <Flexbox gap={20} paddingBlock={20} width={'100%'}>
         <div className={styles.title}>{t('version')}</div>
         <Version mobile={mobile} />
-        <Divider style={{ marginBlock: 0 }} />
-        <div className={styles.title}>{t('contact')}</div>
-        <AboutList
-          ItemRender={ItemLink}
-          items={[
-            {
-              href: OFFICIAL_SITE,
-              label: t('officialSite'),
-              value: 'officialSite',
-            },
-            {
-              href: mailTo(BRANDING_EMAIL.support),
-              label: t('mail.support'),
-              value: 'support',
-            },
-            {
-              href: mailTo(BRANDING_EMAIL.business),
-              label: t('mail.business'),
-              value: 'business',
-            },
-          ]}
-        />
-        <Divider style={{ marginBlock: 0 }} />
-        <div className={styles.title}>{t('information')}</div>
-        <AboutList
-          grid
-          ItemRender={ItemCard}
-          items={[
-            {
-              href: BLOG,
-              icon: SiRss,
-              label: t('blog'),
-              value: 'blog',
-            },
-            {
-              href: SOCIAL_URL.github,
-              icon: SiGithub,
-              label: 'GitHub',
-              value: 'feedback',
-            },
-            {
-              href: SOCIAL_URL.discord,
-              icon: SiDiscord,
-              label: 'Discord',
-              value: 'discord',
-            },
-            {
-              href: SOCIAL_URL.x,
-              icon: SiX as any,
-              label: 'X / Twitter',
-              value: 'x',
-            },
-
-            {
-              href: SOCIAL_URL.youtube,
-              icon: SiYoutube,
-              label: 'YouTube',
-              value: 'youtube',
-            },
-          ]}
-        />
-        <Divider style={{ marginBlock: 0 }} />
-        <div className={styles.title}>{t('legal')}</div>
-        <AboutList
-          ItemRender={ItemLink}
-          items={[
-            {
-              href: TERMS_URL,
-              label: t('terms'),
-              value: 'terms',
-            },
-            {
-              href: PRIVACY_URL,
-              label: t('privacy'),
-              value: 'privacy',
-            },
-          ]}
-        />
+        {contactItems.length > 0 && (
+          <>
+            <Divider style={{ marginBlock: 0 }} />
+            <div className={styles.title}>{t('contact')}</div>
+            <AboutList ItemRender={ItemLink} items={contactItems} />
+          </>
+        )}
+        {informationItems.length > 0 && (
+          <>
+            <Divider style={{ marginBlock: 0 }} />
+            <div className={styles.title}>{t('information')}</div>
+            <AboutList grid ItemRender={ItemCard} items={informationItems} />
+          </>
+        )}
+        {legalItems.length > 0 && (
+          <>
+            <Divider style={{ marginBlock: 0 }} />
+            <div className={styles.title}>{t('legal')}</div>
+            <AboutList ItemRender={ItemLink} items={legalItems} />
+          </>
+        )}
       </Flexbox>
     </Form.Group>
   );

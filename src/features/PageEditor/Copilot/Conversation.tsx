@@ -1,3 +1,4 @@
+import { AGENT_SWITCHING_ENABLED } from '@lobechat/business-const';
 import { isChatGroupSessionId } from '@lobechat/types';
 import { Flexbox } from '@lobehub/ui';
 import { memo, useCallback, useMemo } from 'react';
@@ -56,7 +57,9 @@ const Conversation = memo(() => {
     () => (
       <ActionBarContext value={COMPACT_ACTION_BAR_CONTEXT}>
         <Flexbox horizontal align={'center'} gap={2}>
-          <AgentSelectorAction onAgentChange={handleAgentChange} />
+          {AGENT_SWITCHING_ENABLED ? (
+            <AgentSelectorAction onAgentChange={handleAgentChange} />
+          ) : null}
           <Search />
         </Flexbox>
       </ActionBarContext>
