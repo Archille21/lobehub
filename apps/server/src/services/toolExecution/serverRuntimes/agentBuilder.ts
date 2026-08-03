@@ -13,7 +13,7 @@ import { getPluginMode, upsertPluginMode } from '@lobechat/types';
 
 import { AgentModel } from '@/database/models/agent';
 import { PluginModel } from '@/database/models/plugin';
-import { AiInfraRepos } from '@/database/repositories/aiInfra';
+import { createAiInfraRepos } from '@/server/services/aiInfra/servableModels';
 import { DiscoverService } from '@/server/services/discover';
 
 import { type ToolExecutionContext, type ToolExecutionResult } from '../types';
@@ -34,12 +34,6 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
 
     const agentModel = new AgentModel(context.serverDB, context.userId, context.workspaceId);
     const pluginModel = new PluginModel(context.serverDB, context.userId, context.workspaceId);
-    const aiInfraRepos = new AiInfraRepos(
-      context.serverDB,
-      context.userId,
-      {},
-      context.workspaceId,
-    );
     const discoverService = new DiscoverService();
 
     return {
@@ -47,6 +41,15 @@ export const agentBuilderRuntime: ServerRuntimeRegistration = {
         params: GetAvailableModelsParams,
       ): Promise<ToolExecutionResult> => {
         try {
+          // Built per call, not per factory: the provider config is async, and
+          // an `AiInfraRepos` constructed with `{}` reports config-enabled
+          // providers (the branded one) as disabled — which reads as "the user
+          // has no models" rather than as an error.
+          const aiInfraRepos = await createAiInfraRepos(
+            context.serverDB!,
+            context.userId!,
+            context.workspaceId,
+          );
           const allProviders = await aiInfraRepos.getAiProviderList();
           const enabledProviders = allProviders.filter((p) => p.enabled);
 

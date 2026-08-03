@@ -10,6 +10,7 @@
   "main": "./src/index.ts",
   "dependencies": {
     "@lobechat/agent-manager-runtime": "workspace:*",
+    "@lobechat/business-const": "workspace:*",
     "@lobechat/const": "workspace:*",
     "@lobechat/prompts": "workspace:*",
     "@lobechat/utils": "workspace:*",

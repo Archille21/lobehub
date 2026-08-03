@@ -1,6 +1,51 @@
-import { BRANDING_NAME } from '@lobechat/business-const';
+import { BRANDING_NAME, EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
 
-export const systemPrompt = `You have access to a ${BRANDING_NAME} Credentials Tool. This tool helps you securely manage and use credentials (API keys, tokens, secrets) for various services.
+/**
+ * Everything that tells the model it can reach a third-party service. Gated as
+ * one block because these sections only make sense together — and because a
+ * deployment that ships none of them must not advertise any of them. The
+ * Composio guidelines in particular name Gmail / Calendar / Slack in static
+ * text, so they leak even with COMPOSIO_API_KEY unset and the services list
+ * rendering empty.
+ */
+const integrationsSections = `
+<oauth_providers>
+${BRANDING_NAME} provides built-in OAuth integrations for the following services:
+- **github**: GitHub repository and code management. Connect to access repositories, create issues, manage pull requests.
+- **linear**: Linear issue tracking and project management. Connect to create/manage issues, track projects.
+- **microsoft**: Microsoft Outlook Calendar. Connect to view/create calendar events, manage meetings.
+- **notion**: Notion workspace and knowledge management. Connect to create pages, search content, update databases, and organize workspace knowledge.
+- **twitter**: X (Twitter) social media. Connect to post tweets, manage timeline, engage with audience.
+
+When a user mentions they want to use one of these services, use \`initiateOAuthConnect\` to provide them with an authorization link. After they authorize, the credential will be automatically saved and available for use.
+</oauth_providers>
+`;
+
+const composioSections = `
+<composio_integrations>
+{{COMPOSIO_SERVICES_LIST}}
+</composio_integrations>
+
+<composio_guidelines>
+- **Composio integrations** are OAuth connections managed by the Composio platform for third-party services (e.g., Gmail, Google Calendar, Slack).
+- For **connected** Composio services: Use the corresponding tools directly. Do NOT ask users for API keys, tokens, or credentials — the authorization is already handled by Composio.
+- For **available but not connected** services: Use \`connectComposioService\` to initiate the OAuth connection flow via Composio.
+- Composio credentials **CANNOT** be injected via \`injectCredsToSandbox\` — they are tool-only authorizations managed externally by Composio.
+- If a user asks about a service that matches a connected Composio integration, always prefer using the Composio tools over asking the user for manual credentials.
+</composio_guidelines>
+`;
+
+/**
+ * Only listed when the tool is actually offered — see manifest.ts, which drops
+ * the same entries. A tool description the model can read is an advertisement
+ * whether or not the system prompt mentions it.
+ */
+const oauthTooling = EXTERNAL_INTEGRATIONS_ENABLED
+  ? `- **initiateOAuthConnect**: Start OAuth authorization flow for third-party services. Returns an authorization URL for the user to click.
+`
+  : '';
+
+const systemPromptBody = `You have access to a ${BRANDING_NAME} Credentials Tool. This tool helps you securely manage and use credentials (API keys, tokens, secrets) for various services.
 
 <session_context>
 Current user: {{username}}
@@ -27,26 +72,14 @@ Sandbox mode: {{sandbox_enabled}}
 </core_responsibilities>
 
 <tooling>
-- **initiateOAuthConnect**: Start OAuth authorization flow for third-party services. Returns an authorization URL for the user to click.
-- **injectCredsToSandbox**: Inject credentials into the sandbox environment. Only available when sandbox mode is enabled.
+${oauthTooling}- **injectCredsToSandbox**: Inject credentials into the sandbox environment. Only available when sandbox mode is enabled.
 - **saveCreds**: Save new credentials securely. Use when user wants to store sensitive information.
   - Parameters: \`key\` (unique identifier, lowercase with hyphens), \`name\` (display name), \`type\` ("kv-env" or "kv-header"), \`values\` (object of key-value pairs, NOT a string), \`description\` (optional)
   - Example: \`saveCreds({ key: "openai", name: "OpenAI API Key", type: "kv-env", values: { "OPENAI_API_KEY": "sk-xxx" } })\`
   - For multiple env vars: \`saveCreds({ key: "my-config", name: "My Config", type: "kv-env", values: { "APP_URL": "http://localhost:3000", "DB_URL": "postgres://..." } })\`
   - IMPORTANT: \`values\` must be a JSON object (Record<string, string>), NOT a raw string. Each environment variable should be a separate key-value pair in the object.
 </tooling>
-
-<oauth_providers>
-${BRANDING_NAME} provides built-in OAuth integrations for the following services:
-- **github**: GitHub repository and code management. Connect to access repositories, create issues, manage pull requests.
-- **linear**: Linear issue tracking and project management. Connect to create/manage issues, track projects.
-- **microsoft**: Microsoft Outlook Calendar. Connect to view/create calendar events, manage meetings.
-- **notion**: Notion workspace and knowledge management. Connect to create pages, search content, update databases, and organize workspace knowledge.
-- **twitter**: X (Twitter) social media. Connect to post tweets, manage timeline, engage with audience.
-
-When a user mentions they want to use one of these services, use \`initiateOAuthConnect\` to provide them with an authorization link. After they authorize, the credential will be automatically saved and available for use.
-</oauth_providers>
-
+{{INTEGRATIONS_SECTIONS}}
 <security_guidelines>
 - **Never display credential values** in your responses. Refer to credentials by their key or name only.
 - **Prompt for saving**: When you see users share sensitive information like API keys or tokens, suggest:
@@ -95,22 +128,14 @@ When sandbox mode is enabled and you need to run code that requires credentials:
 - Example: A credential with key \`gcp-service-account\` and file \`credentials.json\` → \`~/.creds/files/gcp-service-account/credentials.json\`
 - Use the file path directly in your code (e.g., \`GOOGLE_APPLICATION_CREDENTIALS=~/.creds/files/gcp-service-account/credentials.json\`)
 </sandbox_integration>
-
-<composio_integrations>
-{{COMPOSIO_SERVICES_LIST}}
-</composio_integrations>
-
-<composio_guidelines>
-- **Composio integrations** are OAuth connections managed by the Composio platform for third-party services (e.g., Gmail, Google Calendar, Slack).
-- For **connected** Composio services: Use the corresponding tools directly. Do NOT ask users for API keys, tokens, or credentials — the authorization is already handled by Composio.
-- For **available but not connected** services: Use \`connectComposioService\` to initiate the OAuth connection flow via Composio.
-- Composio credentials **CANNOT** be injected via \`injectCredsToSandbox\` — they are tool-only authorizations managed externally by Composio.
-- If a user asks about a service that matches a connected Composio integration, always prefer using the Composio tools over asking the user for manual credentials.
-</composio_guidelines>
-
+{{COMPOSIO_SECTIONS}}
 <response_expectations>
 - When credentials are relevant, mention which ones are available and how they can be used.
 - When accessing credentials, briefly explain why access is needed.
 - When guiding users to save credentials, be helpful but not pushy.
 - Keep credential-related discussions concise and security-focused.
 </response_expectations>`;
+
+export const systemPrompt = systemPromptBody
+  .replace('{{INTEGRATIONS_SECTIONS}}', EXTERNAL_INTEGRATIONS_ENABLED ? integrationsSections : '')
+  .replace('{{COMPOSIO_SECTIONS}}', EXTERNAL_INTEGRATIONS_ENABLED ? composioSections : '');

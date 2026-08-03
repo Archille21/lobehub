@@ -2,23 +2,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentModel } from '@/database/models/agent';
 import { PluginModel } from '@/database/models/plugin';
+import type * as ServableModels from '@/server/services/aiInfra/servableModels';
 
 import { agentManagementRuntime } from '../agentManagement';
 
 const {
   mockCountAgents,
+  mockCreateAgent,
   mockGetAssistantList,
   mockQueryAgents,
   mockGetAgentConfigById,
   mockUpdateConfig,
   mockFindById,
   mockCreatePlugin,
+  mockCreateAiInfraRepos,
+  mockListServableChatProviders,
 } = vi.hoisted(() => ({
   mockCountAgents: vi.fn(),
+  mockCreateAgent: vi.fn(),
+  mockCreateAiInfraRepos: vi.fn(),
   mockCreatePlugin: vi.fn(),
   mockFindById: vi.fn(),
   mockGetAgentConfigById: vi.fn(),
   mockGetAssistantList: vi.fn(),
+  mockListServableChatProviders: vi.fn(),
   mockQueryAgents: vi.fn(),
   mockUpdateConfig: vi.fn(),
 }));
@@ -26,10 +33,19 @@ const {
 vi.mock('@/database/models/agent', () => ({
   AgentModel: vi.fn(() => ({
     countAgents: mockCountAgents,
+    create: mockCreateAgent,
     getAgentConfigById: mockGetAgentConfigById,
     queryAgents: mockQueryAgents,
     updateConfig: mockUpdateConfig,
   })),
+}));
+
+// Only the DB-touching half is stubbed — `validateServableModelSelection` runs
+// for real, so these tests cover the wiring rather than restating the rules.
+vi.mock('@/server/services/aiInfra/servableModels', async (importOriginal) => ({
+  ...(await importOriginal<typeof ServableModels>()),
+  createAiInfraRepos: mockCreateAiInfraRepos,
+  listServableChatProviders: mockListServableChatProviders,
 }));
 
 vi.mock('@/database/models/plugin', () => ({
@@ -217,6 +233,83 @@ describe('agentManagementRuntime', () => {
       expect(result.success).toBe(false);
       expect(result.error).toMatchObject({ code: 'NESTED_AGENT_CALL_NOT_ALLOWED' });
       expect(run).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('model/provider validation', () => {
+    const servable = [
+      {
+        id: 'lobehub',
+        models: [{ id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' }],
+        name: 'LobeHub',
+      },
+    ];
+
+    beforeEach(() => {
+      mockCreateAiInfraRepos.mockResolvedValue({} as never);
+      mockListServableChatProviders.mockResolvedValue(servable);
+      mockCreateAgent.mockResolvedValue({ id: 'agent-new' });
+    });
+
+    it('creates the agent when the pair is servable', async () => {
+      const result = await createRuntime().createAgent({
+        model: 'deepseek-v4-pro',
+        provider: 'lobehub',
+        title: 'Writer',
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockCreateAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'deepseek-v4-pro', provider: 'lobehub' }),
+      );
+    });
+
+    // The reported failure: a provider id inferred from the model's vendor. It
+    // must not reach the database — a written-but-unrunnable agent looks created
+    // and only surfaces when someone opens it.
+    it('refuses to write an invented provider', async () => {
+      const result = await createRuntime().createAgent({
+        model: 'deepseek-v4-pro',
+        provider: 'bytedance',
+        title: 'Writer',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.content).toContain('bytedance');
+      expect(result.content).toContain('lobehub');
+      expect(mockCreateAgent).not.toHaveBeenCalled();
+    });
+
+    // Omitting both is the documented way to say "use the deployment default",
+    // and it is the common path — it must not cost a lookup.
+    it('creates without consulting the catalogue when both fields are omitted', async () => {
+      const result = await createRuntime().createAgent({ title: 'Writer' });
+
+      expect(result.success).toBe(true);
+      expect(mockCreateAgent).toHaveBeenCalled();
+      expect(mockCreateAiInfraRepos).not.toHaveBeenCalled();
+    });
+
+    it('refuses to update an existing agent onto an unservable provider', async () => {
+      const result = await createRuntime().updateAgent({
+        agentId: 'agent-1',
+        config: { model: 'deepseek-v4-pro', provider: 'bytedance' },
+      });
+
+      expect(result.success).toBe(false);
+      expect(mockUpdateConfig).not.toHaveBeenCalled();
+    });
+
+    // updateAgent edits unrelated config all the time; validation must not
+    // block a change that never touches the model.
+    it('still applies config updates that do not touch model or provider', async () => {
+      const result = await createRuntime().updateAgent({
+        agentId: 'agent-1',
+        config: { systemRole: 'You are a writer.' },
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockUpdateConfig).toHaveBeenCalled();
     });
   });
 

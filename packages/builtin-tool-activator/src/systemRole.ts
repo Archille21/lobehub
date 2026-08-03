@@ -1,4 +1,35 @@
-import { BRANDING_NAME } from '@lobechat/business-const';
+import { BRANDING_NAME, EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
+
+/**
+ * The third-party half of the credentials trigger list.
+ *
+ * Kept together with the routing steps that depend on it: naming Slack / Gmail /
+ * Jira as things to activate `lobe-creds` for is only useful while `lobe-creds`
+ * still exposes `initiateOAuthConnect` / `connectComposioService` to reach them.
+ * With integrations off those API entries are gone from the creds manifest, so
+ * these lines would send the model activating a tool to call functions that do
+ * not exist — and, worse, would keep the service names in front of it, which is
+ * where "I can manage your Gmail" comes from in the first place.
+ */
+const integrationTriggers = EXTERNAL_INTEGRATIONS_ENABLED
+  ? `- User asks to connect to services like GitHub, Linear, Microsoft, Notion, Twitter, etc.
+- User wants to use, open, connect, or interact with a third-party integration service
+  (e.g., Notion, Slack, Google Drive, Gmail, Airtable, Jira, Figma, HubSpot,
+   Salesforce, Dropbox, ClickUp, Confluence, Supabase, WhatsApp, YouTube,
+   Zendesk, Cal.com, OneDrive, Outlook Mail, Google Sheets, Google Docs)
+- User says things like "help me use Notion", "connect my Slack", "open Google Drive",
+  "I want to use Jira", "set up Airtable" — these are third-party OAuth services
+`
+  : '';
+
+const integrationCredentialRouting = EXTERNAL_INTEGRATIONS_ENABLED
+  ? `   - For ${BRANDING_NAME} OAuth services (GitHub, Linear, Microsoft, Notion, Twitter) → use \`initiateOAuthConnect\`
+   - For Composio-managed services (Slack, Google Drive, Airtable, Jira, etc.)
+     → use \`connectComposioService\` after activating \`lobe-creds\`. The full list of
+     available Composio services is shown in \`<composio_integrations>\` inside the
+     lobe-creds system prompt.
+`
+  : '';
 
 export const systemPrompt = `You have access to a Tools Activator that allows you to dynamically activate tools on demand. Not all tools are loaded by default — you must activate them before use.
 
@@ -62,25 +93,13 @@ export const systemPrompt = `You have access to a Tools Activator that allows yo
 - Task requires environment variables (e.g., \`OPENAI_API_KEY\`, \`GITHUB_TOKEN\`)
 - User wants to store or manage sensitive information securely
 - Sandbox code execution requires credentials/secrets to be injected
-- User asks to connect to services like GitHub, Linear, Microsoft, Notion, Twitter, etc.
-- User wants to use, open, connect, or interact with a third-party integration service
-  (e.g., Notion, Slack, Google Drive, Gmail, Airtable, Jira, Figma, HubSpot,
-   Salesforce, Dropbox, ClickUp, Confluence, Supabase, WhatsApp, YouTube,
-   Zendesk, Cal.com, OneDrive, Outlook Mail, Google Sheets, Google Docs)
-- User says things like "help me use Notion", "connect my Slack", "open Google Drive",
-  "I want to use Jira", "set up Airtable" — these are third-party OAuth services
-
+${integrationTriggers}
 **Decision flow:**
 1. **If ANY trigger condition above is met** → Immediately activate \`lobe-creds\`
 2. Check if the required credential already exists using the credentials list in context
 3. If credential exists → use \`getPlaintextCred\` or \`injectCredsToSandbox\` (for sandbox execution)
 4. If credential doesn't exist:
-   - For ${BRANDING_NAME} OAuth services (GitHub, Linear, Microsoft, Notion, Twitter) → use \`initiateOAuthConnect\`
-   - For Composio-managed services (Slack, Google Drive, Airtable, Jira, etc.)
-     → use \`connectComposioService\` after activating \`lobe-creds\`. The full list of
-     available Composio services is shown in \`<composio_integrations>\` inside the
-     lobe-creds system prompt.
-   - For API keys/tokens → guide user to save with \`saveCreds\`
+${integrationCredentialRouting}   - For API keys/tokens → guide user to save with \`saveCreds\`
 5. For sandbox code that needs credentials → use \`injectCredsToSandbox\` to inject them as environment variables
 
 **Important:**

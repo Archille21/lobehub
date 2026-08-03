@@ -1,7 +1,19 @@
+import { EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
 import type { BuiltinToolManifest } from '@lobechat/types';
 
 import { systemPrompt } from './systemRole';
 import { AgentManagementApiName, AgentManagementIdentifier } from './types';
+
+// Tool descriptions are sent to the model with the tool list, so these
+// advertise integrations exactly as the system prompt does. Gating only the
+// prompt leaves the model reading "Composio integrations" off the tool schema.
+const installPluginDesc = EXTERNAL_INTEGRATIONS_ENABLED
+  ? "Install a plugin/tool for an agent. Use 'official' source for builtin tools, Composio integrations, and LobehubSkill providers. Use 'market' source for MCP marketplace plugins."
+  : "Install a plugin/tool for an agent. Use 'official' source for builtin tools. Use 'market' source for MCP marketplace plugins.";
+
+const pluginSourceDesc = EXTERNAL_INTEGRATIONS_ENABLED
+  ? "Plugin source: 'official' (builtin tools, Composio, LobehubSkill) or 'market' (MCP marketplace)"
+  : "Plugin source: 'official' (builtin tools) or 'market' (MCP marketplace)";
 
 export const AgentManagementManifest: BuiltinToolManifest = {
   api: [
@@ -33,13 +45,20 @@ export const AgentManagementManifest: BuiltinToolManifest = {
             description: 'Background color for the agent card (hex color code)',
             type: 'string',
           },
+          // No example ids here on purpose. Examples naming real upstream
+          // vendors read as the expected shape of an answer, and a model with no
+          // list to hand copies that shape — inferring a vendor from the model
+          // name instead of using the deployment's own provider id. Both fields
+          // must come from `available_models` in the injected context, which is
+          // the only place that knows what this deployment serves.
           model: {
             description:
-              'The AI model to use (e.g., "gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet-20241022")',
+              'Model id, copied exactly from the `available_models` section of the injected context. Must be paired with the `provider` it is listed under.',
             type: 'string',
           },
           provider: {
-            description: 'The AI provider (e.g., "openai", "anthropic", "google")',
+            description:
+              'Provider id, copied exactly from the `available_models` section of the injected context. Never infer it from the model name or vendor.',
             type: 'string',
           },
           plugins: {
@@ -80,11 +99,13 @@ export const AgentManagementManifest: BuiltinToolManifest = {
             description: 'Partial agent configuration to update',
             properties: {
               model: {
-                description: 'The AI model to use',
+                description:
+                  'Model id, copied exactly from the `available_models` section of the injected context. Must be paired with the `provider` it is listed under.',
                 type: 'string',
               },
               provider: {
-                description: 'The AI provider',
+                description:
+                  'Provider id, copied exactly from the `available_models` section of the injected context. Never infer it from the model name or vendor.',
                 type: 'string',
               },
               systemRole: {
@@ -193,8 +214,7 @@ export const AgentManagementManifest: BuiltinToolManifest = {
       },
     },
     {
-      description:
-        "Install a plugin/tool for an agent. Use 'official' source for builtin tools, Composio integrations, and LobehubSkill providers. Use 'market' source for MCP marketplace plugins.",
+      description: installPluginDesc,
       name: AgentManagementApiName.installPlugin,
       parameters: {
         properties: {
@@ -207,8 +227,7 @@ export const AgentManagementManifest: BuiltinToolManifest = {
             type: 'string',
           },
           source: {
-            description:
-              "Plugin source: 'official' (builtin tools, Composio, LobehubSkill) or 'market' (MCP marketplace)",
+            description: pluginSourceDesc,
             enum: ['official', 'market'],
             type: 'string',
           },

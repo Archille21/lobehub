@@ -20,6 +20,11 @@ import {
 
 import { AgentModel } from '@/database/models/agent';
 import { PluginModel } from '@/database/models/plugin';
+import {
+  createAiInfraRepos,
+  listServableChatProviders,
+  validateServableModelSelection,
+} from '@/server/services/aiInfra/servableModels';
 import { DiscoverService } from '@/server/services/discover';
 
 import { type ToolExecutionContext, type ToolExecutionResult } from '../types';
@@ -42,6 +47,31 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
     const agentModel = new AgentModel(context.serverDB, context.userId, context.workspaceId);
     const pluginModel = new PluginModel(context.serverDB, context.userId, context.workspaceId);
     const discoverService = new DiscoverService();
+
+    /**
+     * The injected context lists the servable models, but a model that ignores
+     * it fails silently: the pair is written verbatim and the agent looks
+     * created until someone opens it and finds the composer refusing to send.
+     * Check before writing, and hand back the real ids so the retry can succeed.
+     */
+    const rejectUnservableModel = async (selection: {
+      model?: string;
+      provider?: string;
+    }): Promise<ToolExecutionResult | null> => {
+      if (!selection.model && !selection.provider) return null;
+
+      const repos = await createAiInfraRepos(
+        context.serverDB!,
+        context.userId!,
+        context.workspaceId,
+      );
+      const problem = validateServableModelSelection(
+        await listServableChatProviders(repos),
+        selection,
+      );
+
+      return problem ? { content: problem, success: false } : null;
+    };
 
     return {
       callAgent: async (
@@ -121,6 +151,12 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
             }
             return v;
           };
+
+          const unservable = await rejectUnservableModel({
+            model: params.model,
+            provider: params.provider,
+          });
+          if (unservable) return unservable;
 
           const agent = await agentModel.create({
             avatar: params.avatar,
@@ -381,6 +417,12 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
           const updatedParts: string[] = [];
 
           if (config && Object.keys(config).length > 0) {
+            // updateAgent carries model/provider inside `config`, so it can
+            // break a working agent the same way createAgent makes a broken one.
+            const { model, provider } = config as { model?: string; provider?: string };
+            const unservable = await rejectUnservableModel({ model, provider });
+            if (unservable) return unservable;
+
             await agentModel.updateConfig(agentId, config as Record<string, unknown>);
             updatedParts.push(`config: ${Object.keys(config).join(', ')}`);
           }

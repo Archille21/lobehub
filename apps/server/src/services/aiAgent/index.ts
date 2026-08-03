@@ -81,7 +81,6 @@ import debug from 'debug';
 import { AgentModel } from '@/database/models/agent';
 import { AgentOperationModel } from '@/database/models/agentOperation';
 import { AgentSkillModel } from '@/database/models/agentSkill';
-import { AiModelModel } from '@/database/models/aiModel';
 import { ChatGroupModel } from '@/database/models/chatGroup';
 import { ConnectorModel } from '@/database/models/connector';
 import { ConnectorToolModel } from '@/database/models/connectorTool';
@@ -141,6 +140,10 @@ import {
   resolveAgentSelfIterationCapability,
 } from '@/server/services/agentSignal/featureGate';
 import { shouldSuppressSignal } from '@/server/services/agentSignal/suppressSignal';
+import {
+  createAiInfraRepos,
+  listServableChatProviders,
+} from '@/server/services/aiInfra/servableModels';
 import { ComposioService } from '@/server/services/composio';
 import {
   buildLastSyncedAtMap,
@@ -3412,45 +3415,14 @@ export class AiAgentService {
     }
 
     if (isAgentManagementEnabled) {
-      // Query user's enabled models from database
-      const aiModelModel = new AiModelModel(this.db, this.userId);
-      const allUserModels = await aiModelModel.getAllModels();
-
-      // Filter only enabled chat models and group by provider
-      const providerMap = new Map<
-        string,
-        {
-          id: string;
-          models: Array<{ abilities?: any; description?: string; id: string; name: string }>;
-          name: string;
-        }
-      >();
-
-      for (const userModel of allUserModels) {
-        // Only include enabled chat models
-        if (!userModel.enabled || userModel.type !== 'chat') continue;
-
-        // Get model info from builtin metadata for full metadata.
-        const modelInfo = builtinModels.find(
-          (m) => m.id === userModel.id && m.providerId === userModel.providerId,
-        );
-
-        if (!providerMap.has(userModel.providerId)) {
-          providerMap.set(userModel.providerId, {
-            id: userModel.providerId,
-            models: [],
-            name: userModel.providerId, // TODO: Map to friendly provider name
-          });
-        }
-
-        const provider = providerMap.get(userModel.providerId)!;
-        provider.models.push({
-          abilities: userModel.abilities || modelInfo?.abilities,
-          description: modelInfo?.description,
-          id: userModel.id,
-          name: userModel.displayName || modelInfo?.displayName || userModel.id,
-        });
-      }
+      // The models offered to the model for createAgent/updateAgent must be the
+      // set this deployment can actually run — see `servableModels.ts` for why
+      // scanning `ai_models` here is not that set. Getting it wrong degrades to
+      // an empty list, and an ungrounded model invents provider ids rather than
+      // reporting it was shown none.
+      const aiInfraRepos = await createAiInfraRepos(this.db, this.userId, this.workspaceId);
+      // Limit to first 5 providers to avoid context bloat
+      const servableProviders = await listServableChatProviders(aiInfraRepos, { maxProviders: 5 });
 
       // Build availablePlugins from all plugin sources
       // Exclude only truly internal tools (agent-management itself, agent-builder, page-agent)
@@ -3500,8 +3472,7 @@ export class AiAgentService {
       agentManagementContext = {
         ...agentManagementContext!,
         availablePlugins,
-        // Limit to first 5 providers to avoid context bloat
-        availableProviders: Array.from(providerMap.values()).slice(0, 5),
+        availableProviders: servableProviders,
       };
 
       log(

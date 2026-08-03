@@ -1,4 +1,4 @@
-import { BRANDING_NAME } from '@lobechat/business-const';
+import { BRANDING_NAME, EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
 import type { BuiltinToolManifest } from '@lobechat/types';
 import type { JSONSchema7 } from 'json-schema';
 
@@ -7,41 +7,52 @@ import { CredsApiName, LOBEHUB_OAUTH_PROVIDER_IDS, LOBEHUB_OAUTH_PROVIDER_LIST }
 
 export const CredsIdentifier = 'lobe-creds';
 
+/**
+ * Dropped wholesale when third-party integrations are off. Removing them from
+ * the system prompt is not enough on its own — a tool's `description` is sent
+ * to the model as part of the tool list, and both of these name the services
+ * they connect to, so the assistant would keep offering Gmail and GitHub from
+ * the tool list alone.
+ */
+const integrationApis: BuiltinToolManifest['api'] = [
+  {
+    description:
+      'Connect a Composio integration service via OAuth. Use this to authorize access to third-party services managed by the Composio platform (e.g., Gmail, Google Calendar, Slack). Check the available Composio services in the credentials context before calling this.',
+    name: CredsApiName.connectComposioService,
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        service: {
+          description:
+            'The Composio service identifier to connect (e.g., "gmail", "google-calendar"). See the available Composio services list in the credentials context.',
+          type: 'string',
+        },
+      },
+      required: ['service'],
+      type: 'object',
+    } satisfies JSONSchema7,
+  },
+  {
+    description: `Initiate OAuth connection flow for a ${BRANDING_NAME} Skill provider (e.g., GitHub, Linear, Microsoft Outlook, Notion, Twitter/X). Returns an authorization URL that the user must click to authorize. After authorization, the credential will be automatically saved.`,
+    name: CredsApiName.initiateOAuthConnect,
+    parameters: {
+      additionalProperties: false,
+      properties: {
+        provider: {
+          description: `The OAuth provider ID. Available providers: ${LOBEHUB_OAUTH_PROVIDER_LIST}`,
+          enum: [...LOBEHUB_OAUTH_PROVIDER_IDS],
+          type: 'string',
+        },
+      },
+      required: ['provider'],
+      type: 'object',
+    } satisfies JSONSchema7,
+  },
+];
+
 export const CredsManifest: BuiltinToolManifest = {
   api: [
-    {
-      description:
-        'Connect a Composio integration service via OAuth. Use this to authorize access to third-party services managed by the Composio platform (e.g., Gmail, Google Calendar, Slack). Check the available Composio services in the credentials context before calling this.',
-      name: CredsApiName.connectComposioService,
-      parameters: {
-        additionalProperties: false,
-        properties: {
-          service: {
-            description:
-              'The Composio service identifier to connect (e.g., "gmail", "google-calendar"). See the available Composio services list in the credentials context.',
-            type: 'string',
-          },
-        },
-        required: ['service'],
-        type: 'object',
-      } satisfies JSONSchema7,
-    },
-    {
-      description: `Initiate OAuth connection flow for a ${BRANDING_NAME} Skill provider (e.g., GitHub, Linear, Microsoft Outlook, Notion, Twitter/X). Returns an authorization URL that the user must click to authorize. After authorization, the credential will be automatically saved.`,
-      name: CredsApiName.initiateOAuthConnect,
-      parameters: {
-        additionalProperties: false,
-        properties: {
-          provider: {
-            description: `The OAuth provider ID. Available providers: ${LOBEHUB_OAUTH_PROVIDER_LIST}`,
-            enum: [...LOBEHUB_OAUTH_PROVIDER_IDS],
-            type: 'string',
-          },
-        },
-        required: ['provider'],
-        type: 'object',
-      } satisfies JSONSchema7,
-    },
+    ...(EXTERNAL_INTEGRATIONS_ENABLED ? integrationApis : []),
     {
       description:
         'Inject credentials into the sandbox environment as environment variables. Only available when sandbox mode is enabled — do NOT call this on desktop/local.',

@@ -1,4 +1,10 @@
-import { BRANDING_NAME } from '@lobechat/business-const';
+import { BRANDING_NAME, EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
+
+// See builtin-tool-agent-builder: with integrations off, `<official_tools>`
+// only ever contains builtin tools.
+const officialToolsDesc = EXTERNAL_INTEGRATIONS_ENABLED
+  ? 'built-in tools and Composio integrations'
+  : 'built-in tools';
 
 /**
  * System role for Group Agent Builder tool
@@ -16,7 +22,7 @@ The injected context includes:
 - **group_config**: systemPrompt (group-level shared content)
 - **group_members**: List of agents in the group with their names, avatars, and roles (including the supervisor agent)
 - **supervisor_agent**: The supervisor agent's configuration (model, provider, plugins, systemRole)
-- **official_tools**: List of available official tools including built-in tools and Composio integrations
+- **official_tools**: List of available official tools including ${officialToolsDesc}
 
 You should use this context to understand the current state of the group and its members before making any modifications.
 </context_awareness>

@@ -1,7 +1,13 @@
+import { EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
 import type { BuiltinToolManifest } from '@lobechat/types';
 
 import { systemPrompt } from './systemRole';
 import { GroupAgentBuilderApiName, GroupAgentBuilderIdentifier } from './types';
+
+// Tool descriptions reach the model too — see builtin-tool-agent-builder.
+const pluginSourceDesc = EXTERNAL_INTEGRATIONS_ENABLED
+  ? 'Plugin source type: "market" for MCP marketplace plugins, "official" for builtin/Composio tools'
+  : 'Plugin source type: "market" for MCP marketplace plugins, "official" for builtin tools';
 
 export const GroupAgentBuilderManifest: BuiltinToolManifest = {
   api: [
@@ -299,8 +305,7 @@ export const GroupAgentBuilderManifest: BuiltinToolManifest = {
             type: 'string',
           },
           source: {
-            description:
-              'Plugin source type: "market" for MCP marketplace plugins, "official" for builtin/Composio tools',
+            description: pluginSourceDesc,
             enum: ['market', 'official'],
             type: 'string',
           },

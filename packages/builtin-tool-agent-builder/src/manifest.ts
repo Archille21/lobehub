@@ -1,7 +1,19 @@
+import { EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
 import type { BuiltinToolManifest } from '@lobechat/types';
 
 import { systemPrompt } from './systemRole';
 import { AgentBuilderApiName, AgentBuilderIdentifier } from './types';
+
+// A tool description is sent to the model as part of the tool list, so naming
+// Composio and LobehubSkill here advertises them just as loudly as the system
+// prompt does — gating one without the other is half a fix.
+const installPluginDesc = EXTERNAL_INTEGRATIONS_ENABLED
+  ? 'Install a plugin for the agent. This tool ALWAYS REQUIRES user approval before installation, even in auto-run mode. For MCP marketplace plugins, it will install and enable the plugin. For Composio tools and LobehubSkill providers that need OAuth, it will initiate the connection flow and wait for user to complete authorization.'
+  : 'Install a plugin for the agent. This tool ALWAYS REQUIRES user approval before installation, even in auto-run mode. For MCP marketplace plugins, it will install and enable the plugin.';
+
+const pluginSourceDesc = EXTERNAL_INTEGRATIONS_ENABLED
+  ? 'Plugin source type: "market" for MCP marketplace plugins, "official" for builtin/Composio/LobehubSkill tools'
+  : 'Plugin source type: "market" for MCP marketplace plugins, "official" for builtin tools';
 
 export const AgentBuilderManifest: BuiltinToolManifest = {
   api: [
@@ -54,8 +66,7 @@ export const AgentBuilderManifest: BuiltinToolManifest = {
 
     // ==================== Write Operations ====================
     {
-      description:
-        'Install a plugin for the agent. This tool ALWAYS REQUIRES user approval before installation, even in auto-run mode. For MCP marketplace plugins, it will install and enable the plugin. For Composio tools and LobehubSkill providers that need OAuth, it will initiate the connection flow and wait for user to complete authorization.',
+      description: installPluginDesc,
       name: AgentBuilderApiName.installPlugin,
       parameters: {
         properties: {
@@ -65,8 +76,7 @@ export const AgentBuilderManifest: BuiltinToolManifest = {
             type: 'string',
           },
           source: {
-            description:
-              'Plugin source type: "market" for MCP marketplace plugins, "official" for builtin/Composio/LobehubSkill tools',
+            description: pluginSourceDesc,
             enum: ['market', 'official'],
             type: 'string',
           },

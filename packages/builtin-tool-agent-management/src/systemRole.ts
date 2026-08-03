@@ -1,4 +1,96 @@
-import { BRANDING_NAME } from '@lobechat/business-const';
+import {
+  BRANDING_NAME,
+  BRANDING_PROVIDER,
+  ENABLE_BUSINESS_FEATURES,
+  EXTERNAL_INTEGRATIONS_ENABLED,
+} from '@lobechat/business-const';
+
+/**
+ * What "official" plugins are, on this deployment.
+ *
+ * With integrations off there are no Composio servers and no LobeHub Skill
+ * providers to install — `enableLobehubSkill` is false for business builds and
+ * Composio needs an API key that is never set — so `available_plugins` only
+ * ever contains builtin tools. Describing the other two anyway is how the
+ * assistant ends up naming Gmail and Google Calendar as things it can wire up.
+ */
+const officialPluginKinds = EXTERNAL_INTEGRATIONS_ENABLED
+  ? 'builtin, Composio, LobehubSkill, or MCP marketplace'
+  : 'builtin tools, or MCP marketplace';
+
+const officialPluginSourceDesc = EXTERNAL_INTEGRATIONS_ENABLED
+  ? 'Builtin tools (e.g., web search, code sandbox), Composio integrations (e.g., Gmail, Google Calendar), and LobehubSkill providers'
+  : 'Builtin tools (e.g., web search, code sandbox)';
+
+const availablePluginsDesc = EXTERNAL_INTEGRATIONS_ENABLED
+  ? 'List of plugins (builtin tools, Composio integrations, LobehubSkill providers) you can enable for agents'
+  : 'List of builtin tools you can enable for agents';
+
+const pluginTypesSection = EXTERNAL_INTEGRATIONS_ENABLED
+  ? `- **Builtin tools**: Core system tools (e.g., web search, image generation)
+- **Composio integrations**: Third-party service integrations requiring OAuth
+- **LobehubSkill providers**: Advanced skill providers`
+  : `- **Builtin tools**: Core system tools (e.g., web search, image generation)`;
+
+const oauthPluginNote = EXTERNAL_INTEGRATIONS_ENABLED
+  ? `- Some official plugins (Composio, LobehubSkill) may require OAuth authorization
+`
+  : '';
+
+/**
+ * Model-selection guidance, in two shapes.
+ *
+ * `ENABLE_BUSINESS_FEATURES` means the server force-disables every provider
+ * except the branded one (see apps/server globalConfig), so on such a
+ * deployment the multi-provider ladder below is not merely unnecessary — it is
+ * actively harmful. Its first rung is conditional ("if available"), and when
+ * the injected list is empty that condition fails and the model falls through
+ * to rungs naming Anthropic / OpenAI / Google. It then produces a provider id
+ * for a vendor that does not exist here, inferred from whatever model name is
+ * at hand. Nothing downstream distinguishes that from a real choice.
+ *
+ * Note what the single-provider variant does NOT do: name a default model id.
+ * That id lives in `DEFAULT_MODEL`, is validated against the deployment's model
+ * catalogue at load time, and would silently rot if it were also copied into a
+ * prompt. Telling the model to omit both fields reaches the same default
+ * through the one path that is checked.
+ */
+const modelSelectionGuidance = ENABLE_BUSINESS_FEATURES
+  ? `**CRITICAL: This deployment serves exactly one provider — \`${BRANDING_PROVIDER}\`. No other provider exists here.**
+
+- \`provider\` must always be \`${BRANDING_PROVIDER}\`. Never use any other provider id, and never infer one from a model's vendor (a model named after Doubao, DeepSeek, GPT or Claude is still served by \`${BRANDING_PROVIDER}\` here). Provider ids such as "openai", "anthropic", "google" or "bytedance" are invalid on this deployment and will be rejected.
+- \`model\` must be copied verbatim from the \`available_models\` section of the injected context.
+- **If no \`available_models\` section was injected, or you are unsure which model to use, omit BOTH \`model\` and \`provider\` entirely.** The agent then inherits this deployment's configured default, which is always valid. Omitting is correct — guessing is not.
+
+**Task-Based Recommendations** (choose among the listed models only):
+- **Complex reasoning, analysis**: Choose models with strong reasoning capabilities
+- **Fast, simple tasks**: Choose lighter models for cost-effectiveness
+- **Multimodal tasks**: Ensure the model supports vision/video if needed
+- **Tool use**: Verify function calling support for agents using plugins`
+  : `**CRITICAL: You MUST select from the available models and providers listed in the injected context above. Do NOT use models that are not explicitly listed.**
+
+When selecting a model, follow this priority order:
+
+1. **First Priority - ${BRANDING_NAME} Provider Models**:
+   - If available, prioritize models from the "${BRANDING_PROVIDER}" provider
+   - These are optimized for the ${BRANDING_NAME} ecosystem
+
+2. **Second Priority - Premium Frontier Models**:
+   - **Anthropic**: Claude Sonnet 4.5, Claude Opus 4.5, or newer Opus/Sonnet series
+   - **OpenAI**: GPT-5 or higher (exclude mini variants)
+   - **Google**: Gemini 2.5 Pro or newer versions
+
+3. **Third Priority - Standard Models**:
+   - If none of the above are available, choose from other enabled models based on task requirements
+   - Consider model capabilities (reasoning, vision, function calling) from the injected context
+
+**Task-Based Recommendations**:
+- **Complex reasoning, analysis**: Choose models with strong reasoning capabilities
+- **Fast, simple tasks**: Choose lighter models for cost-effectiveness
+- **Multimodal tasks**: Ensure the model supports vision/video if needed
+- **Tool use**: Verify function calling support for agents using plugins
+
+**IMPORTANT:** Always specify both \`model\` and \`provider\` parameters together using the exact IDs from the injected context.`;
 
 /**
  * System role for Agent Management tool
@@ -25,7 +117,7 @@ export const systemPrompt = `You have Agent Management tools to create, configur
 - **updatePrompt**: Update an agent's system prompt directly (preferred over updateAgent when only changing the prompt)
 
 **Plugin Management:**
-- **installPlugin**: Install a plugin/tool for an agent (builtin, Composio, LobehubSkill, or MCP marketplace)
+- **installPlugin**: Install a plugin/tool for an agent (${officialPluginKinds})
 
 **Execution:**
 - **callAgent**: Invoke an agent to handle a task (synchronously or as async background task)
@@ -38,7 +130,7 @@ When this tool is enabled, you will receive contextual information about:
 - **Current Agent**: Your own agent ID (in the \`<current_agent>\` tag). Use this ID to manage yourself when the user asks to modify your settings.
 - **Available Models**: List of AI models and providers you can use when creating/updating agents
 - **Available Agents**: The user's existing agents (most recently updated). You can call them directly via callAgent without first running searchAgent when one of them clearly matches the user's request.
-- **Available Plugins**: List of plugins (builtin tools, Composio integrations, LobehubSkill providers) you can enable for agents
+- **Available Plugins**: ${availablePluginsDesc}
 
 This information is automatically injected into the conversation context. Use the exact IDs from the context when specifying model/provider/plugins/agentId parameters. If none of the agents in the \`available_agents\` section match the user's intent, fall back to searchAgent (which can also search the marketplace).
 </context_injection>
@@ -96,39 +188,14 @@ You are a [role] specialized in [domain].
 
 ### 3. Model & Provider Selection
 
-**CRITICAL: You MUST select from the available models and providers listed in the injected context above. Do NOT use models that are not explicitly listed.**
-
-When selecting a model, follow this priority order:
-
-1. **First Priority - ${BRANDING_NAME} Provider Models**:
-   - If available, prioritize models from the "lobehub" provider
-   - These are optimized for the ${BRANDING_NAME} ecosystem
-
-2. **Second Priority - Premium Frontier Models**:
-   - **Anthropic**: Claude Sonnet 4.5, Claude Opus 4.5, or newer Opus/Sonnet series
-   - **OpenAI**: GPT-5 or higher (exclude mini variants)
-   - **Google**: Gemini 2.5 Pro or newer versions
-
-3. **Third Priority - Standard Models**:
-   - If none of the above are available, choose from other enabled models based on task requirements
-   - Consider model capabilities (reasoning, vision, function calling) from the injected context
-
-**Task-Based Recommendations**:
-- **Complex reasoning, analysis**: Choose models with strong reasoning capabilities
-- **Fast, simple tasks**: Choose lighter models for cost-effectiveness
-- **Multimodal tasks**: Ensure the model supports vision/video if needed
-- **Tool use**: Verify function calling support for agents using plugins
-
-**IMPORTANT:** Always specify both \`model\` and \`provider\` parameters together using the exact IDs from the injected context.
+${modelSelectionGuidance}
 
 ### 4. Plugins (Optional)
 You can specify plugins during agent creation using the \`plugins\` parameter:
 - **plugins**: Array of plugin identifiers (e.g., ["lobe-image-designer", "search-engine"])
 
 **Plugin types available:**
-- **Builtin tools**: Core system tools (e.g., web search, image generation)
-- **Composio integrations**: Third-party service integrations requiring OAuth
-- **LobehubSkill providers**: Advanced skill providers
+${pluginTypesSection}
 
 Refer to the injected context for available plugin IDs and descriptions.
 
@@ -182,7 +249,7 @@ The duplicated agent inherits all configuration from the original. After duplica
 Use installPlugin to add tools/plugins to an agent:
 
 **Plugin Sources:**
-- **official**: Builtin tools (e.g., web search, code sandbox), Composio integrations (e.g., Gmail, Google Calendar), and LobehubSkill providers
+- **official**: ${officialPluginSourceDesc}
 - **market**: MCP marketplace plugins
 
 \`\`\`
@@ -190,8 +257,7 @@ installPlugin(agentId, identifier, source)
 \`\`\`
 
 **Notes:**
-- Some official plugins (Composio, LobehubSkill) may require OAuth authorization
-- Use the available plugins from the injected context to find valid plugin identifiers
+${oauthPluginNote}- Use the available plugins from the injected context to find valid plugin identifiers
 - After installation, the plugin is automatically enabled for the specified agent
 </install_plugin_guide>
 
