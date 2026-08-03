@@ -47,7 +47,14 @@ const UserUpdater = memo(() => {
             // Preserve avatar from settings, don't override with auth provider value
             avatar: baseUser?.avatar || '',
             email: betterAuthUser.email,
-            fullName: betterAuthUser.name,
+            // Same reason as avatar, and the same bug it was fixed for: the
+            // settings page writes `users.full_name` directly, so Better-Auth's
+            // cached session still carries the old name. Taking the session
+            // value here made a saved name revert on the next refetch — on tab
+            // focus, or when the 2-minute cookie cache lapses — while the
+            // database held the new one all along. The store's copy comes from
+            // `useInitUserState`, which reads that database row.
+            fullName: baseUser?.fullName || betterAuthUser.name,
             id: betterAuthUser.id,
             username: betterAuthUser.username,
           } as LobeUser,

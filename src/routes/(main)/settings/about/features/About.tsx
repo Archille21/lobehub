@@ -2,6 +2,7 @@
 
 import { SiDiscord, SiGithub, SiRss, SiX, SiYoutube } from '@icons-pack/react-simple-icons';
 import { BRANDING_EMAIL, BRANDING_NAME, SOCIAL_URL } from '@lobechat/business-const';
+import { isCustomBranding } from '@lobechat/const';
 import { Flexbox, Form } from '@lobehub/ui';
 import { Divider } from 'antd';
 import { createStaticStyles } from 'antd-style';
@@ -43,6 +44,19 @@ interface AboutItem {
 
 type LinkedAboutItem = AboutItem & { href: string };
 
+/**
+ * `OFFICIAL_SITE` and everything urlJoin'd off it (blog, terms, privacy) are the
+ * upstream vendor's own pages, hardcoded rather than branded. A rebranded
+ * distribution does not inherit them: linking its users to another company's
+ * terms of service is worse than showing no link, and repointing the constant at
+ * the deployment's own domain only turns them into 404s on that domain, since
+ * those paths do not exist there.
+ *
+ * So under custom branding these count as unconfigured, and the sections that
+ * end up empty disappear like the rest.
+ */
+const vendorLink = (href: string) => (isCustomBranding ? undefined : href);
+
 const withLinks = (items: AboutItem[]): LinkedAboutItem[] =>
   items.filter((item): item is LinkedAboutItem => !!item.href);
 
@@ -50,7 +64,7 @@ const About = memo<{ mobile?: boolean }>(({ mobile }) => {
   const { t } = useTranslation('common');
 
   const contactItems = withLinks([
-    { href: OFFICIAL_SITE, label: t('officialSite'), value: 'officialSite' },
+    { href: vendorLink(OFFICIAL_SITE), label: t('officialSite'), value: 'officialSite' },
     {
       href: BRANDING_EMAIL.support ? mailTo(BRANDING_EMAIL.support) : undefined,
       label: t('mail.support'),
@@ -64,7 +78,7 @@ const About = memo<{ mobile?: boolean }>(({ mobile }) => {
   ]);
 
   const informationItems = withLinks([
-    { href: BLOG, icon: SiRss, label: t('blog'), value: 'blog' },
+    { href: vendorLink(BLOG), icon: SiRss, label: t('blog'), value: 'blog' },
     { href: SOCIAL_URL.github, icon: SiGithub, label: 'GitHub', value: 'feedback' },
     { href: SOCIAL_URL.discord, icon: SiDiscord, label: 'Discord', value: 'discord' },
     { href: SOCIAL_URL.x, icon: SiX as any, label: 'X / Twitter', value: 'x' },
@@ -72,8 +86,8 @@ const About = memo<{ mobile?: boolean }>(({ mobile }) => {
   ]);
 
   const legalItems = withLinks([
-    { href: TERMS_URL, label: t('terms'), value: 'terms' },
-    { href: PRIVACY_URL, label: t('privacy'), value: 'privacy' },
+    { href: vendorLink(TERMS_URL), label: t('terms'), value: 'terms' },
+    { href: vendorLink(PRIVACY_URL), label: t('privacy'), value: 'privacy' },
   ]);
 
   return (

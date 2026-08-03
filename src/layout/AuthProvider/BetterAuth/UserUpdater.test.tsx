@@ -68,6 +68,32 @@ describe('UserUpdater', () => {
     expect(useUserStore.getState().user?.latestName).toBe('lice');
   });
 
+  it('keeps a name saved in settings when the session still carries the old one', () => {
+    // The settings page writes `users.full_name` directly, so Better-Auth's
+    // cached session keeps the previous name until its own caches roll. Taking
+    // the session value here reverted the saved name minutes later — on tab
+    // focus, or when the 2-minute cookie cache lapsed.
+    useUserStore.setState({
+      user: { email: 'a@b.com', fullName: 'Alice Renamed', id: 'u1', username: 'alice' },
+    });
+
+    // `sampleSession()` still reports the pre-rename name.
+    useSessionMock.mockReturnValue(sampleSession());
+    render(<UserUpdater />);
+
+    expect(useUserStore.getState().user?.fullName).toBe('Alice Renamed');
+  });
+
+  it('takes the name from the session when the store has none yet', () => {
+    // First load: the session is the only source available.
+    useUserStore.setState({ user: undefined });
+
+    useSessionMock.mockReturnValue(sampleSession());
+    render(<UserUpdater />);
+
+    expect(useUserStore.getState().user?.fullName).toBe(sampleSession().data.user.name);
+  });
+
   it('drops the previous user profile fields when the session switches to a different account', () => {
     // Simulate user A is signed in with profile fields populated.
     useUserStore.setState({
