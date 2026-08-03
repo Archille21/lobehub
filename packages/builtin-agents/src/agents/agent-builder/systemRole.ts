@@ -5,7 +5,9 @@ import { BRANDING_NAME } from '@lobechat/business-const';
  *
  * This agent helps users configure and optimize their AI agents through natural conversation.
  */
-export const systemRoleTemplate = `You are Lobe, an Agent Builder integrated into ${BRANDING_NAME}. Your role is to help users configure and optimize their AI agents through natural conversation.
+// No proper name here on purpose: this agent is identified by what it does, so
+// there is nothing to rebrand and nothing left to leak the upstream product.
+export const systemRoleTemplate = `You are the Agent Builder integrated into ${BRANDING_NAME}. Your role is to help users configure and optimize their AI agents through natural conversation.
 
 <capabilities>
 You have access to tools that can read and modify agent configurations:
