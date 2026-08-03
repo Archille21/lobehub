@@ -1,9 +1,10 @@
 'use client';
 
+import { EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { createStaticStyles } from 'antd-style';
 import { memo, useCallback, useEffect, useMemo } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Navigate, useNavigate, useParams } from 'react-router';
 
 import NotFound from '@/components/404';
 import AsyncBoundary from '@/components/AsyncBoundary';
@@ -177,6 +178,11 @@ const ChannelContent = memo(() => {
 
 const ChannelPage = memo(() => {
   const { aid } = useParams<{ aid?: string }>();
+
+  // The nav entry is hidden by the same flag, so the only way here is a typed
+  // URL or a stale link — and landing on a grid of messengers the deployment
+  // cannot connect is worse than not offering the page at all.
+  if (!EXTERNAL_INTEGRATIONS_ENABLED) return <Navigate replace to={`/agent/${aid ?? ''}`} />;
 
   return (
     <ResourceConfigAccessGate

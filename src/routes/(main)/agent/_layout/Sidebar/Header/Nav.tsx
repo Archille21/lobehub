@@ -1,5 +1,6 @@
 'use client';
 
+import { EXTERNAL_INTEGRATIONS_ENABLED } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { BotPromptIcon } from '@lobehub/ui/icons';
 import {
@@ -49,8 +50,12 @@ const Nav = memo(() => {
   );
   const hideProfile = !isAgentEditable || !isAccessResolved || !canEditContent || !canEditResource;
   // Claude Code agents can use message channels; other hetero providers (e.g. codex) still hide it.
+  // Channels are the external messenger surface (Discord, Slack, Feishu, WeChat,
+  // …), so a distribution that ships none of those has nothing behind this tab.
   const hideChannel =
-    hideProfile || (!!heterogeneousProviderType && heterogeneousProviderType !== 'claude-code');
+    !EXTERNAL_INTEGRATIONS_ENABLED ||
+    hideProfile ||
+    (!!heterogeneousProviderType && heterogeneousProviderType !== 'claude-code');
   const switchTopic = useChatStore((s) => s.switchTopic);
   const [openNewTopicOrSaveTopic] = useChatStore((s) => [s.openNewTopicOrSaveTopic]);
   const isNewTopicSendInFlight = useChatStore(topicSelectors.isNewTopicSendInFlight);
