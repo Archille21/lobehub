@@ -1,3 +1,4 @@
+import { HOME_MODEL_SHOWCASE_ENABLED } from '@lobechat/business-const';
 import { Flexbox } from '@lobehub/ui';
 import { useMemo, useRef } from 'react';
 
@@ -118,7 +119,7 @@ const InputArea = () => {
         </InputDragUpload>
       </Flexbox>
 
-      <StarterList />
+      {HOME_MODEL_SHOWCASE_ENABLED ? <StarterList /> : null}
     </Flexbox>
   );
 };

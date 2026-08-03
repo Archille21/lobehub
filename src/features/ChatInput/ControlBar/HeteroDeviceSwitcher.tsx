@@ -1,5 +1,6 @@
 'use client';
 
+import { DESKTOP_APP_ENABLED } from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import {
   HETEROGENEOUS_TYPE_LABELS,
@@ -471,8 +472,14 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
   // header link — avoid showing the same CTA twice. Workspace agents get the
   // enroll hint instead: downloading the desktop app wouldn't help until the
   // machine is enrolled into the workspace pool.
-  const showWebDownloadCard = !isDesktop && !isWorkspaceAgent && hasNoDevices && !isLoading;
+  const showWebDownloadCard =
+    DESKTOP_APP_ENABLED && !isDesktop && !isWorkspaceAgent && hasNoDevices && !isLoading;
   const showWorkspaceEnrollHint = isWorkspaceAgent && hasNoDevices && !isLoading;
+  // The header is an either/or: no download card means the small download link
+  // takes its place. Gating only the card would therefore *reveal* the link on a
+  // distribution that ships no desktop build — so decide the link explicitly
+  // rather than letting it inherit the card's absence.
+  const showHeaderDownloadLink = DESKTOP_APP_ENABLED && !isDesktop && !showWebDownloadCard;
 
   // Compute chip
   let chipIcon: ReactNode = <ExecutionTargetIcon target={'sandbox'} />;
@@ -537,7 +544,17 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
             </span>
           </Tooltip>
         </Flexbox>
-        {isDesktop || showWebDownloadCard ? (
+        {showHeaderDownloadLink ? (
+          <a
+            className={styles.headerLink}
+            href={DOWNLOAD_URL.default}
+            rel="noreferrer"
+            target="_blank"
+          >
+            <Icon icon={ExternalLinkIcon} size={11} />
+            <span>{t('heteroAgent.executionTarget.downloadDesktop')}</span>
+          </a>
+        ) : (
           <button
             className={styles.manageButton}
             type="button"
@@ -549,16 +566,6 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
             <Icon icon={SettingsIcon} size={11} />
             <span>{t('heteroAgent.executionTarget.manage')}</span>
           </button>
-        ) : (
-          <a
-            className={styles.headerLink}
-            href={DOWNLOAD_URL.default}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <Icon icon={ExternalLinkIcon} size={11} />
-            <span>{t('heteroAgent.executionTarget.downloadDesktop')}</span>
-          </a>
         )}
       </div>
       {isHetero ? null : (

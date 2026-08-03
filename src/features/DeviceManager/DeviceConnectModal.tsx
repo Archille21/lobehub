@@ -1,5 +1,6 @@
 'use client';
 
+import { DESKTOP_APP_ENABLED } from '@lobechat/business-const';
 import { DOWNLOAD_URL } from '@lobechat/const';
 import type { DeviceScope, DeviceVisibility } from '@lobechat/types';
 import { CopyButton, Flexbox, Icon, Text } from '@lobehub/ui';
@@ -124,11 +125,18 @@ const DeviceConnectModal = memo<DeviceConnectModalProps>(
     const { t } = useTranslation('setting');
     const workspaceId = useActiveWorkspaceId();
     const isWorkspace = scope === 'workspace';
+    // The desktop tab is entirely "download the app, then it enrolls itself".
+    // With no desktop build to download there is nothing left in it, so drop the
+    // tab rather than leave a step-1 that cannot be completed — CLI enrollment
+    // then stands alone, exactly as it already does for workspace devices.
+    const showDesktopTab = DESKTOP_APP_ENABLED && !isWorkspace;
 
-    const [active, setActive] = useState<'cli' | 'desktop'>(initialTab ?? 'desktop');
+    const [active, setActive] = useState<'cli' | 'desktop'>(
+      showDesktopTab ? (initialTab ?? 'desktop') : 'cli',
+    );
     useEffect(() => {
-      if (open) setActive(isWorkspace ? 'cli' : (initialTab ?? 'desktop'));
-    }, [open, initialTab, isWorkspace]);
+      if (open) setActive(showDesktopTab ? (initialTab ?? 'desktop') : 'cli');
+    }, [open, initialTab, showDesktopTab]);
 
     const connectCommand = isWorkspace
       ? `lh connect --workspace ${workspaceId ?? '<workspace-id>'}${
@@ -180,7 +188,7 @@ const DeviceConnectModal = memo<DeviceConnectModalProps>(
             <Text color={cssVar.colorTextTertiary}>{t('devices.connectWizard.subtitle')}</Text>
           )}
 
-          {isWorkspace ? null : (
+          {showDesktopTab ? (
             <Tabs
               activeKey={active}
               items={[
@@ -201,9 +209,9 @@ const DeviceConnectModal = memo<DeviceConnectModalProps>(
               }}
               onChange={(key) => setActive(key as 'cli' | 'desktop')}
             />
-          )}
+          ) : null}
 
-          {!isWorkspace && active === 'desktop' ? (
+          {showDesktopTab && active === 'desktop' ? (
             <Flexbox>
               <Step
                 desc={t('devices.connectWizard.desktop.step1Desc')}

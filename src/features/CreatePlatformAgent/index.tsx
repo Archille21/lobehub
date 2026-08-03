@@ -1,5 +1,6 @@
 'use client';
 
+import { DESKTOP_APP_ENABLED } from '@lobechat/business-const';
 import {
   REMOTE_HETEROGENEOUS_AGENT_CONFIGS,
   type RemoteHeterogeneousAgentType,
@@ -385,18 +386,23 @@ const CreatePlatformAgentContent = memo<CreatePlatformAgentContentProps>(
                 type="info"
                 description={
                   <Flexbox gap={12}>
-                    <Flexbox gap={6}>
-                      <span>{t('platformAgent.create.noDevicesDesktopHint')}</span>
-                      <a href={DOWNLOAD_URL.default} rel="noreferrer" target="_blank">
-                        <Button
-                          icon={<Icon icon={Download} size={13} />}
-                          size="small"
-                          type="primary"
-                        >
-                          {t('platformAgent.create.downloadDesktop')}
-                        </Button>
-                      </a>
-                    </Flexbox>
+                    {/* Without a desktop build to download, the CLI enrollment
+                        below is the only way to get a device — so it becomes the
+                        whole answer rather than the second half of one. */}
+                    {DESKTOP_APP_ENABLED ? (
+                      <Flexbox gap={6}>
+                        <span>{t('platformAgent.create.noDevicesDesktopHint')}</span>
+                        <a href={DOWNLOAD_URL.default} rel="noreferrer" target="_blank">
+                          <Button
+                            icon={<Icon icon={Download} size={13} />}
+                            size="small"
+                            type="primary"
+                          >
+                            {t('platformAgent.create.downloadDesktop')}
+                          </Button>
+                        </a>
+                      </Flexbox>
+                    ) : null}
                     <Flexbox gap={4}>
                       <span>{t('platformAgent.create.noDevicesCliHint')}</span>
                       <Typography.Text code copyable>
