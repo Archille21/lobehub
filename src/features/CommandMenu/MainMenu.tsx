@@ -1,4 +1,4 @@
-import { SOCIAL_URL } from '@lobechat/business-const';
+import { AGENT_GROUP_CREATION_ENABLED, SOCIAL_URL } from '@lobechat/business-const';
 import { DiscordIcon, GithubIcon } from '@lobehub/ui/icons';
 import { Command } from 'cmdk';
 import {
@@ -59,15 +59,17 @@ const MainMenu = memo(() => {
           {t('cmdk.newAgent')}
         </CommandItem>
 
-        <CommandItem
-          disabled={!canCreate}
-          icon={<Bot />}
-          unpinned={menuContext === 'agent' || menuContext === 'page'}
-          value="create new agent team"
-          onSelect={handleCreateAgentTeam}
-        >
-          {t('cmdk.newAgentTeam')}
-        </CommandItem>
+        {AGENT_GROUP_CREATION_ENABLED && (
+          <CommandItem
+            disabled={!canCreate}
+            icon={<Bot />}
+            unpinned={menuContext === 'agent' || menuContext === 'page'}
+            value="create new agent team"
+            onSelect={handleCreateAgentTeam}
+          >
+            {t('cmdk.newAgentTeam')}
+          </CommandItem>
+        )}
 
         {menuContext === 'agent' && (
           <CommandItem

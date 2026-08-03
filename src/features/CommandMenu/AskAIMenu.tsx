@@ -1,3 +1,4 @@
+import { AGENT_GROUP_CREATION_ENABLED } from '@lobechat/business-const';
 import { DEFAULT_AVATAR, DEFAULT_INBOX_AVATAR, DEFAULT_INBOX_TITLE } from '@lobechat/const';
 import { Avatar } from '@lobehub/ui';
 import { GroupBotSquareIcon } from '@lobehub/ui/icons';
@@ -71,12 +72,14 @@ const AskAIMenu = memo(() => {
           <div className={styles.itemLabel}>{t('agentBuilder.title', { ns: 'chat' })}</div>
         </div>
       </Command.Item>
-      <Command.Item value="group-builder" onSelect={handleGroupBuilder}>
-        <GroupBotSquareIcon className={styles.icon} />
-        <div className={styles.itemContent}>
-          <div className={styles.itemLabel}>{t('starter.createGroup', { ns: 'home' })}</div>
-        </div>
-      </Command.Item>
+      {AGENT_GROUP_CREATION_ENABLED && (
+        <Command.Item value="group-builder" onSelect={handleGroupBuilder}>
+          <GroupBotSquareIcon className={styles.icon} />
+          <div className={styles.itemContent}>
+            <div className={styles.itemLabel}>{t('starter.createGroup', { ns: 'home' })}</div>
+          </div>
+        </Command.Item>
+      )}
       <Command.Item value="ai-painting" onSelect={handleAIPainting}>
         <Image className={styles.icon} />
         <div className={styles.itemContent}>

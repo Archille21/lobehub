@@ -104,6 +104,16 @@ export const AGENT_SWITCHING_ENABLED = true;
  */
 export const BUILTIN_SKILLS_HIDDEN: readonly string[] = [];
 
+/**
+ * Whether users can create agent teams (multi-agent groups).
+ *
+ * Turning this off removes the creation entry points only — the command menu
+ * item and the home starter. Existing groups stay reachable and usable, so a
+ * deployment that decides mid-flight not to offer the feature does not strand
+ * anything already made with it.
+ */
+export const AGENT_GROUP_CREATION_ENABLED = true;
+
 export const OFFICIAL_PROVIDER_DISABLE_ERROR = 'The official provider cannot be disabled.';
 
 export const isOfficialProvider = (id: string) =>
