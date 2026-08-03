@@ -1,3 +1,4 @@
+import { SETTINGS_HIDDEN_TABS } from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import { Avatar } from '@lobehub/ui';
 import { SkillsIcon } from '@lobehub/ui/icons';
@@ -64,6 +65,18 @@ export interface CategoryGroup {
   title: string;
 }
 
+const hiddenTabs = new Set(SETTINGS_HIDDEN_TABS);
+
+/**
+ * Append a group with its hidden tabs removed, dropping the group entirely once
+ * nothing is left in it — a heading with no rows under it reads as a section
+ * that failed to load rather than one that does not apply here.
+ */
+const pushGroup = (groups: CategoryGroup[], group: CategoryGroup) => {
+  const items = group.items.filter((item) => !hiddenTabs.has(item.key));
+  if (items.length > 0) groups.push({ ...group, items });
+};
+
 export const useCategory = () => {
   const { t } = useTranslation('setting');
   const { t: tAuth } = useTranslation('auth');
@@ -124,7 +137,7 @@ export const useCategory = () => {
       },
     ].filter(Boolean) as CategoryItem[];
 
-    groups.push({
+    pushGroup(groups, {
       items: generalItems,
       key: SettingsGroupKey.General,
       title: t('group.common'),
@@ -142,7 +155,7 @@ export const useCategory = () => {
         { icon: Gift, key: SettingsTabs.Referral, label: tSubscription('tab.referral') },
       ];
 
-      groups.push({
+      pushGroup(groups, {
         items: subscriptionItems,
         key: SettingsGroupKey.Subscription,
         title: t('group.subscription'),
@@ -195,7 +208,7 @@ export const useCategory = () => {
       },
     ].filter(Boolean) as CategoryItem[];
 
-    groups.push({
+    pushGroup(groups, {
       items: agentItems,
       key: SettingsGroupKey.Agent,
       title: t('group.aiConfig'),
@@ -225,7 +238,7 @@ export const useCategory = () => {
       },
     ].filter(Boolean) as CategoryItem[];
 
-    groups.push({
+    pushGroup(groups, {
       items: systemItems,
       key: SettingsGroupKey.System,
       title: t('group.system'),
@@ -256,7 +269,7 @@ export const useCategory = () => {
       },
     ].filter(Boolean) as CategoryItem[];
 
-    groups.push({
+    pushGroup(groups, {
       items: developerItems,
       key: SettingsGroupKey.Developer,
       title: t('group.developer'),

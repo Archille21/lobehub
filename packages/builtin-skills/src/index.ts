@@ -1,3 +1,4 @@
+import { BUILTIN_SKILLS_HIDDEN } from '@lobechat/business-const';
 import type { BuiltinSkill } from '@lobechat/types';
 
 import { AgentBrowserSkill } from './agent-browser';
@@ -43,4 +44,4 @@ export const builtinSkills: BuiltinSkill[] = [
   LobeHubSkill,
   TaskSkill,
   // FindSkillsSkill
-];
+].filter((skill) => !BUILTIN_SKILLS_HIDDEN.includes(skill.identifier));

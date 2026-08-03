@@ -68,6 +68,42 @@ export const DESKTOP_APP_ENABLED = true;
  */
 export const HOME_MODEL_SHOWCASE_ENABLED = true;
 
+/**
+ * Settings tabs this distribution does not ship, by `SettingsTabs` value.
+ *
+ * A deny-list rather than a flag per tab: which tabs apply is a property of the
+ * deployment, not of the product, and the set differs per distribution — a
+ * boolean each would mean a new slot every time somebody drops one more.
+ * Entries are plain strings so this package stays free of a dependency on the
+ * store's enum.
+ *
+ * A group whose items are all hidden disappears with them; an empty settings
+ * group is worse than a missing one, because it reads as a section that failed
+ * to load.
+ */
+export const SETTINGS_HIDDEN_TABS: readonly string[] = [];
+
+/**
+ * Whether the side-panel copilots (page editor, task manager) let the user
+ * switch which agent answers.
+ *
+ * These panels are bound to a purpose-built agent — the page agent, the task
+ * agent — and the switcher lets any agent in the workspace take over that slot.
+ * Where the deployment intends those panels to have one behaviour, the switcher
+ * is a way to get a different one with no indication that anything changed.
+ */
+export const AGENT_SWITCHING_ENABLED = true;
+
+/**
+ * Built-in skills this distribution does not ship, by skill identifier.
+ *
+ * Same shape and reasoning as SETTINGS_HIDDEN_TABS: which built-ins apply is a
+ * property of the deployment. The `lobehub` skill in particular documents the
+ * first-party CLI and its bot channels, so it is only useful where those are
+ * actually shipped.
+ */
+export const BUILTIN_SKILLS_HIDDEN: readonly string[] = [];
+
 export const OFFICIAL_PROVIDER_DISABLE_ERROR = 'The official provider cannot be disabled.';
 
 export const isOfficialProvider = (id: string) =>
