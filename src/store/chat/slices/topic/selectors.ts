@@ -41,7 +41,12 @@ const currentTopicsWithoutCron = (s: ChatStoreState): ChatTopic[] | undefined =>
 };
 
 const currentActiveTopic = (s: ChatStoreState): ChatTopic | undefined => {
-  return currentTopics(s)?.find((topic) => topic.id === s.activeTopicId);
+  const inList = currentTopics(s)?.find((topic) => topic.id === s.activeTopicId);
+  if (inList) return inList;
+  // The active topic can be absent from the list bucket — archived (completed)
+  // topics are excluded by the sidebar fetch's `excludeStatuses`. Fall back to
+  // the by-id detail cache so consumers keep real data (title, metadata, …).
+  return s.activeTopicId ? s.topicDetailMap[s.activeTopicId] : undefined;
 };
 const searchTopics = (s: ChatStoreState): ChatTopic[] => s.searchTopics;
 
@@ -57,7 +62,10 @@ const currentTopicCount = (s: ChatStoreState): number => currentTopicData(s)?.to
 const getTopicById =
   (id: string) =>
   (s: ChatStoreState): ChatTopic | undefined =>
-    currentTopics(s)?.find((topic) => topic.id === id); // Don't filter here, need to access all topics by ID
+    // Don't filter here, need to access all topics by ID. Topics missing from
+    // the bucket (e.g. archived ones excluded from the list fetch) resolve
+    // through the by-id detail cache.
+    currentTopics(s)?.find((topic) => topic.id === id) ?? s.topicDetailMap[id];
 
 /**
  * Get topics by specific agentId (for AgentBuilder scenarios where agentId differs from activeAgentId)

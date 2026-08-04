@@ -3,6 +3,7 @@ import { cssVar } from 'antd-style';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useFetchActiveTopicDetail } from '@/hooks/useFetchActiveTopicDetail';
 import { useChatStore } from '@/store/chat';
 import { topicSelectors } from '@/store/chat/selectors';
 import { useSessionStore } from '@/store/session';
@@ -22,6 +23,10 @@ const TitleTags = memo(() => {
   );
   const topicTitle = useChatStore((s) => topicSelectors.currentActiveTopic(s)?.title);
   const isGroupSession = useSessionStore(sessionSelectors.isCurrentSessionGroupSession);
+
+  // Archived topics fall out of the sidebar list fetch — pull their detail by
+  // id so the title doesn't degrade to the "new topic" placeholder.
+  useFetchActiveTopicDetail();
 
   if (isGroupSession) {
     return (
