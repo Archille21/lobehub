@@ -15,6 +15,7 @@ import { briefListSelectors } from '@/store/brief/selectors';
 import { useUserStore } from '@/store/user';
 import { authSelectors, userProfileSelectors } from '@/store/user/slices/auth/selectors';
 
+import { resolveHomeInboxHasContent } from './homeInboxHasContent';
 import InboxBriefCard from './InboxBriefCard';
 import MarkAllReadButton from './MarkAllReadButton';
 import NeedsYouRailCard from './NeedsYouRailCard';
@@ -64,6 +65,7 @@ export interface UseHomeInboxSectionsOptions {
 
 export interface HomeInboxSectionsResult {
   briefsError: unknown;
+  hasContent: boolean;
   recommendationsVisible: boolean;
   retryBriefs: () => void;
   sections: InboxSection[];
@@ -301,11 +303,28 @@ export const useHomeInboxSections = ({
 
   const { sections } = status === 'ready' ? buildSections() : { sections: [] };
 
+  const hasContent = resolveHomeInboxHasContent({
+    isMain,
+    recommendationsVisible,
+    sectionsCount: sections.length,
+    status,
+  });
+
   return {
     briefsError: status === 'error' ? briefsSWR.error : undefined,
+    hasContent,
     recommendationsVisible,
     retryBriefs,
     sections,
     status,
   };
 };
+
+export const HOME_RAIL_INBOX_OPTIONS = {
+  hideNeedsYou: true,
+  hideUnread: true,
+  variant: 'rail',
+} as const;
+
+export const useHomeRailHasContent = (): boolean =>
+  useHomeInboxSections(HOME_RAIL_INBOX_OPTIONS).hasContent;

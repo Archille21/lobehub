@@ -5,6 +5,10 @@ import { createStaticStyles, cx } from 'antd-style';
 import { memo, useCallback, useState } from 'react';
 
 import HomeInbox from '@/features/HomeInbox';
+import {
+  HOME_RAIL_INBOX_OPTIONS,
+  useHomeRailHasContent,
+} from '@/features/HomeInbox/useHomeInboxSections';
 import { useChatStore } from '@/store/chat';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
@@ -14,6 +18,7 @@ import { authSelectors } from '@/store/user/slices/auth/selectors';
 import HomeHeader from './HomeHeader';
 import HomeModeContent from './HomeModeContent';
 import HomePortrait from './HomePortrait';
+import { resolveHomeRailVisible } from './homeRailVisibility';
 import InputArea from './InputArea';
 import PortraitBubble from './PortraitBubble';
 import type { HomeMode } from './types';
@@ -233,9 +238,10 @@ const styles = createStaticStyles(({ css }) => ({
 const Home = memo(() => {
   const isLogin = useUserStore(authSelectors.isLogin);
   const showHomeRail = useGlobalStore(systemStatusSelectors.showHomeRail);
+  const railHasContent = useHomeRailHasContent();
   const [mode, setMode] = useState<HomeMode>('chat');
   const [inputValue, setInputValue] = useState('');
-  const railVisible = Boolean(isLogin && showHomeRail);
+  const railVisible = resolveHomeRailVisible({ isLogin, railHasContent, showHomeRail });
   const railCollapsed = !railVisible;
 
   const handleInputValueChange = useCallback((value: string) => {
@@ -301,7 +307,7 @@ const Home = memo(() => {
           id={'home-rail'}
           inert={railCollapsed}
         >
-          <HomeInbox hideNeedsYou hideUnread variant={'rail'} />
+          <HomeInbox {...HOME_RAIL_INBOX_OPTIONS} />
         </aside>
       )}
     </Flexbox>

@@ -1,12 +1,14 @@
 import { createStaticStyles } from 'antd-style';
 import { memo } from 'react';
 
+import { useHomeRailHasContent } from '@/features/HomeInbox/useHomeInboxSections';
 import NavHeader from '@/features/NavHeader';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/slices/auth/selectors';
 
+import { resolveRailToggleVisible } from './homeRailVisibility';
 import RailToggle from './RailToggle';
 
 // Floats over the dashboard instead of pushing it down: the controls live in
@@ -22,6 +24,7 @@ const styles = createStaticStyles(({ css }) => ({
 
 const HomeNavHeader = memo(() => {
   const isLogin = useUserStore(authSelectors.isLogin);
+  const railHasContent = useHomeRailHasContent();
   const [showHomeRail, toggleHomeRail, isStatusInit] = useGlobalStore((s) => [
     systemStatusSelectors.showHomeRail(s),
     s.toggleHomeRail,
@@ -32,7 +35,7 @@ const HomeNavHeader = memo(() => {
     <NavHeader
       className={styles.header}
       right={
-        isLogin && isStatusInit ? (
+        resolveRailToggleVisible({ isLogin, isStatusInit, railHasContent }) ? (
           <RailToggle railVisible={showHomeRail} onToggle={toggleHomeRail} />
         ) : undefined
       }
