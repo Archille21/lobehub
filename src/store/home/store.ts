@@ -17,6 +17,8 @@ import { type GroupAction } from './slices/group/action';
 import { createGroupSlice } from './slices/group/action';
 import { type HomeInputAction } from './slices/homeInput/action';
 import { createHomeInputSlice } from './slices/homeInput/action';
+import { type InboxScopeAction } from './slices/inboxScope/action';
+import { createInboxScopeSlice } from './slices/inboxScope/action';
 import { type LabelAction } from './slices/label/action';
 import { createLabelSlice } from './slices/label/action';
 import { type RecentAction } from './slices/recent/action';
@@ -34,6 +36,7 @@ export interface HomeStore
     HomeInputAction,
     LabelAction,
     SidebarUIAction,
+    InboxScopeAction,
     ResetableStore,
     HomeStoreState {}
 
@@ -43,6 +46,7 @@ type HomeStoreAction = AgentListAction &
   HomeInputAction &
   LabelAction &
   SidebarUIAction &
+  InboxScopeAction &
   ResetableStore;
 
 class HomeStoreResetAction extends ResetableStoreAction<HomeStore> {
@@ -60,6 +64,7 @@ const createStore: StateCreator<HomeStore, [['zustand/devtools', never]]> = (
     createHomeInputSlice(...parameters),
     createLabelSlice(...parameters),
     createSidebarUISlice(...parameters),
+    createInboxScopeSlice(...parameters),
     new HomeStoreResetAction(...parameters),
   ]),
 });

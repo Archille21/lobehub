@@ -1,7 +1,7 @@
 import { Flexbox } from '@lobehub/ui';
 import { Segmented } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cx } from 'antd-style';
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useWorkspaceMemberProfiles } from '@/business/client/hooks/useWorkspaceMemberProfiles';
@@ -12,6 +12,8 @@ import { useRecommendationsVisible } from '@/features/Recommendations';
 import { useCacheScope } from '@/libs/swr/useCacheScope';
 import { useBriefStore } from '@/store/brief';
 import { briefListSelectors } from '@/store/brief/selectors';
+import { useHomeStore } from '@/store/home';
+import { homeInboxScopeSelectors } from '@/store/home/selectors';
 import { useUserStore } from '@/store/user';
 import { authSelectors, userProfileSelectors } from '@/store/user/slices/auth/selectors';
 
@@ -127,7 +129,8 @@ export const useHomeInboxSections = ({
   const memberProfiles = useWorkspaceMemberProfiles();
   const isTeam = memberProfiles.size > 1;
 
-  const [scope, setScope] = useState<'mine' | 'team'>('mine');
+  const scope = useHomeStore(homeInboxScopeSelectors.homeInboxScope);
+  const setScope = useHomeStore((s) => s.setHomeInboxScope);
   const teamView = isTeam && scope === 'team';
 
   const { needsYou, news } = useMemo(() => splitBriefs(briefs), [briefs]);
