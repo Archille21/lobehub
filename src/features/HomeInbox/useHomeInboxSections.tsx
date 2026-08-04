@@ -323,6 +323,18 @@ export const useHomeInboxSections = ({
   };
 };
 
+// Deliberately no `inlineRail` here: `ownsRailSections({ variant: 'rail' })`
+// short-circuits to `true` on the `variant !== 'main'` branch regardless of
+// `inlineRail`, so this predicate's `hasContent` can never be a function of
+// the collapsed state it's about to decide — the cycle that would create is
+// exactly what would make the rail flicker between collapsing and expanding
+// itself. When `hasContent` is `false`, the running/news sections that fold
+// into the main column instance are therefore necessarily empty too: that
+// instance reads the same briefs (`cacheScope`), the same topics, and the
+// same shared `scope` (`useHomeStore`) as this one, so whatever emptied out
+// the rail's own copy is already reflected there. That equivalence holds only
+// because `hideNeedsYou`/`hideUnread` stay `true` here — widen either and the
+// rail's section set would stop matching what actually gates `hasContent`.
 export const HOME_RAIL_INBOX_OPTIONS = {
   hideNeedsYou: true,
   hideUnread: true,

@@ -54,7 +54,7 @@ const HomeInbox = memo<HomeInboxProps>(
         <Flexbox gap={12}>
           <BriefCardSkeleton />
           <BriefCardSkeleton />
-          <Recommendations variant={isRail ? 'rail' : 'default'} />
+          <Recommendations variant={variant} />
         </Flexbox>
       );
     }
