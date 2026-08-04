@@ -1,9 +1,9 @@
 interface ResolveSuppressRailTransitionParams {
+  hasResolved: boolean;
   hasSettledBefore: boolean;
-  status: 'error' | 'loading' | 'ready';
 }
 
 export const resolveSuppressRailTransition = ({
+  hasResolved,
   hasSettledBefore,
-  status,
-}: ResolveSuppressRailTransitionParams): boolean => !hasSettledBefore && status !== 'loading';
+}: ResolveSuppressRailTransitionParams): boolean => !hasSettledBefore && hasResolved;

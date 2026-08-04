@@ -3,24 +3,23 @@ import { describe, expect, it } from 'vitest';
 import { resolveSuppressRailTransition } from './suppressFirstRailTransition';
 
 describe('resolveSuppressRailTransition', () => {
-  it('suppresses the transition the first time loading settles to ready', () => {
-    expect(resolveSuppressRailTransition({ hasSettledBefore: false, status: 'ready' })).toBe(true);
-  });
-
-  it('suppresses the transition the first time loading settles to error', () => {
-    expect(resolveSuppressRailTransition({ hasSettledBefore: false, status: 'error' })).toBe(true);
+  it('suppresses the transition the first time the inbox resolves', () => {
+    expect(resolveSuppressRailTransition({ hasResolved: true, hasSettledBefore: false })).toBe(
+      true,
+    );
   });
 
   it('does not suppress once it has already settled once', () => {
-    expect(resolveSuppressRailTransition({ hasSettledBefore: true, status: 'ready' })).toBe(false);
-    expect(resolveSuppressRailTransition({ hasSettledBefore: true, status: 'error' })).toBe(false);
-  });
-
-  it('does not suppress while still loading — it has not settled yet', () => {
-    expect(resolveSuppressRailTransition({ hasSettledBefore: false, status: 'loading' })).toBe(
+    expect(resolveSuppressRailTransition({ hasResolved: true, hasSettledBefore: true })).toBe(
       false,
     );
-    expect(resolveSuppressRailTransition({ hasSettledBefore: true, status: 'loading' })).toBe(
+  });
+
+  it('does not suppress while still unresolved — it has not settled yet', () => {
+    expect(resolveSuppressRailTransition({ hasResolved: false, hasSettledBefore: false })).toBe(
+      false,
+    );
+    expect(resolveSuppressRailTransition({ hasResolved: false, hasSettledBefore: true })).toBe(
       false,
     );
   });

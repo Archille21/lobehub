@@ -8,7 +8,7 @@ import { useWorkspaceMemberProfiles } from '@/business/client/hooks/useWorkspace
 import AsyncError from '@/components/AsyncError';
 import { BriefCardSkeleton } from '@/features/DailyBrief/BriefCardSkeleton';
 import { homeType } from '@/features/Home/components/homeType';
-import { useRecommendationsVisible } from '@/features/Recommendations';
+import { useRecommendationsSettled, useRecommendationsVisible } from '@/features/Recommendations';
 import { useCacheScope } from '@/libs/swr/useCacheScope';
 import { useBriefStore } from '@/store/brief';
 import { briefListSelectors } from '@/store/brief/selectors';
@@ -17,7 +17,7 @@ import { homeInboxScopeSelectors } from '@/store/home/selectors';
 import { useUserStore } from '@/store/user';
 import { authSelectors, userProfileSelectors } from '@/store/user/slices/auth/selectors';
 
-import { resolveHomeInboxHasContent } from './homeInboxHasContent';
+import { resolveHomeInboxHasContent, resolveHomeInboxHasResolved } from './homeInboxHasContent';
 import InboxBriefCard from './InboxBriefCard';
 import MarkAllReadButton from './MarkAllReadButton';
 import NeedsYouRailCard from './NeedsYouRailCard';
@@ -68,6 +68,7 @@ export interface UseHomeInboxSectionsOptions {
 export interface HomeInboxSectionsResult {
   briefsError: unknown;
   hasContent: boolean;
+  hasResolved: boolean;
   recommendationsVisible: boolean;
   retryBriefs: () => void;
   sections: InboxSection[];
@@ -122,6 +123,7 @@ export const useHomeInboxSections = ({
 
   const topics = useHomeInboxTopics(isLogin);
   const recommendationsVisible = useRecommendationsVisible();
+  const isRecommendationsSettled = useRecommendationsSettled();
 
   // A team context is a workspace with more than the viewer in it. In personal
   // mode this map is empty, so `isTeam` is false and the whole mine/team layer
@@ -313,9 +315,16 @@ export const useHomeInboxSections = ({
     status,
   });
 
+  const hasResolved = resolveHomeInboxHasResolved({
+    isRecommendationsSettled,
+    isTopicsInit: topics.isInit,
+    status,
+  });
+
   return {
     briefsError: status === 'error' ? briefsSWR.error : undefined,
     hasContent,
+    hasResolved,
     recommendationsVisible,
     retryBriefs,
     sections,

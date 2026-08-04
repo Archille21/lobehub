@@ -25,6 +25,7 @@ vi.mock('@/business/client/hooks/useWorkspaceMemberProfiles', () => ({
 }));
 
 vi.mock('@/features/Recommendations', () => ({
+  useRecommendationsSettled: () => true,
   useRecommendationsVisible: () => false,
 }));
 

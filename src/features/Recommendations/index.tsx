@@ -26,6 +26,17 @@ export const useRecommendationsVisible = (): boolean => {
   return actions.length > 0 || isTaskTemplatesVisible(taskTemplatesState);
 };
 
+// `mode: 'skeleton'` already counts as "visible" for useRecommendationsVisible
+// (it renders something), but it isn't a final answer — the eventual mode
+// could still resolve to 'hidden'. Callers that need to know once visibility
+// can no longer flip out from under them (e.g. deciding whether a collapse
+// animation is the real one or just the loading state settling) read this
+// instead.
+export const useRecommendationsSettled = (): boolean => {
+  const taskTemplatesState = useDailyBriefRecommendationsUI();
+  return taskTemplatesState.mode !== 'skeleton';
+};
+
 interface RecommendationsProps {
   variant?: 'default' | 'main' | 'rail';
 }

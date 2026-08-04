@@ -248,7 +248,7 @@ const styles = createStaticStyles(({ css }) => ({
 const Home = memo(() => {
   const isLogin = useUserStore(authSelectors.isLogin);
   const showHomeRail = useGlobalStore(systemStatusSelectors.showHomeRail);
-  const { hasContent: railHasContent, status: railStatus } =
+  const { hasContent: railHasContent, hasResolved: railHasResolved } =
     useHomeInboxSections(HOME_RAIL_INBOX_OPTIONS);
   const [mode, setMode] = useState<HomeMode>('chat');
   const [inputValue, setInputValue] = useState('');
@@ -257,13 +257,13 @@ const Home = memo(() => {
 
   const hasSettledRailRef = useRef(false);
   const suppressRailTransition = resolveSuppressRailTransition({
+    hasResolved: railHasResolved,
     hasSettledBefore: hasSettledRailRef.current,
-    status: railStatus,
   });
 
   useEffect(() => {
-    if (railStatus !== 'loading') hasSettledRailRef.current = true;
-  }, [railStatus]);
+    if (railHasResolved) hasSettledRailRef.current = true;
+  }, [railHasResolved]);
 
   const handleInputValueChange = useCallback((value: string) => {
     setInputValue(value);
