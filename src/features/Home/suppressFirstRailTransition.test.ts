@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { resolveSuppressRailTransition } from './suppressFirstRailTransition';
+import {
+  resolveRailHasSettled,
+  resolveSuppressRailTransition,
+} from './suppressFirstRailTransition';
 
 describe('resolveSuppressRailTransition', () => {
   it('suppresses the transition the first time the inbox resolves', () => {
@@ -22,5 +25,20 @@ describe('resolveSuppressRailTransition', () => {
     expect(resolveSuppressRailTransition({ hasResolved: false, hasSettledBefore: true })).toBe(
       false,
     );
+  });
+});
+
+describe('resolveRailHasSettled', () => {
+  it('settles once the inbox resolves, toggle or not', () => {
+    expect(resolveRailHasSettled({ hasResolved: true, showHomeRailChanged: false })).toBe(true);
+    expect(resolveRailHasSettled({ hasResolved: true, showHomeRailChanged: true })).toBe(true);
+  });
+
+  it('settles on a manual toggle even if the inbox never resolves — caps the window', () => {
+    expect(resolveRailHasSettled({ hasResolved: false, showHomeRailChanged: true })).toBe(true);
+  });
+
+  it('does not settle while neither has happened', () => {
+    expect(resolveRailHasSettled({ hasResolved: false, showHomeRailChanged: false })).toBe(false);
   });
 });

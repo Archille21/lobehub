@@ -21,7 +21,10 @@ import HomePortrait from './HomePortrait';
 import { resolveHomeRailVisible } from './homeRailVisibility';
 import InputArea from './InputArea';
 import PortraitBubble from './PortraitBubble';
-import { resolveSuppressRailTransition } from './suppressFirstRailTransition';
+import {
+  resolveRailHasSettled,
+  resolveSuppressRailTransition,
+} from './suppressFirstRailTransition';
 import type { HomeMode } from './types';
 
 /** Trailing gutter that keeps the rail's cards off the page's scroll lane. */
@@ -256,14 +259,19 @@ const Home = memo(() => {
   const railCollapsed = !railVisible;
 
   const hasSettledRailRef = useRef(false);
+  const previousShowHomeRailRef = useRef(showHomeRail);
   const suppressRailTransition = resolveSuppressRailTransition({
     hasResolved: railHasResolved,
     hasSettledBefore: hasSettledRailRef.current,
   });
 
   useEffect(() => {
-    if (railHasResolved) hasSettledRailRef.current = true;
-  }, [railHasResolved]);
+    const showHomeRailChanged = previousShowHomeRailRef.current !== showHomeRail;
+    if (resolveRailHasSettled({ hasResolved: railHasResolved, showHomeRailChanged })) {
+      hasSettledRailRef.current = true;
+    }
+    previousShowHomeRailRef.current = showHomeRail;
+  }, [railHasResolved, showHomeRail]);
 
   const handleInputValueChange = useCallback((value: string) => {
     setInputValue(value);
