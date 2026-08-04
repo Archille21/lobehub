@@ -2,12 +2,12 @@
 
 import { Flexbox } from '@lobehub/ui';
 import { createStaticStyles, cx } from 'antd-style';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 
 import HomeInbox from '@/features/HomeInbox';
 import {
   HOME_RAIL_INBOX_OPTIONS,
-  useHomeRailHasContent,
+  useHomeInboxSections,
 } from '@/features/HomeInbox/useHomeInboxSections';
 import { useChatStore } from '@/store/chat';
 import { useGlobalStore } from '@/store/global';
@@ -21,6 +21,7 @@ import HomePortrait from './HomePortrait';
 import { resolveHomeRailVisible } from './homeRailVisibility';
 import InputArea from './InputArea';
 import PortraitBubble from './PortraitBubble';
+import { resolveSuppressRailTransition } from './suppressFirstRailTransition';
 import type { HomeMode } from './types';
 
 /** Trailing gutter that keeps the rail's cards off the page's scroll lane. */
@@ -155,6 +156,15 @@ const styles = createStaticStyles(({ css }) => ({
     grid-area: 2 / 1;
     min-width: 0;
   `,
+  // A first-time visitor's initial layout is the loading skeleton's, not the
+  // eventual empty one — collapsing straight into it from there is a settling
+  // reflow, not a state the user held and then changed their mind on. Only the
+  // render where loading first resolves gets this; every later collapse or
+  // expand (manual toggle, content arriving or leaving) keeps the transition.
+  noTransition: css`
+    transition-delay: 0s !important;
+    transition-duration: 0s !important;
+  `,
   portrait: css`
     grid-area: 1 / 2;
     transition: transform ${RAIL_TRANSITION_DURATION}ms ease-out;
@@ -238,11 +248,22 @@ const styles = createStaticStyles(({ css }) => ({
 const Home = memo(() => {
   const isLogin = useUserStore(authSelectors.isLogin);
   const showHomeRail = useGlobalStore(systemStatusSelectors.showHomeRail);
-  const railHasContent = useHomeRailHasContent();
+  const { hasContent: railHasContent, status: railStatus } =
+    useHomeInboxSections(HOME_RAIL_INBOX_OPTIONS);
   const [mode, setMode] = useState<HomeMode>('chat');
   const [inputValue, setInputValue] = useState('');
   const railVisible = resolveHomeRailVisible({ isLogin, railHasContent, showHomeRail });
   const railCollapsed = !railVisible;
+
+  const hasSettledRailRef = useRef(false);
+  const suppressRailTransition = resolveSuppressRailTransition({
+    hasSettledBefore: hasSettledRailRef.current,
+    status: railStatus,
+  });
+
+  useEffect(() => {
+    if (railStatus !== 'loading') hasSettledRailRef.current = true;
+  }, [railStatus]);
 
   const handleInputValueChange = useCallback((value: string) => {
     setInputValue(value);
@@ -262,26 +283,50 @@ const Home = memo(() => {
 
   return (
     <Flexbox className={styles.grid}>
-      <div className={cx(styles.header, styles.content, railCollapsed && styles.contentCollapsed)}>
+      <div
+        className={cx(
+          styles.header,
+          styles.content,
+          railCollapsed && styles.contentCollapsed,
+          suppressRailTransition && styles.noTransition,
+        )}
+      >
         <HomeHeader />
         {/* No portrait for signed-out visitors, so no one to speak the line. */}
         {isLogin && (
-          <div className={cx(styles.bubbleSlot, railCollapsed && styles.bubbleSlotCollapsed)}>
+          <div
+            className={cx(
+              styles.bubbleSlot,
+              railCollapsed && styles.bubbleSlotCollapsed,
+              suppressRailTransition && styles.noTransition,
+            )}
+          >
             <PortraitBubble />
           </div>
         )}
       </div>
 
       {isLogin && (
-        <div className={cx(styles.portrait, railCollapsed && styles.portraitCollapsed)}>
+        <div
+          className={cx(
+            styles.portrait,
+            railCollapsed && styles.portraitCollapsed,
+            suppressRailTransition && styles.noTransition,
+          )}
+        >
           <HomePortrait />
         </div>
       )}
 
       <Flexbox
-        className={cx(styles.main, styles.content, railCollapsed && styles.contentCollapsed)}
         data-testid={'home-main'}
         gap={24}
+        className={cx(
+          styles.main,
+          styles.content,
+          railCollapsed && styles.contentCollapsed,
+          suppressRailTransition && styles.noTransition,
+        )}
       >
         <div className={styles.inputArea}>
           <InputArea
@@ -301,11 +346,15 @@ const Home = memo(() => {
       {isLogin && (
         <aside
           aria-hidden={railCollapsed}
-          className={cx(styles.rail, styles.railSurface)}
           data-collapsed={railCollapsed}
           data-testid={'home-rail'}
           id={'home-rail'}
           inert={railCollapsed}
+          className={cx(
+            styles.rail,
+            styles.railSurface,
+            suppressRailTransition && styles.noTransition,
+          )}
         >
           <HomeInbox {...HOME_RAIL_INBOX_OPTIONS} />
         </aside>
