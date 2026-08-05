@@ -108,16 +108,16 @@ describe('assertCanUseConversationTargets', () => {
     );
   });
 
-  it('checks both the group and agent when both contexts are supplied', async () => {
+  it('uses group ownership when both group and agent contexts are supplied', async () => {
     await assertCanUseConversationTargets(baseCtx(createDb([])), [
       { agentId: 'supervisor-1', groupId: 'group-1' },
     ]);
 
-    expect(assertActionMock).toHaveBeenCalledTimes(2);
+    expect(assertActionMock).toHaveBeenCalledTimes(1);
     expect(assertActionMock).toHaveBeenCalledWith(
       expect.objectContaining({ resourceId: 'group-1', resourceType: 'agentGroup' }),
     );
-    expect(assertActionMock).toHaveBeenCalledWith(
+    expect(assertActionMock).not.toHaveBeenCalledWith(
       expect.objectContaining({ resourceId: 'supervisor-1', resourceType: 'agent' }),
     );
   });

@@ -4,10 +4,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getTestDB } from '../../core/getTestDB';
 import {
   agents,
+  agentsToSessions,
   chatGroups,
   documents,
   knowledgeBases,
   messages,
+  sessions,
   tasks,
   topics,
   users,
@@ -744,6 +746,82 @@ describe('RecentModel', () => {
         const result = await workspaceModel.queryRecent(2, ['topic'], false, 'team');
 
         expect(result.map((r) => r.id)).toEqual(['topic-ws-mine', 'topic-ws-other']);
+      });
+
+      it('preserves legacy session topic visibility and routing across Mine and Team', async () => {
+        await serverDB.insert(sessions).values([
+          { id: 'recent-legacy-public-session', userId: otherUserId, workspaceId },
+          { id: 'recent-legacy-private-session', userId, workspaceId },
+        ]);
+        await serverDB.insert(agents).values([
+          {
+            id: 'recent-legacy-public-agent',
+            userId: otherUserId,
+            visibility: 'public',
+            workspaceId,
+          },
+          {
+            id: 'recent-legacy-private-agent',
+            userId,
+            visibility: 'private',
+            workspaceId,
+          },
+        ]);
+        await serverDB.insert(agentsToSessions).values([
+          {
+            agentId: 'recent-legacy-public-agent',
+            sessionId: 'recent-legacy-public-session',
+            userId: otherUserId,
+            workspaceId,
+          },
+          {
+            agentId: 'recent-legacy-private-agent',
+            sessionId: 'recent-legacy-private-session',
+            userId,
+            workspaceId,
+          },
+        ]);
+        await serverDB.insert(topics).values([
+          {
+            id: 'recent-legacy-public-topic',
+            sessionId: 'recent-legacy-public-session',
+            updatedAt: now(),
+            userId: otherUserId,
+            workspaceId,
+          },
+          {
+            id: 'recent-legacy-private-topic',
+            sessionId: 'recent-legacy-private-session',
+            updatedAt: now(),
+            userId,
+            workspaceId,
+          },
+        ]);
+
+        const accessible = await workspaceModel.queryRecent(10, ['topic']);
+        const mine = await workspaceModel.queryRecent(10, ['topic'], false, 'mine');
+        const team = await workspaceModel.queryRecent(10, ['topic'], false, 'team');
+
+        expect(accessible).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              id: 'recent-legacy-public-topic',
+              routeId: 'recent-legacy-public-agent',
+            }),
+            expect.objectContaining({
+              id: 'recent-legacy-private-topic',
+              routeId: 'recent-legacy-private-agent',
+            }),
+          ]),
+        );
+        expect(mine).toEqual(
+          expect.arrayContaining([expect.objectContaining({ id: 'recent-legacy-private-topic' })]),
+        );
+        expect(mine.map((item) => item.id)).not.toContain('recent-legacy-public-topic');
+        expect(team).toEqual(
+          expect.arrayContaining([expect.objectContaining({ id: 'recent-legacy-public-topic' })]),
+        );
+        expect(team.map((item) => item.id)).not.toContain('recent-legacy-private-topic');
       });
     });
   });

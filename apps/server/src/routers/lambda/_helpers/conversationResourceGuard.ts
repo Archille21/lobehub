@@ -68,8 +68,7 @@ const resolveConversationTargets = async (
         resourceId: target.groupId,
         resourceType: 'agentGroup',
       });
-    }
-    if (target.agentId) {
+    } else if (target.agentId) {
       refs.set(`agent:${target.agentId}`, { resourceId: target.agentId, resourceType: 'agent' });
     }
   }
