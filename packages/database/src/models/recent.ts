@@ -2,9 +2,19 @@ import type { ChatTopicStatus, TaskStatus } from '@lobechat/types';
 import { and, desc, eq, inArray, isNotNull, isNull, ne, not, or, sql } from 'drizzle-orm';
 import { unionAll } from 'drizzle-orm/pg-core';
 
-import { agents, DOCUMENT_FOLDER_TYPE, documents, messages, tasks, topics } from '../schemas';
+import {
+  agents,
+  chatGroups,
+  DOCUMENT_FOLDER_TYPE,
+  documents,
+  messages,
+  tasks,
+  topics,
+} from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import { buildWorkspaceWhere } from '../utils/workspace';
+
+export type RecentView = 'mine' | 'team';
 
 export interface RecentDbItem {
   description?: string | null;
@@ -50,23 +60,38 @@ export class RecentModel {
     limit: number = 10,
     types?: RecentDbItem['type'][],
     withTopicPreview?: boolean,
-    mineOnly?: boolean,
+    view?: RecentView,
   ): Promise<RecentDbItem[]> => {
     const scope = { userId: this.userId, workspaceId: this.workspaceId };
     const requestedTypes = types ? new Set(types) : undefined;
 
-    // `tasks` uses `createdByUserId` instead of `userId`, so apply the
-    // workspace-aware predicate inline.
-    const taskScopeWhere = this.workspaceId
-      ? eq(tasks.workspaceId, this.workspaceId)
-      : and(eq(tasks.createdByUserId, this.userId), isNull(tasks.workspaceId));
+    // The team feed is shared activity, not merely "mineOnly off": own private
+    // resources belong in Mine but must not surface beside workspace content.
+    // In personal mode the view is inert because every ownership predicate is
+    // already pinned to the caller.
+    const teamAgentWhere =
+      this.workspaceId && view === 'team' ? eq(agents.visibility, 'public') : undefined;
+    const teamGroupWhere =
+      this.workspaceId && view === 'team' ? eq(chatGroups.visibility, 'public') : undefined;
+    const teamDocumentWhere =
+      this.workspaceId && view === 'team' ? eq(documents.visibility, 'public') : undefined;
+    const teamTaskWhere =
+      this.workspaceId && view === 'team' ? eq(tasks.visibility, 'public') : undefined;
+    const mineTopicWhere = view === 'mine' ? eq(topics.userId, this.userId) : undefined;
+    const mineDocumentWhere = view === 'mine' ? eq(documents.userId, this.userId) : undefined;
+    const mineTaskWhere = view === 'mine' ? eq(tasks.createdByUserId, this.userId) : undefined;
 
-    // Workspace rows are shared across members; `mineOnly` narrows a workspace
-    // feed back to the viewer's own items. A no-op in personal mode, where the
-    // scope predicate already pins the user.
-    const mineTopicWhere = mineOnly ? eq(topics.userId, this.userId) : undefined;
-    const mineDocumentWhere = mineOnly ? eq(documents.userId, this.userId) : undefined;
-    const mineTaskWhere = mineOnly ? eq(tasks.createdByUserId, this.userId) : undefined;
+    const agentAccessWhere = and(buildWorkspaceWhere(scope, agents), teamAgentWhere);
+    const groupAccessWhere = and(buildWorkspaceWhere(scope, chatGroups), teamGroupWhere);
+    const topicResourceWhere = or(
+      and(isNotNull(topics.groupId), groupAccessWhere),
+      and(isNull(topics.groupId), agentAccessWhere),
+    );
+    const taskScopeWhere = buildWorkspaceWhere(scope, {
+      userId: tasks.createdByUserId,
+      visibility: tasks.visibility,
+      workspaceId: tasks.workspaceId,
+    });
 
     const lastAssistantMessageSubquery = this.db
       .select({
@@ -104,12 +129,14 @@ export class RecentModel {
       })
       .from(topics)
       .leftJoin(agents, eq(topics.agentId, agents.id))
+      .leftJoin(chatGroups, eq(topics.groupId, chatGroups.id))
       .where(
         requestedTypes && !requestedTypes.has('topic')
           ? sql`false`
           : and(
               buildWorkspaceWhere(scope, topics),
               mineTopicWhere,
+              topicResourceWhere,
               or(
                 isNotNull(topics.groupId),
                 eq(agents.slug, 'inbox'),
@@ -144,6 +171,7 @@ export class RecentModel {
           : and(
               buildWorkspaceWhere(scope, documents),
               mineDocumentWhere,
+              teamDocumentWhere,
               not(inArray(documents.sourceType, TOOL_DOCUMENT_SOURCE_TYPES)),
               isNull(documents.knowledgeBaseId),
               ne(documents.fileType, DOCUMENT_FOLDER_TYPE),
@@ -170,7 +198,12 @@ export class RecentModel {
       .where(
         requestedTypes && !requestedTypes.has('task')
           ? sql`false`
-          : and(taskScopeWhere, mineTaskWhere, not(inArray(tasks.status, TASK_FINAL_STATUSES))),
+          : and(
+              taskScopeWhere,
+              mineTaskWhere,
+              teamTaskWhere,
+              not(inArray(tasks.status, TASK_FINAL_STATUSES)),
+            ),
       );
 
     const rows = await unionAll(topicArm, documentArm, taskArm)

@@ -632,7 +632,13 @@ describe('RecentModel', () => {
         await serverDB
           .insert(workspaces)
           .values({ id: workspaceId, name: 'ws', primaryOwnerId: userId, slug: workspaceId });
-        await serverDB.insert(agents).values({ id: 'agent-ws', userId, slug: 'inbox' });
+        await serverDB.insert(agents).values({
+          id: 'agent-ws',
+          slug: 'inbox',
+          userId,
+          visibility: 'public',
+          workspaceId,
+        });
         await serverDB.insert(topics).values([
           {
             agentId: 'agent-ws',
@@ -660,11 +666,84 @@ describe('RecentModel', () => {
         expect(result.map((r) => r.userId)).toEqual([userId, otherUserId]);
       });
 
-      it('narrows to the viewer own topics when mineOnly is set', async () => {
-        const result = await workspaceModel.queryRecent(10, ['topic'], false, true);
+      it('narrows to the viewer own topics in Mine', async () => {
+        const result = await workspaceModel.queryRecent(10, ['topic'], false, 'mine');
 
         expect(result.map((r) => r.id)).toEqual(['topic-ws-mine']);
         expect(result[0].userId).toBe(userId);
+      });
+
+      it('keeps the viewer own private topic in the accessible feed', async () => {
+        await serverDB.insert(agents).values([
+          {
+            id: 'agent-ws-private-mine',
+            userId,
+            visibility: 'private',
+            workspaceId,
+          },
+          {
+            id: 'agent-ws-private-other',
+            userId: otherUserId,
+            visibility: 'private',
+            workspaceId,
+          },
+        ]);
+        await serverDB.insert(topics).values([
+          {
+            agentId: 'agent-ws-private-mine',
+            id: 'topic-ws-private-mine',
+            updatedAt: now(),
+            userId,
+            workspaceId,
+          },
+          {
+            agentId: 'agent-ws-private-other',
+            id: 'topic-ws-private-other',
+            updatedAt: now(),
+            userId: otherUserId,
+            workspaceId,
+          },
+        ]);
+
+        const result = await workspaceModel.queryRecent(10, ['topic']);
+
+        expect(result.map((r) => r.id)).toContain('topic-ws-private-mine');
+        expect(result.map((r) => r.id)).not.toContain('topic-ws-private-other');
+      });
+
+      it('excludes private agent and group topics from Team before applying the limit', async () => {
+        await serverDB.insert(agents).values({
+          id: 'agent-ws-private-team',
+          userId,
+          visibility: 'private',
+          workspaceId,
+        });
+        await serverDB.insert(chatGroups).values({
+          id: 'group-ws-private-team',
+          userId,
+          visibility: 'private',
+          workspaceId,
+        });
+        await serverDB.insert(topics).values([
+          {
+            agentId: 'agent-ws-private-team',
+            id: 'topic-ws-private-agent',
+            updatedAt: now(),
+            userId,
+            workspaceId,
+          },
+          {
+            groupId: 'group-ws-private-team',
+            id: 'topic-ws-private-group',
+            updatedAt: now(),
+            userId,
+            workspaceId,
+          },
+        ]);
+
+        const result = await workspaceModel.queryRecent(2, ['topic'], false, 'team');
+
+        expect(result.map((r) => r.id)).toEqual(['topic-ws-mine', 'topic-ws-other']);
       });
     });
   });

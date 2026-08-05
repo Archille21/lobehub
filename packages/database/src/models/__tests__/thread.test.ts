@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getTestDB } from '../../core/getTestDB';
 import {
   agentOperations,
+  agents,
   messages,
   sessions,
   threads,
@@ -94,6 +95,68 @@ describe('ThreadModel', () => {
         type: ThreadType.Standalone,
       });
       expect(second).toBeUndefined();
+    });
+  });
+
+  describe('query visibility', () => {
+    it('does not return another workspace member private agent threads', async () => {
+      await serverDB.insert(workspaces).values({
+        id: 'thread-visibility-workspace',
+        name: 'Thread Visibility Workspace',
+        primaryOwnerId: userId,
+        slug: 'thread-visibility-workspace',
+      });
+      await serverDB.insert(agents).values([
+        {
+          id: 'thread-public-agent',
+          userId,
+          visibility: 'public',
+          workspaceId: 'thread-visibility-workspace',
+        },
+        {
+          id: 'thread-private-agent',
+          userId,
+          visibility: 'private',
+          workspaceId: 'thread-visibility-workspace',
+        },
+      ]);
+      await serverDB.insert(topics).values([
+        {
+          agentId: 'thread-public-agent',
+          id: 'thread-public-topic',
+          userId,
+          workspaceId: 'thread-visibility-workspace',
+        },
+        {
+          agentId: 'thread-private-agent',
+          id: 'thread-private-topic',
+          userId,
+          workspaceId: 'thread-visibility-workspace',
+        },
+      ]);
+      await serverDB.insert(threads).values([
+        {
+          id: 'thread-public',
+          topicId: 'thread-public-topic',
+          type: ThreadType.Standalone,
+          userId,
+          workspaceId: 'thread-visibility-workspace',
+        },
+        {
+          id: 'thread-private',
+          topicId: 'thread-private-topic',
+          type: ThreadType.Standalone,
+          userId,
+          workspaceId: 'thread-visibility-workspace',
+        },
+      ]);
+
+      const model = new ThreadModel(serverDB, otherUserId, 'thread-visibility-workspace');
+
+      await expect(model.query()).resolves.toEqual([
+        expect.objectContaining({ id: 'thread-public' }),
+      ]);
+      await expect(model.queryByTopicId('thread-private-topic')).resolves.toEqual([]);
     });
   });
 

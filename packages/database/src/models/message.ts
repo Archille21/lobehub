@@ -42,6 +42,7 @@ import {
   count,
   desc,
   eq,
+  getTableColumns,
   gt,
   gte,
   inArray,
@@ -58,7 +59,9 @@ import { sanitizeNullBytes } from '@/utils/sanitizeNullBytes';
 import { today } from '@/utils/time';
 
 import {
+  agents,
   agentsToSessions,
+  chatGroups,
   chunks,
   documents,
   embeddings,
@@ -73,6 +76,7 @@ import {
   messageTranslates,
   messageTTS,
   threads,
+  topics,
   users,
 } from '../schemas';
 import type { LobeChatDatabase, Transaction } from '../type';
@@ -373,6 +377,23 @@ export class MessageModel {
 
   private ownership = () =>
     buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, messages);
+
+  /**
+   * Unscoped message lists/searches inherit visibility from the direct message
+   * target, falling back to the owning topic for legacy rows. Callers must join
+   * `topics`, `agents`, and `chatGroups` before applying this filter.
+   */
+  private resourceAccess = () => {
+    const scope = { userId: this.userId, workspaceId: this.workspaceId };
+    const groupId = sql<string | null>`COALESCE(${messages.groupId}, ${topics.groupId})`;
+    const agentId = sql<string | null>`COALESCE(${messages.agentId}, ${topics.agentId})`;
+
+    return or(
+      and(isNotNull(groupId), buildWorkspaceWhere(scope, chatGroups)),
+      and(isNull(groupId), isNotNull(agentId), buildWorkspaceWhere(scope, agents)),
+      and(isNull(groupId), isNull(agentId), eq(messages.userId, this.userId)),
+    );
+  };
 
   private pluginsOwnership = () =>
     buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, messagePlugins);
@@ -1878,9 +1899,18 @@ export class MessageModel {
     const offset = current * pageSize;
 
     const result = await this.db
-      .select()
+      .select(getTableColumns(messages))
       .from(messages)
-      .where(and(this.ownership()))
+      .leftJoin(topics, eq(messages.topicId, topics.id))
+      .leftJoin(
+        agents,
+        eq(agents.id, sql<string | null>`COALESCE(${messages.agentId}, ${topics.agentId})`),
+      )
+      .leftJoin(
+        chatGroups,
+        eq(chatGroups.id, sql<string | null>`COALESCE(${messages.groupId}, ${topics.groupId})`),
+      )
+      .where(and(this.ownership(), this.resourceAccess()))
       .orderBy(desc(messages.createdAt))
       .limit(pageSize)
       .offset(offset);
@@ -1902,9 +1932,20 @@ export class MessageModel {
 
     const bm25Query = sanitizeBm25Query(keyword);
     const result = await this.db
-      .select()
+      .select(getTableColumns(messages))
       .from(messages)
-      .where(and(this.ownership(), sql`${messages.content} @@@ ${bm25Query}`))
+      .leftJoin(topics, eq(messages.topicId, topics.id))
+      .leftJoin(
+        agents,
+        eq(agents.id, sql<string | null>`COALESCE(${messages.agentId}, ${topics.agentId})`),
+      )
+      .leftJoin(
+        chatGroups,
+        eq(chatGroups.id, sql<string | null>`COALESCE(${messages.groupId}, ${topics.groupId})`),
+      )
+      .where(
+        and(this.ownership(), this.resourceAccess(), sql`${messages.content} @@@ ${bm25Query}`),
+      )
       .orderBy(desc(messages.createdAt));
 
     return result as DBMessageItem[];

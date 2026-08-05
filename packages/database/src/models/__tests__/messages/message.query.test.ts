@@ -24,6 +24,7 @@ import {
   threads,
   topics,
   users,
+  workspaces,
 } from '../../../schemas';
 import type { LobeChatDatabase } from '../../../type';
 import { MessageModel } from '../../message';
@@ -1412,6 +1413,69 @@ describe('MessageModel Query Tests', () => {
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe('2');
       expect(result[1].id).toBe('1');
+    });
+
+    it('does not return another workspace member private agent messages', async () => {
+      await serverDB.insert(workspaces).values({
+        id: 'message-list-workspace',
+        name: 'Message List Workspace',
+        primaryOwnerId: userId,
+        slug: 'message-list-workspace',
+      });
+      await serverDB.insert(agents).values([
+        {
+          id: 'message-list-public-agent',
+          userId,
+          visibility: 'public',
+          workspaceId: 'message-list-workspace',
+        },
+        {
+          id: 'message-list-private-agent',
+          userId,
+          visibility: 'private',
+          workspaceId: 'message-list-workspace',
+        },
+      ]);
+      await serverDB.insert(topics).values([
+        {
+          agentId: 'message-list-public-agent',
+          id: 'message-list-public-topic',
+          userId,
+          workspaceId: 'message-list-workspace',
+        },
+        {
+          agentId: 'message-list-private-agent',
+          id: 'message-list-private-topic',
+          userId,
+          workspaceId: 'message-list-workspace',
+        },
+      ]);
+      await serverDB.insert(messages).values([
+        {
+          content: 'public workspace message',
+          id: 'message-list-public-message',
+          role: 'assistant',
+          topicId: 'message-list-public-topic',
+          userId,
+          workspaceId: 'message-list-workspace',
+        },
+        {
+          content: 'private workspace message',
+          id: 'message-list-private-message',
+          role: 'assistant',
+          topicId: 'message-list-private-topic',
+          userId,
+          workspaceId: 'message-list-workspace',
+        },
+      ]);
+
+      const result = await new MessageModel(
+        serverDB,
+        otherUserId,
+        'message-list-workspace',
+      ).queryAll();
+
+      expect(result.map((message) => message.id)).toEqual(['message-list-public-message']);
     });
   });
 

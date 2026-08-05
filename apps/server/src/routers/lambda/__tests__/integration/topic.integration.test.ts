@@ -1,6 +1,13 @@
 // @vitest-environment node
 import { type LobeChatDatabase } from '@lobechat/database';
-import { messages, sessions, topics } from '@lobechat/database/schemas';
+import {
+  agents,
+  messages,
+  sessions,
+  topics,
+  workspaceMembers,
+  workspaces,
+} from '@lobechat/database/schemas';
 import { getTestDB } from '@lobechat/database/test-utils';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -244,6 +251,56 @@ describe('Topic Router Integration Tests', () => {
         message: 'Topic not found: private-transcript-topic',
       });
     });
+
+    it('does not expose a private agent topic to another workspace member who knows its id', async () => {
+      otherUserId = await createTestUser(serverDB);
+      const [workspace] = await serverDB
+        .insert(workspaces)
+        .values({ name: 'Private transcript workspace', primaryOwnerId: userId, slug: userId })
+        .returning();
+      await serverDB.insert(workspaceMembers).values([
+        { role: 'owner', userId, workspaceId: workspace.id },
+        { role: 'member', userId: otherUserId, workspaceId: workspace.id },
+      ]);
+      await serverDB.insert(agents).values({
+        id: 'private-workspace-transcript-agent',
+        userId,
+        visibility: 'private',
+        workspaceId: workspace.id,
+      });
+      await serverDB.insert(topics).values({
+        agentId: 'private-workspace-transcript-agent',
+        id: 'private-workspace-transcript-topic',
+        title: 'Private Workspace Transcript',
+        userId,
+        workspaceId: workspace.id,
+      });
+      await serverDB.insert(messages).values({
+        agentId: 'private-workspace-transcript-agent',
+        content: 'private workspace message',
+        id: 'private-workspace-transcript-message',
+        role: 'user',
+        topicId: 'private-workspace-transcript-topic',
+        userId,
+        workspaceId: workspace.id,
+      });
+
+      const ownerCaller = topicRouter.createCaller({
+        ...createTestContext(userId),
+        workspaceId: workspace.id,
+      });
+      const otherCaller = topicRouter.createCaller({
+        ...createTestContext(otherUserId),
+        workspaceId: workspace.id,
+      });
+
+      await expect(
+        ownerCaller.getTopicTranscript({ topicId: 'private-workspace-transcript-topic' }),
+      ).resolves.toMatchObject({ total: 1 });
+      await expect(
+        otherCaller.getTopicTranscript({ topicId: 'private-workspace-transcript-topic' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    });
   });
 
   describe('batchCreateTopics', () => {
@@ -369,6 +426,82 @@ describe('Topic Router Integration Tests', () => {
       expect(result.items).toHaveLength(1);
       expect(result.items[0].title).toBe('Cron Topic');
       expect(result.total).toBe(1);
+    });
+
+    it('does not include another member private agent topics without a container filter', async () => {
+      otherUserId = await createTestUser(serverDB);
+      const [workspace] = await serverDB
+        .insert(workspaces)
+        .values({ name: 'Private topics workspace', primaryOwnerId: userId, slug: userId })
+        .returning();
+      await serverDB.insert(workspaceMembers).values([
+        { role: 'owner', userId, workspaceId: workspace.id },
+        { role: 'member', userId: otherUserId, workspaceId: workspace.id },
+      ]);
+      await serverDB.insert(agents).values([
+        {
+          id: 'private-agent-for-unscoped-topics',
+          userId,
+          visibility: 'private',
+          workspaceId: workspace.id,
+        },
+        {
+          id: 'public-agent-for-unscoped-topics',
+          userId,
+          visibility: 'public',
+          workspaceId: workspace.id,
+        },
+      ]);
+      await serverDB.insert(topics).values([
+        {
+          agentId: 'private-agent-for-unscoped-topics',
+          id: 'private-unscoped-topic',
+          userId,
+          workspaceId: workspace.id,
+        },
+        {
+          agentId: 'public-agent-for-unscoped-topics',
+          id: 'public-unscoped-topic',
+          userId,
+          workspaceId: workspace.id,
+        },
+      ]);
+
+      const caller = topicRouter.createCaller({
+        ...createTestContext(otherUserId),
+        workspaceId: workspace.id,
+      });
+      const result = await caller.getTopics({});
+
+      expect(result.items.map((topic) => topic.id)).toEqual(['public-unscoped-topic']);
+      expect(result.total).toBe(1);
+    });
+
+    it('rejects searching another member private agent before executing the search query', async () => {
+      otherUserId = await createTestUser(serverDB);
+      const [workspace] = await serverDB
+        .insert(workspaces)
+        .values({ name: 'Private search workspace', primaryOwnerId: userId, slug: userId })
+        .returning();
+      await serverDB.insert(workspaceMembers).values([
+        { role: 'owner', userId, workspaceId: workspace.id },
+        { role: 'member', userId: otherUserId, workspaceId: workspace.id },
+      ]);
+      await serverDB.insert(agents).values({
+        id: 'private-agent-for-search',
+        userId,
+        visibility: 'private',
+        workspaceId: workspace.id,
+      });
+
+      const caller = topicRouter.createCaller({
+        ...createTestContext(otherUserId),
+        workspaceId: workspace.id,
+      });
+
+      await expect(
+        caller.searchTopics({ agentId: 'private-agent-for-search', keywords: 'private' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     });
   });
 

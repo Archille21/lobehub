@@ -1,9 +1,9 @@
 import type { CreateThreadParams } from '@lobechat/types';
 import { RequestTrigger, ThreadStatus } from '@lobechat/types';
-import { and, desc, eq, notExists, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, notExists, or, sql } from 'drizzle-orm';
 
 import type { ThreadItem } from '../schemas';
-import { agentOperations, messages, threads } from '../schemas';
+import { agentOperations, agents, chatGroups, messages, threads, topics } from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
 
@@ -80,6 +80,23 @@ export class ThreadModel {
     buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, threads);
 
   /**
+   * Threads inherit conversation visibility from their own target first, then
+   * from the parent topic for legacy rows. Callers must join the topic, agent,
+   * and group tables before applying this filter.
+   */
+  private resourceAccess = () => {
+    const scope = { userId: this.userId, workspaceId: this.workspaceId };
+    const groupId = sql<string | null>`COALESCE(${threads.groupId}, ${topics.groupId})`;
+    const agentId = sql<string | null>`COALESCE(${threads.agentId}, ${topics.agentId})`;
+
+    return or(
+      and(isNotNull(groupId), buildWorkspaceWhere(scope, chatGroups)),
+      and(isNull(groupId), isNotNull(agentId), buildWorkspaceWhere(scope, agents)),
+      and(isNull(groupId), isNull(agentId), eq(threads.userId, this.userId)),
+    );
+  };
+
+  /**
    * In workspace mode `ownership()` matches every member's threads, so a bulk
    * "clear all" would wipe teammates' rows. Destructive sweeps must
    * additionally pin `user_id` to the caller (personal mode is unchanged —
@@ -115,7 +132,16 @@ export class ThreadModel {
     const data = await this.db
       .select(queryColumns)
       .from(threads)
-      .where(this.ownership())
+      .innerJoin(topics, eq(threads.topicId, topics.id))
+      .leftJoin(
+        agents,
+        eq(agents.id, sql<string | null>`COALESCE(${threads.agentId}, ${topics.agentId})`),
+      )
+      .leftJoin(
+        chatGroups,
+        eq(chatGroups.id, sql<string | null>`COALESCE(${threads.groupId}, ${topics.groupId})`),
+      )
+      .where(and(this.ownership(), this.resourceAccess()))
       .orderBy(desc(threads.updatedAt));
 
     return data as ThreadItem[];
@@ -128,11 +154,21 @@ export class ThreadModel {
     const data = await this.db
       .select({ ...queryColumns, ...subagentMetricColumns })
       .from(threads)
+      .innerJoin(topics, eq(threads.topicId, topics.id))
+      .leftJoin(
+        agents,
+        eq(agents.id, sql<string | null>`COALESCE(${threads.agentId}, ${topics.agentId})`),
+      )
+      .leftJoin(
+        chatGroups,
+        eq(chatGroups.id, sql<string | null>`COALESCE(${threads.groupId}, ${topics.groupId})`),
+      )
       .leftJoin(messages, eq(messages.threadId, threads.id))
       .where(
         and(
           eq(threads.topicId, topicId),
           this.ownership(),
+          this.resourceAccess(),
           sql`COALESCE(${threads.metadata} ->> 'onboardingUnderstanding', '') = ''`,
           // NOTICE:
           // Internal Agent Signal and onboarding Understanding runs create

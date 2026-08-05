@@ -15,6 +15,9 @@ import {
   assertCanUseMessageTargets,
   assertCanUseSessionTargets,
   assertCanUseTopicTargets,
+  assertCanViewConversationTargets,
+  assertCanViewSessionTargets,
+  assertCanViewThreadTargets,
   assertCanViewTopicTargets,
   filterUserIdsByTopicViewAccess,
 } from './conversationResourceGuard';
@@ -83,6 +86,14 @@ describe('assertCanUseConversationTargets', () => {
         userId: 'user-1',
         workspaceId: 'ws-1',
       }),
+    );
+  });
+
+  it('can require read-only view access', async () => {
+    await assertCanViewConversationTargets(baseCtx(createDb([])), [{ agentId: 'agent-1' }]);
+
+    expect(assertActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'view', resourceId: 'agent-1', resourceType: 'agent' }),
     );
   });
 
@@ -174,6 +185,32 @@ describe('assertCanUseMessageTargets', () => {
   });
 });
 
+describe('assertCanViewThreadTargets', () => {
+  it('resolves the authoritative thread and topic targets', async () => {
+    const db = createDb([
+      [{ agentId: 'thread-agent', groupId: null, topicId: 'topic-1' }],
+      [{ agentId: 'topic-agent', groupId: null, sessionId: null }],
+    ]);
+
+    await assertCanViewThreadTargets(baseCtx(db), ['thread-1']);
+
+    expect(assertActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'view',
+        resourceId: 'thread-agent',
+        resourceType: 'agent',
+      }),
+    );
+    expect(assertActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'view',
+        resourceId: 'topic-agent',
+        resourceType: 'agent',
+      }),
+    );
+  });
+});
+
 describe('assertCanUseTopicTargets', () => {
   it('resolves the owning group from the topic rows', async () => {
     const db = createDb([[{ agentId: null, groupId: 'group-1' }]]);
@@ -252,6 +289,16 @@ describe('assertCanUseSessionTargets', () => {
     await assertCanUseSessionTargets(baseCtx(createDb([])), []);
 
     expect(assertActionMock).not.toHaveBeenCalled();
+  });
+
+  it('can require read-only view access to a session linked agent', async () => {
+    const db = createDb([[{ agentId: 'agent-1' }]]);
+
+    await assertCanViewSessionTargets(baseCtx(db), ['session-1']);
+
+    expect(assertActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'view', resourceId: 'agent-1', resourceType: 'agent' }),
+    );
   });
 });
 

@@ -1,7 +1,7 @@
 import { inArray } from 'drizzle-orm';
 
 import { RbacModel } from '@/database/models/rbac';
-import { agentsToSessions, messages, topics } from '@/database/schemas';
+import { agentsToSessions, messages, threads, topics } from '@/database/schemas';
 import type { LobeChatDatabase } from '@/database/type';
 import {
   assertCanPerformResourceAction,
@@ -122,6 +122,11 @@ export const assertCanUseConversationTargets = async (
   targets: ConversationTarget[],
 ): Promise<void> => assertCanAccessConversationTargets(ctx, targets, 'use');
 
+export const assertCanViewConversationTargets = async (
+  ctx: ConversationGuardCtx,
+  targets: ConversationTarget[],
+): Promise<void> => assertCanAccessConversationTargets(ctx, targets, 'view');
+
 /**
  * Resolve message ids to their owning agent/group from the DB rows (client
  * context is untrusted) and assert `use` access. Rows without a direct
@@ -219,6 +224,35 @@ export const assertCanViewTopicTargets = async (
 ): Promise<void> => assertCanAccessTopicTargets(ctx, topicIds, 'view');
 
 /**
+ * Resolve thread ids from their authoritative database rows. A thread may
+ * carry its own agent/group linkage in addition to the parent topic, so both
+ * sources must allow view access; client-supplied conversation fields are not
+ * trusted as substitutes for either one.
+ */
+export const assertCanViewThreadTargets = async (
+  ctx: ConversationGuardCtx,
+  threadIds: string[],
+): Promise<void> => {
+  if (!ctx.workspaceId || threadIds.length === 0) return;
+
+  const rows = await ctx.db
+    .select({
+      agentId: threads.agentId,
+      groupId: threads.groupId,
+      topicId: threads.topicId,
+    })
+    .from(threads)
+    .where(inArray(threads.id, threadIds));
+
+  await Promise.all([
+    assertCanViewConversationTargets(ctx, rows),
+    assertCanViewTopicTargets(ctx, [
+      ...new Set(rows.map((row) => row.topicId).filter(Boolean) as string[]),
+    ]),
+  ]);
+};
+
+/**
  * Resolve one set of topic resources, then evaluate every active recipient
  * against that shared metadata. `view` is the minimum resource access level,
  * so supplying it avoids re-reading the same General-access row per user.
@@ -267,13 +301,10 @@ export const filterUserIdsByTopicViewAccess = async (
   return activeUserIds.filter((_, index) => access[index]);
 };
 
-/**
- * Resolve session ids to their linked agents via `agentsToSessions` and assert
- * `use` access — for session-scoped bulk writes that never see a topic id.
- */
-export const assertCanUseSessionTargets = async (
+const assertCanAccessSessionTargets = async (
   ctx: ConversationGuardCtx,
   sessionIds: string[],
+  action: 'use' | 'view',
 ): Promise<void> => {
   if (!ctx.workspaceId || sessionIds.length === 0) return;
 
@@ -282,8 +313,22 @@ export const assertCanUseSessionTargets = async (
     .from(agentsToSessions)
     .where(inArray(agentsToSessions.sessionId, sessionIds));
 
-  await assertCanUseConversationTargets(ctx, targets);
+  await assertCanAccessConversationTargets(ctx, targets, action);
 };
+
+/**
+ * Resolve session ids to their linked agents via `agentsToSessions` and assert
+ * `use` access — for session-scoped bulk writes that never see a topic id.
+ */
+export const assertCanUseSessionTargets = async (
+  ctx: ConversationGuardCtx,
+  sessionIds: string[],
+): Promise<void> => assertCanAccessSessionTargets(ctx, sessionIds, 'use');
+
+export const assertCanViewSessionTargets = async (
+  ctx: ConversationGuardCtx,
+  sessionIds: string[],
+): Promise<void> => assertCanAccessSessionTargets(ctx, sessionIds, 'view');
 
 /**
  * Guard every authority-bearing field accepted by message creation. Explicit

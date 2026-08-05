@@ -289,7 +289,8 @@ const HomeModeContent = memo<HomeModeContentProps>(({ inlineRail, mode, onSugges
     isLogin
       ? recentKeys.topicList(HOME_TOPIC_RECENT_LIMIT, cacheScope, teamView ? 'team' : 'mine')
       : null,
-    () => recentService.getAll(HOME_TOPIC_RECENT_LIMIT, ['topic'], true, !teamView),
+    () =>
+      recentService.getAll(HOME_TOPIC_RECENT_LIMIT, ['topic'], true, teamView ? 'team' : 'mine'),
     { revalidateOnFocus: false },
   );
 
