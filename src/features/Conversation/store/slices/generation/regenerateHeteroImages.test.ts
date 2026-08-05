@@ -48,6 +48,7 @@ vi.mock('@/store/agent', () => ({
 
 vi.mock('@/store/agent/selectors', () => ({
   agentByIdSelectors: {
+    getAgentById: () => () => undefined,
     isWorkspaceAgentById: () => () => false,
   },
   agentSelectors: {
@@ -83,7 +84,6 @@ vi.mock('@/store/chat', () => ({
       associateMessageWithOperation: noop,
       completeOperation: noop,
       failOperation: noop,
-      internal_updateTopicLoading: noop,
       isGatewayModeEnabled: () => false,
       refreshMessages: vi.fn(async () => {}),
       startOperation: vi.fn(() => ({ operationId: 'hetero-op-id' })),

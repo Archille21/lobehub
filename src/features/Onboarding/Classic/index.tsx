@@ -1,13 +1,12 @@
 'use client';
 
 import { ONBOARDING_AGENT_PICKER_ENABLED } from '@lobechat/business-const';
-import { MAX_ONBOARDING_STEPS } from '@lobechat/types';
+import { CLASSIC_ONBOARDING_MAX_STEP } from '@lobechat/types';
 import { Flexbox } from '@lobehub/ui';
 import { memo, useCallback, useEffect, useRef } from 'react';
 import { Navigate, useNavigate } from 'react-router';
 
 import Loading from '@/components/Loading/BrandTextLoading';
-import ModeSwitch from '@/features/Onboarding/components/ModeSwitch';
 import { useFinishOnboarding } from '@/features/Onboarding/useFinishOnboarding';
 import { useIsMobile } from '@/hooks/useIsMobile';
 import { useOnboardingAgentTemplates } from '@/hooks/useOnboardingAgentTemplates';
@@ -23,7 +22,8 @@ import {
 import { serverConfigSelectors, useServerConfigStore } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
 import { onboardingSelectors } from '@/store/user/selectors';
-import { isDev } from '@/utils/env';
+
+import { isLegacyClassicStep, remapLegacyClassicStep } from './legacyStep';
 
 const INTERESTS_STEP = 2;
 const PRO_SETTINGS_STEP = 3;
@@ -32,7 +32,7 @@ const CLASSIC_STEP_TRACKING = {
   1: { flow: 'classic', step: 'fullname', stepIndex: 1 },
   [INTERESTS_STEP]: { flow: 'classic', step: 'interests', stepIndex: 2 },
   [PRO_SETTINGS_STEP]: { flow: 'classic', step: 'prosettings', stepIndex: 3 },
-  [MAX_ONBOARDING_STEPS]: { flow: 'classic', step: 'agentpicker', stepIndex: 4 },
+  [CLASSIC_ONBOARDING_MAX_STEP]: { flow: 'classic', step: 'agentpicker', stepIndex: 4 },
 } as const;
 
 const getClassicStepTrackingPayload = (step: number) =>
@@ -41,26 +41,34 @@ const getClassicStepTrackingPayload = (step: number) =>
 const ClassicOnboardingPage = memo(() => {
   const navigate = useNavigate();
   const isMobile = useIsMobile();
-  const [isUserStateInit, commonStepsCompleted, currentStep, goToNextStep, goToPreviousStep] =
-    useUserStore((s) => [
-      s.isUserStateInit,
-      onboardingSelectors.commonStepsCompleted(s),
-      onboardingSelectors.currentStep(s),
-      s.goToNextStep,
-      s.goToPreviousStep,
-    ]);
+  const [
+    isUserStateInit,
+    commonStepsCompleted,
+    currentStep,
+    goToNextStep,
+    goToPreviousStep,
+    setOnboardingStep,
+  ] = useUserStore((s) => [
+    s.isUserStateInit,
+    onboardingSelectors.commonStepsCompleted(s),
+    onboardingSelectors.currentStep(s),
+    s.goToNextStep,
+    s.goToPreviousStep,
+    s.setOnboardingStep,
+  ]);
   const enableComposio = useServerConfigStore(serverConfigSelectors.enableComposio);
   const serverConfigInit = useServerConfigStore((s) => s.serverConfigInit);
   const shouldSkipProSettingsStep = serverConfigInit && !enableComposio;
   const autoSkippedStepKeysRef = useRef<Set<string>>(new Set());
   const viewedStepKeysRef = useRef<Set<string>>(new Set());
+  const legacyRemappedRef = useRef(false);
 
   // Which step the user actually lands on last, and therefore which "next"
   // finishes onboarding rather than advancing. Without the agent picker the
   // flow ends on pro-settings — or on interests, since pro-settings is itself
   // auto-skipped when Composio is off.
   const lastStep = ONBOARDING_AGENT_PICKER_ENABLED
-    ? MAX_ONBOARDING_STEPS
+    ? CLASSIC_ONBOARDING_MAX_STEP
     : shouldSkipProSettingsStep
       ? INTERESTS_STEP
       : PRO_SETTINGS_STEP;
@@ -73,6 +81,18 @@ const ClassicOnboardingPage = memo(() => {
   useOnboardingAgentTemplates(
     ONBOARDING_AGENT_PICKER_ENABLED && isUserStateInit && commonStepsCompleted,
   );
+
+  useEffect(() => {
+    if (!isUserStateInit || legacyRemappedRef.current) return;
+    legacyRemappedRef.current = true;
+    if (isLegacyClassicStep(currentStep)) {
+      void setOnboardingStep(remapLegacyClassicStep(currentStep));
+    }
+  }, [currentStep, isUserStateInit, setOnboardingStep]);
+
+  const renderableStep = isLegacyClassicStep(currentStep)
+    ? remapLegacyClassicStep(currentStep)
+    : currentStep;
 
   // FullNameStep is the branch's first step, so its back button leaves the
   // branch and re-enters the shared prefix's ResponseLanguageStep (step 2).
@@ -210,7 +230,7 @@ const ClassicOnboardingPage = memo(() => {
   }
 
   const renderStep = () => {
-    switch (currentStep) {
+    switch (renderableStep) {
       case 1: {
         return (
           <FullNameStep onBack={backToResponseLanguageStep} onNext={goToNextStepFromFullName} />
@@ -231,7 +251,7 @@ const ClassicOnboardingPage = memo(() => {
 
         return <ProSettingsStep onBack={goToPreviousStep} onNext={goToNextStepFromProSettings} />;
       }
-      case MAX_ONBOARDING_STEPS: {
+      case CLASSIC_ONBOARDING_MAX_STEP: {
         // Only reachable with the picker off via a stale persisted step; the
         // stale-step effect is already finishing the flow.
         if (!ONBOARDING_AGENT_PICKER_ENABLED) {
@@ -246,7 +266,7 @@ const ClassicOnboardingPage = memo(() => {
     }
   };
 
-  const contentMaxWidth = currentStep === MAX_ONBOARDING_STEPS ? 780 : 600;
+  const contentMaxWidth = renderableStep === CLASSIC_ONBOARDING_MAX_STEP ? 780 : 600;
 
   return (
     <OnboardingContainer>
@@ -255,7 +275,6 @@ const ClassicOnboardingPage = memo(() => {
         paddingInline={isMobile ? 16 : 0}
         style={{ maxWidth: contentMaxWidth, width: '100%' }}
       >
-        {isDev && <ModeSwitch />}
         {renderStep()}
       </Flexbox>
     </OnboardingContainer>

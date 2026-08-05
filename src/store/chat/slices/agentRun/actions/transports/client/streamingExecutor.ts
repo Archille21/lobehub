@@ -29,7 +29,7 @@ import debug from 'debug';
 
 import { createAgentToolsEngine } from '@/helpers/toolEngineering';
 import { aiAgentService } from '@/services/aiAgent';
-import { isCanUseVideo, isCanUseVision } from '@/services/chat/helper';
+import { isCanUseAudio, isCanUseVideo, isCanUseVision } from '@/services/chat/helper';
 import { type ResolvedAgentConfig } from '@/services/chat/mecha';
 import { composeEnabledTools, resolveAgentConfig } from '@/services/chat/mecha';
 import { localFileService } from '@/services/electron/localFileService';
@@ -52,7 +52,7 @@ import { messageMapKey } from '@/store/chat/utils/messageMapKey';
 import { getElectronStoreState } from '@/store/electron';
 import { getServerConfigStoreState, serverConfigSelectors } from '@/store/serverConfig';
 import { getTaskStoreState } from '@/store/task';
-import { pageAgentRuntime } from '@/store/tool/slices/builtin/executors/lobe-page-agent';
+import { pageAgentRuntime } from '@/store/tool/slices/builtin/executors/pageAgentRuntime';
 import { type StoreSetter } from '@/store/types';
 import { toolInterventionSelectors } from '@/store/user/selectors';
 import { getUserStoreState } from '@/store/user/store';
@@ -84,7 +84,8 @@ const hasReferTopicNode = (editorData: Record<string, any> | null | undefined): 
   return walk(editorData.root);
 };
 
-const getVisualMediaAvailability = (messages: UIChatMessage[]) => ({
+const getMediaAvailability = (messages: UIChatMessage[]) => ({
+  hasAudios: messages.some((message) => message.role === 'user' && !!message.audioList?.length),
   hasImages: messages.some((message) => message.role === 'user' && !!message.imageList?.length),
   hasVideos: messages.some((message) => message.role === 'user' && !!message.videoList?.length),
 });
@@ -172,16 +173,23 @@ export class StreamingExecutorActionImpl {
       scope, // Pass scope from operation context
     });
 
-    // A model/provider override resolved by the spawn site (see runClientSubAgent),
-    // not re-derived here: `isSubAgent` is also set for isolated group members —
-    // which must keep their own model — so it cannot gate this on its own.
+    // Resolve the effective model/provider, in precedence order:
+    // 1. `modelOverride` — forced by the spawn site (see runClientSubAgent); not
+    //    re-derived here because `isSubAgent` is also set for isolated group
+    //    members which must keep their own model, so it can't gate on its own.
+    // 2. Topic-scoped model — a topic snapshots the model it was created with and
+    //    remembers switches made while active (top-level `topics.model`/`provider`
+    //    columns, read via `getTopicModelById`), overriding the agent default so
+    //    the whole model→topic chain (tools, context window, generation) uses it.
     // resolveAgentConfig returns an immer-frozen config, so build a new object
     // rather than mutating in place.
+    const topicModel = topicId ? topicSelectors.getTopicModelById(topicId)(this.#get()) : undefined;
+    const modelResolution = modelOverride ?? topicModel;
     const agentConfig: ResolvedAgentConfig =
-      modelOverride && resolvedAgentConfig.agentConfig
+      modelResolution && resolvedAgentConfig.agentConfig
         ? {
             ...resolvedAgentConfig,
-            agentConfig: { ...resolvedAgentConfig.agentConfig, ...modelOverride },
+            agentConfig: { ...resolvedAgentConfig.agentConfig, ...modelResolution },
           }
         : resolvedAgentConfig;
 
@@ -198,21 +206,23 @@ export class StreamingExecutorActionImpl {
 
     // Dynamically inject turn-scoped builtin tools.
     const hasTopicReference = messages.some((m) => hasReferTopicNode(m.editorData));
-    const visualMediaAvailability = getVisualMediaAvailability(messages);
+    const mediaAvailability = getMediaAvailability(messages);
     const serverConfigState = getServerConfigStoreState();
-    const visualUnderstandingConfigured =
-      !!serverConfigState && serverConfigSelectors.enableVisualUnderstanding(serverConfigState);
-    const shouldEnableVisualUnderstanding =
-      visualUnderstandingConfigured &&
-      ((visualMediaAvailability.hasImages &&
-        !isCanUseVision(agentConfigData.model, agentConfigData.provider!)) ||
-        (visualMediaAvailability.hasVideos &&
+    const multimodalUnderstandingConfigured =
+      !!serverConfigState && serverConfigSelectors.enableMultimodalUnderstanding(serverConfigState);
+    const shouldEnableMultimodalUnderstanding =
+      multimodalUnderstandingConfigured &&
+      ((mediaAvailability.hasAudios &&
+        !isCanUseAudio(agentConfigData.model, agentConfigData.provider!)) ||
+        (mediaAvailability.hasImages &&
+          !isCanUseVision(agentConfigData.model, agentConfigData.provider!)) ||
+        (mediaAvailability.hasVideos &&
           !isCanUseVideo(agentConfigData.model, agentConfigData.provider!)));
     const runtimePluginIds = [
       ...new Set([
         ...(pluginIds || []),
         ...(hasTopicReference ? ['lobe-topic-reference'] : []),
-        ...(shouldEnableVisualUnderstanding ? [LobeAgentManifest.identifier] : []),
+        ...(shouldEnableMultimodalUnderstanding ? [LobeAgentManifest.identifier] : []),
       ]),
     ];
     const effectivePluginIds = runtimePluginIds.length > 0 ? runtimePluginIds : undefined;

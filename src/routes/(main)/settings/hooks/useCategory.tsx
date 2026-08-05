@@ -25,6 +25,7 @@ import {
   MonitorSmartphoneIcon,
   PaletteIcon,
   Sparkles,
+  TagIcon,
   TerminalSquare,
 } from 'lucide-react';
 import { useMemo } from 'react';
@@ -180,6 +181,11 @@ export const useCategory = () => {
         icon: SkillsIcon,
         key: SettingsTabs.Skill,
         label: t('tab.skill'),
+      },
+      {
+        icon: TagIcon,
+        key: SettingsTabs.Labels,
+        label: t('tab.labels'),
       },
       {
         icon: Blocks,

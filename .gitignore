@@ -60,6 +60,7 @@ bun.lockb
 dist/
 public/_spa/
 public/_spa-auth/
+public/_spa-workbench/
 public/spa/
 es/
 lib/
@@ -94,6 +95,7 @@ public/swe-worker*
 # Generated files
 src/app/spa/[variants]/[[...path]]/spaHtmlTemplates.ts
 src/app/spa-auth/authHtmlTemplate.ts
+src/app/spa-workbench/workbenchHtmlTemplate.ts
 public/*.js
 robots.txt
 
@@ -157,3 +159,6 @@ docs/superpowers/
 
 # runtime-injected custom branding assets (BRANDING_LOGO_URL deployments)
 /public/branding/
+
+# Amp agent runtime
+.amp/

@@ -26,6 +26,7 @@ import { aiChatService } from '@/services/aiChat';
 import { useAgentStore } from '@/store/agent';
 import { agentByIdSelectors } from '@/store/agent/selectors';
 import { useChatStore } from '@/store/chat';
+import { useServerConfigStore } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
 import {
   labPreferSelectors,
@@ -38,6 +39,7 @@ import { useAgentId } from '../hooks/useAgentId';
 import { useChatInputDraft } from '../hooks/useChatInputDraft';
 import { useChatInputHistory } from '../hooks/useChatInputHistory';
 import { useChatInputResourceAccess } from '../hooks/useChatInputResourceAccess';
+import { useEffectiveModel } from '../hooks/useEffectiveModel';
 import { useChatInputStore, useStoreApi } from '../store';
 import {
   INSERT_ACTION_TAG_COMMAND,
@@ -76,10 +78,12 @@ type MentionOption = ISlashMenuOption | ISlashSectionOption;
 
 const InputEditor = memo<{
   defaultRows?: number;
+  initialContent?: string;
   placeholder?: ReactNode;
   placeholderVariant?: PlaceholderVariant;
-}>(({ defaultRows = 2, placeholder, placeholderVariant }) => {
+}>(({ defaultRows = 2, initialContent = '', placeholder, placeholderVariant }) => {
   const { t } = useTranslation('chat');
+  const mobile = useServerConfigStore((s) => s.isMobile);
   const [
     editor,
     slashMenuRef,
@@ -137,8 +141,7 @@ const InputEditor = memo<{
   const categories = useMentionCategories();
 
   // Get agent's model info for vision support check and handle paste upload
-  const model = useAgentStore((s) => agentByIdSelectors.getAgentModelById(agentId)(s));
-  const provider = useAgentStore((s) => agentByIdSelectors.getAgentModelProviderById(agentId)(s));
+  const { model, provider } = useEffectiveModel(agentId);
   const heterogeneousType = useAgentStore(
     (s) => agentByIdSelectors.getAgencyConfigById(agentId)(s)?.heterogeneousProvider?.type,
   );
@@ -160,7 +163,9 @@ const InputEditor = memo<{
   const fuse = useMemo(
     () =>
       new Fuse(allMentionItems, {
-        keys: ['key', 'label', 'metadata.topicTitle'],
+        // Agent labels are ReactNodes (name + role + description), which Fuse
+        // skips — their searchable text lives in `metadata.label`/`searchText`.
+        keys: ['key', 'label', 'metadata.label', 'metadata.searchText', 'metadata.topicTitle'],
         threshold: 0.3,
       }),
     [allMentionItems],
@@ -465,8 +470,10 @@ const InputEditor = memo<{
         path: String(option.metadata.path ?? ''),
       });
     } else {
+      // Agent options carry a ReactNode label; the chip needs the plain name
+      // kept in `metadata.label`. Other types (member) still use `label` itself.
       editor.dispatchCommand(INSERT_MENTION_COMMAND, {
-        label: String(option.label),
+        label: String(option.metadata?.label ?? option.label),
         metadata: option.metadata,
       });
     }
@@ -540,7 +547,7 @@ const InputEditor = memo<{
         autoFocus
         pasteAsPlainText
         className={className}
-        content={''}
+        content={initialContent}
         editable={canCreateContent && canUseResource}
         editor={editor}
         getPopupContainer={() => (slashMenuRef as any)?.current ?? null}
@@ -564,6 +571,7 @@ const InputEditor = memo<{
           )
         }
         style={{
+          fontSize: mobile ? 16 : undefined,
           minHeight: defaultRows > 1 ? defaultRows * 23 : undefined,
         }}
         onCompositionEnd={({ event }) => compositionProps.onCompositionEnd(event)}

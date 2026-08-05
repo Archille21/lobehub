@@ -99,7 +99,6 @@ const About = memo<{ mobile?: boolean }>(({ mobile }) => {
       variant={'filled'}
     >
       <Flexbox gap={20} paddingBlock={20} width={'100%'}>
-        <div className={styles.title}>{t('version')}</div>
         <Version mobile={mobile} />
         {contactItems.length > 0 && (
           <>

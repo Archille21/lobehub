@@ -1,5 +1,5 @@
 import { DEFAULT_INBOX_TITLE } from '@lobechat/const';
-import { type ConversationContext, type UIChatMessage } from '@lobechat/types';
+import { agentDisplayName, type ConversationContext, type UIChatMessage } from '@lobechat/types';
 import { ModelTag } from '@lobehub/icons';
 import { Avatar, Flexbox, Markdown, Text } from '@lobehub/ui';
 import { cx } from 'antd-style';
@@ -60,7 +60,7 @@ const Preview = memo<PreviewProps>(
         agentSelectors.displayableAgentPlugins(s),
         agentSelectors.currentAgentSystemRole(s),
         builtinAgentSelectors.isInboxAgent(s),
-        agentSelectors.currentAgentTitle(s),
+        agentSelectors.currentAgentDisplayName(s),
         agentSelectors.currentAgentAvatar(s),
         agentSelectors.currentAgentBackgroundColor(s),
         resolvedHeaderAgentId
@@ -79,7 +79,9 @@ const Preview = memo<PreviewProps>(
     });
 
     const displayTitle =
-      (isHeaderInbox ?? isInbox) ? DEFAULT_INBOX_TITLE : headerMeta?.title || title || currentTitle;
+      (isHeaderInbox ?? isInbox)
+        ? DEFAULT_INBOX_TITLE
+        : agentDisplayName(headerMeta) || title || currentTitle;
     const displayAvatar = headerMeta?.avatar || currentAvatar;
     const displayBackgroundColor = headerMeta?.backgroundColor || currentBackgroundColor;
     const displayModel = headerModel || currentModel;

@@ -36,6 +36,8 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@lobehub/ui', () => ({
+  Alert: ({ title }: { title: ReactNode }) => <div role={'note'}>{title}</div>,
+  Flexbox: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   Form: ({
     items,
   }: {
@@ -66,7 +68,12 @@ vi.mock('@lobehub/ui/base-ui', () => ({
 }));
 
 vi.mock('@/routes/(main)/settings/features/SettingHeader', () => ({
-  default: ({ title }: { title: string }) => <h1>{title}</h1>,
+  default: ({ description, title }: { description?: string; title: string }) => (
+    <header>
+      <h1>{title}</h1>
+      {description}
+    </header>
+  ),
 }));
 
 const createWrapper = () => {
@@ -94,6 +101,22 @@ afterEach(() => {
 });
 
 describe('Labs settings page', () => {
+  it('explains that Labs features are experimental in a banner, not the header subtitle', () => {
+    renderPage();
+
+    // The page title comes from the settings shell header (like Plans / Storage),
+    // so the experimental notice has to carry itself as a standalone banner.
+    expect(screen.getByRole('note').textContent).toBe('description');
+  });
+
+  it('hides its own setting header when the shell renders a compact one', () => {
+    useUserStore.setState({ isUserStateInit: true, updateLab: vi.fn() });
+    render(<Page showSettingHeader={false} />, { wrapper: createWrapper() });
+
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(screen.getByRole('note').textContent).toBe('description');
+  });
+
   it('splits experiments into General and Desktop groups', () => {
     renderPage();
 

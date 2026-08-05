@@ -13,6 +13,7 @@ import {
 } from '@/store/serverConfig';
 import { useUserStore } from '@/store/user';
 import { authSelectors, userProfileSelectors } from '@/store/user/selectors';
+import { getPlatform } from '@/utils/platform';
 
 import {
   SETTINGS_SEARCH_ITEMS,
@@ -101,6 +102,7 @@ export const useSettingsSearch = (
       hideDocs: !!hideDocs,
       isDesktop,
       isLogin: !!isLogin,
+      isWindows: getPlatform() === 'Windows',
       showAiImage: !!showAiImage,
       showGatewayModeToggle: !!showGatewayModeToggle,
     };

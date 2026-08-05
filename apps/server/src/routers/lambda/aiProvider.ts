@@ -16,6 +16,7 @@ import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import { getServerGlobalConfig } from '@/server/globalConfig';
 import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
 import { initModelRuntimeFromDB } from '@/server/modules/ModelRuntime';
+import { getUserScopedAiProviderRuntimeState } from '@/server/services/aiProviderAccess';
 import { type AiProviderDetailItem, type AiProviderRuntimeState } from '@/types/aiProvider';
 import {
   CreateAiProviderSchema,
@@ -140,16 +141,18 @@ export const aiProviderRouter = router({
   getAiProviderRuntimeState: aiProviderProcedure
     .input(z.object({ isLogin: z.boolean().optional() }))
     .query(async ({ ctx }): Promise<AiProviderRuntimeState> => {
-      return ctx.aiInfraRepos.getAiProviderRuntimeState(KeyVaultsGateKeeper.getUserKeyVaults);
+      return getUserScopedAiProviderRuntimeState(ctx.userId, () =>
+        ctx.aiInfraRepos.getAiProviderRuntimeState(KeyVaultsGateKeeper.getUserKeyVaults),
+      );
     }),
 
   // Provider rows carry workspace-shared credentials and the model-layer where is
-  // workspace-wide, so destructive/config writes are owner-only in workspace mode
+  // workspace-wide, so destructive/config writes are Admin-or-higher in workspace mode
   // (the workspace provider settings UI is likewise admin-only).
   removeAiProvider: aiProviderProcedure
     .use(requireProviderSettings)
     .use(withScopedPermission('ai_provider:delete'))
-    .use(requireWorkspaceRoleWhenScoped('owner'))
+    .use(requireWorkspaceRoleWhenScoped('admin'))
     .input(z.object({ id: z.string() }))
     .mutation(async ({ input, ctx }) => {
       return ctx.aiProviderModel.delete(input.id);
@@ -178,7 +181,7 @@ export const aiProviderRouter = router({
   updateAiProvider: aiProviderProcedure
     .use(requireProviderSettings)
     .use(withScopedPermission('ai_provider:update'))
-    .use(requireWorkspaceRoleWhenScoped('owner'))
+    .use(requireWorkspaceRoleWhenScoped('admin'))
     .input(
       z.object({
         id: z.string(),
@@ -192,7 +195,7 @@ export const aiProviderRouter = router({
   updateAiProviderConfig: aiProviderProcedure
     .use(requireProviderSettings)
     .use(withScopedPermission('ai_provider:update'))
-    .use(requireWorkspaceRoleWhenScoped('owner'))
+    .use(requireWorkspaceRoleWhenScoped('admin'))
     .input(
       z.object({
         id: z.string(),

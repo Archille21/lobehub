@@ -12,10 +12,12 @@ import {
   requireWorkspaceRoleWhenScoped,
   wsCompatProcedure,
 } from '@/business/server/trpc-middlewares/workspaceAuth';
+import { TaskModel } from '@/database/models/task';
 import { VerifyRunModel } from '@/database/models/verifyRun';
 import { WorkspaceMemberModel } from '@/database/models/workspaceMember';
 import type { AcceptanceItem } from '@/database/schemas/verify';
 import { acceptances } from '@/database/schemas/verify';
+import { isUuid } from '@/database/utils/uuid';
 import { publicProcedure, router } from '@/libs/trpc/lambda';
 import { serverDatabase } from '@/libs/trpc/lambda/middleware';
 import {
@@ -120,12 +122,14 @@ export const acceptanceRouter = router({
         requirement: z.string().max(2000).optional(),
         subjectId: z.string(),
         subjectType: subjectTypeSchema,
+        title: z.string().trim().min(1).max(500).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       try {
         return await ctx.acceptanceService.ensureForSubject(input.subjectType, input.subjectId, {
           requirement: input.requirement,
+          title: input.title,
         });
       } catch (error) {
         throw new TRPCError({
@@ -205,6 +209,14 @@ export const acceptanceRouter = router({
         await ctx.acceptanceService.acceptanceModel.update(aggregate.id, {
           requirement: input.requirement,
         });
+        // A Task acceptance is instantiated from tasks.config.verify. Mirror
+        // edits back to that source so the next run cannot restore an older goal.
+        if (input.subjectType === 'task') {
+          const taskModel = new TaskModel(ctx.serverDB, ctx.userId, ctx.workspaceId ?? undefined);
+          const task = await taskModel.resolve(input.subjectId);
+          if (!task) throw new Error('Task not found in the current workspace');
+          await taskModel.updateVerifyConfig(task.id, { requirement: input.requirement });
+        }
         return { id: aggregate.id, requirement: input.requirement };
       } catch (error) {
         throw new TRPCError({
@@ -229,9 +241,14 @@ export const acceptanceRouter = router({
   getBundle: publicAcceptanceProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const acceptance = await ctx.serverDB.query.acceptances.findFirst({
-        where: eq(acceptances.id, input.id),
-      });
+      // Public entry fed by shared links: a chat autolinker can glue trailing
+      // CJK punctuation onto the URL, so a malformed uuid must read as
+      // NOT_FOUND instead of aborting in Postgres (22P02 → 500).
+      const acceptance = isUuid(input.id)
+        ? await ctx.serverDB.query.acceptances.findFirst({
+            where: eq(acceptances.id, input.id),
+          })
+        : undefined;
       if (!acceptance) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'Acceptance not found' });
       }
@@ -588,7 +605,7 @@ export const acceptanceRouter = router({
 
   /**
    * Manually move the acceptance's user-facing lifecycle state from the list —
-   * an owner override (mark accepted / rejected, or reopen for another look).
+   * an owner override (mark accepted / closed / rejected, or reopen for another look).
    *
    * accept / reject go through the SERVICE, never a bare status write: the
    * service applies `requireDecidableAcceptance` (a premature `accepted` is
@@ -598,7 +615,12 @@ export const acceptanceRouter = router({
    * not be forced back to a decision-pending state by hand.
    */
   updateStatus: acceptanceWriteProcedure
-    .input(z.object({ id: z.string(), status: z.enum(['delivered', 'accepted', 'rejected']) }))
+    .input(
+      z.object({
+        id: z.string(),
+        status: z.enum(['delivered', 'accepted', 'closed', 'rejected']),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const acceptance = await resolveAcceptance(ctx, input.id);
       assertWorkspaceRowManageable(ctx, acceptance.userId, 'acceptance');
@@ -606,6 +628,8 @@ export const acceptanceRouter = router({
       try {
         if (input.status === 'accepted') {
           await ctx.acceptanceService.accept(acceptance.id);
+        } else if (input.status === 'closed') {
+          await ctx.acceptanceService.acceptanceModel.updateStatus(acceptance.id, 'closed');
         } else if (input.status === 'rejected') {
           await ctx.acceptanceService.reject(
             acceptance.id,
@@ -614,7 +638,11 @@ export const acceptanceRouter = router({
         } else {
           // Reopen (→ delivered): only a decided aggregate can be re-opened; a
           // live round recomputes its own status and must not be clobbered.
-          if (acceptance.status !== 'accepted' && acceptance.status !== 'rejected') {
+          if (
+            acceptance.status !== 'accepted' &&
+            acceptance.status !== 'closed' &&
+            acceptance.status !== 'rejected'
+          ) {
             throw new TRPCError({
               code: 'BAD_REQUEST',
               message: `Only a decided acceptance can be reopened (status: ${acceptance.status})`,

@@ -10,6 +10,7 @@ import {
   type HeterogeneousAgentSessionError,
   HeterogeneousAgentSessionErrorCode,
   OPENCODE_CLI_INSTALL_DOCS_URL,
+  PI_CLI_INSTALL_DOCS_URL,
 } from '@lobechat/electron-client-ipc';
 import {
   createMainAgentRunState,
@@ -43,13 +44,14 @@ import {
   ThreadType,
 } from '@lobechat/types';
 import { createNanoId } from '@lobechat/utils';
+import { toast } from '@lobehub/ui/base-ui';
 import { t } from 'i18next';
 
-import { message as antdMessage } from '@/components/AntdStaticMethods';
 import {
   removeHeteroSessionIdForWorkingDirectory,
   setHeteroSessionIdForWorkingDirectory,
 } from '@/helpers/heteroSessionByWorkingDirectory';
+import { agentQuotaService } from '@/services/agentQuota';
 import { heterogeneousAgentService } from '@/services/electron/heterogeneousAgent';
 import {
   type MessageBatchOperation,
@@ -75,6 +77,8 @@ import type { RunScope } from '../../lifecycle/types';
 import { createGatewayEventHandler, isCompletedRuntimeEnd } from '../gateway/gatewayEventHandler';
 import { createMessageWriteBatcher, type ToolMessageUpdateOperation } from './messageWriteBatcher';
 import { createPendingCreateLedger } from './pendingCreateLedger';
+import { resolveQuotaAccountSpawnPlan } from './resolveQuotaAccountEnv';
+import { buildResumeReplayMessages } from './resumeReplay';
 import { buildLobeHubSessionEnv } from './sessionEnv';
 
 /** Mirrors `idGenerator('threads', 16)` on the server so sync-allocated ids have the same shape. */
@@ -91,11 +95,13 @@ const CLI_AUTH_REQUIRED_PATTERNS = [
   /not authenticated/i,
   /\bunauthorized\b/i,
   /\b401\b/,
+  /no api key found/i,
+  /no models available/i,
 ] as const;
 const AMP_AUTH_REQUIRED_PATTERNS = [/please (?:log|sign) in/i, /amp_api_key/i] as const;
 
 const buildCliAuthRequiredSessionError = (
-  agentType: 'amp' | 'claude-code' | 'codex' | 'opencode',
+  agentType: 'amp' | 'claude-code' | 'codex' | 'opencode' | 'pi',
   rawMessage: string,
 ): HeterogeneousAgentSessionError => {
   switch (agentType) {
@@ -139,6 +145,15 @@ const buildCliAuthRequiredSessionError = (
         stderr: rawMessage,
       };
     }
+    case 'pi': {
+      return {
+        agentType,
+        code: HeterogeneousAgentSessionErrorCode.AuthRequired,
+        docsUrl: PI_CLI_INSTALL_DOCS_URL,
+        message: 'Pi could not authenticate. Run `pi`, use `/login`, then retry.',
+        stderr: rawMessage,
+      };
+    }
   }
 };
 
@@ -152,7 +167,8 @@ const maybeClassifyCliAuthRequiredError = (
     agentType !== 'amp' &&
     agentType !== 'claude-code' &&
     agentType !== 'codex' &&
-    agentType !== 'opencode'
+    agentType !== 'opencode' &&
+    agentType !== 'pi'
   ) {
     return;
   }
@@ -207,6 +223,9 @@ const getDefaultHeterogeneousCommand = (agentType: string): string => {
     }
     case 'opencode': {
       return 'opencode';
+    }
+    case 'pi': {
+      return 'pi';
     }
     default: {
       return 'claude';
@@ -574,6 +593,43 @@ export const executeHeterogeneousAgent = async (
   } = params;
 
   const adapterType = resolveAdapterType(heterogeneousProvider);
+
+  // Which real provider account this run consumes, resolved once after spawn
+  // from the FINAL env (so an agent-env override is attributed correctly, not
+  // the routed choice). Read by the per-turn usage→ledger hook below.
+  let runExternalAccountId: string | undefined;
+
+  // Usage ledger: one turn's spend, attributed to the account the run is on —
+  // the "our own cost" half calibration crosses with the provider's utilization
+  // meter. Main-agent AND subagent turns both route here: a CC Task/subagent
+  // burns the same subscription as its parent, so skipping it would understate
+  // the account and skew calibration high. Fire-and-forget: accounting must
+  // never stall or fail the run, and the server dedupes by message id.
+  const recordQuotaLedgerUsage = (intent: {
+    messageId: string;
+    model?: string;
+    usage: unknown;
+  }) => {
+    if (adapterType !== 'claude-code') return;
+    const u = intent.usage as ModelUsage;
+    agentQuotaService
+      .recordUsage({
+        agentId: context.agentId,
+        externalAccountId: runExternalAccountId,
+        messageId: intent.messageId,
+        model: intent.model,
+        operationId,
+        provider: 'claude-code',
+        topicId: context.topicId ?? undefined,
+        usage: {
+          cacheRead: u.inputCachedTokens,
+          cacheWrite5m: u.inputWriteCacheTokens,
+          input: u.inputCacheMissTokens,
+          output: u.totalOutputTokens,
+        },
+      })
+      .catch(() => {});
+  };
 
   // Shared run lifecycle — hetero owns its terminal lifecycle here
   // (the desktop notification via `afterRunComplete`); queued persistence + op
@@ -1085,7 +1141,7 @@ export const executeHeterogeneousAgent = async (
     completed = true;
     fallbackPromise = (async () => {
       await clearStaleResumeMetadata().catch(console.error);
-      antdMessage?.info?.(t('heteroAgent.resumeReset.resumeFailed', { ns: 'chat' }));
+      toast?.info?.(t('heteroAgent.resumeReset.resumeFailed', { ns: 'chat' }));
       await executeHeterogeneousAgent(get, { ...params, resumeSessionId: undefined });
     })();
 
@@ -1514,6 +1570,9 @@ export const executeHeterogeneousAgent = async (
         } catch (err) {
           console.error('[HeterogeneousAgent] Failed to record subagent usage:', err);
         }
+        // Subagent turns bill the same account as the parent — ledger them too,
+        // or a Task-heavy run understates the account and skews calibration.
+        recordQuotaLedgerUsage(intent);
         return;
       }
 
@@ -1798,6 +1857,8 @@ export const executeHeterogeneousAgent = async (
           { id: intent.messageId, type: 'updateMessage', value: update as any },
           { operationId },
         );
+
+        recordQuotaLedgerUsage(intent);
         return;
       }
 
@@ -1857,28 +1918,53 @@ export const executeHeterogeneousAgent = async (
   await rehydrateClientSubagentRuns();
 
   try {
+    // Account routing: realize the pinned/balanced account choice as spawn env
+    // (CLAUDE_CONFIG_DIR profile). Unbound agents get {} and spawn exactly as
+    // before; a quota-service failure must never block the run.
+    const quotaAccountPlan = await resolveQuotaAccountSpawnPlan(context.agentId, adapterType);
+
+    const sessionEnv = {
+      // Tell the CLI which LobeHub conversation it is running inside. The child
+      // (and every subprocess it spawns, e.g. `lh`) inherits these, so a tool
+      // running under the agent can attribute its output back to this topic
+      // without the agent having to pass ids it can't see. User-configured env
+      // wins — this is provenance, never an override the user can't escape.
+      ...buildLobeHubSessionEnv({
+        agentId: context.agentId,
+        operationId,
+        topicId: context.topicId,
+      }),
+      ...quotaAccountPlan.env,
+      // The agent's own env is the most specific choice and keeps winning —
+      // over both provenance and account routing.
+      ...heterogeneousProvider.env,
+    };
+
     // Start session (pass resumeSessionId for multi-turn --resume)
     const result = await heterogeneousAgentService.startSession({
       agentType: adapterType,
       args: buildHeteroSpawnArgs(heterogeneousProvider),
       command: heterogeneousProvider.command || getDefaultHeterogeneousCommand(adapterType),
       cwd: workingDirectory,
-      env: {
-        // Tell the CLI which LobeHub conversation it is running inside. The child
-        // (and every subprocess it spawns, e.g. `lh`) inherits these, so a tool
-        // running under the agent can attribute its output back to this topic
-        // without the agent having to pass ids it can't see. User-configured env
-        // wins — this is provenance, never an override the user can't escape.
-        ...buildLobeHubSessionEnv({
-          agentId: context.agentId,
-          operationId,
-          topicId: context.topicId,
-        }),
-        ...heterogeneousProvider.env,
-      },
+      env: sessionEnv,
       resumeSessionId,
       useClaudeCodeSdk: labPreferSelectors.enableClaudeCodeSdk(useUserStore.getState()),
+      useCodexAppServer: labPreferSelectors.enableCodexAppServer(useUserStore.getState()),
     });
+
+    // Attribute the run to the login the FINAL env actually resolves to (an
+    // agent-env CLAUDE_CONFIG_DIR beats routing, and unbound agents use the
+    // default login). Falls back to the routed choice when the file read fails.
+    if (adapterType === 'claude-code') {
+      heterogeneousAgentService
+        .getClaudeCodeIdentity({ env: sessionEnv })
+        .then((identity) => {
+          runExternalAccountId = identity?.externalAccountId ?? quotaAccountPlan.externalAccountId;
+        })
+        .catch(() => {
+          runExternalAccountId = quotaAccountPlan.externalAccountId;
+        });
+    }
     agentSessionId = result.sessionId;
     if (!agentSessionId) throw new Error('Agent session returned no sessionId');
 
@@ -2135,6 +2221,16 @@ export const executeHeterogeneousAgent = async (
           }
 
           const isErrorTerminal = deferredTerminalEvent?.type === 'error';
+          // A run can also end WITHOUT failing and without completing: a stop
+          // terminates as `agent_runtime_end { reason: 'interrupted' }` (see
+          // the CC adapter). Everything gated on "not an error" must gate on
+          // this instead, or a stopped run would drain the queue and fire a
+          // "run finished" notification.
+          const isCleanCompletion =
+            !isErrorTerminal &&
+            isCompletedRuntimeEnd(
+              (deferredTerminalEvent?.data as { reason?: string } | undefined)?.reason,
+            );
 
           // Reset the sidebar "running" status BEFORE awaiting the persist queue.
           // Topic status is independent of message persistence, so a stalled queue
@@ -2143,10 +2239,9 @@ export const executeHeterogeneousAgent = async (
           // this guards against. Content persistence + the terminal forward still
           // wait for queued reducer state so terminal never flushes stale content.
           {
-            const reason = (deferredTerminalEvent?.data as { reason?: string } | undefined)?.reason;
             if (isErrorTerminal) {
               writeTopicStatus('failed');
-            } else if (!isAborted() && isCompletedRuntimeEnd(reason)) {
+            } else if (!isAborted() && isCleanCompletion) {
               // Clean completion: the viewer sees 'active'; a background topic gets
               // the unread badge (markTopicUnread self-guards on activeTopicId).
               if (get().activeTopicId === context.topicId) writeTopicStatus('active');
@@ -2255,8 +2350,10 @@ export const executeHeterogeneousAgent = async (
           // showNotification + setBadgeCount fan-out for non-client runtimes. We pass
           // the in-memory accumulated content (the store snapshot isn't durable yet);
           // the shared helper strips markdown + caps length + resolves the title.
-          // Skip for aborted runs and for error terminations.
-          if (!isAborted() && !isErrorTerminal) {
+          // Skip for aborted runs and for error terminations — including a run
+          // the CLI itself reported as stopped (`interrupted`), which is not a
+          // finished run and must not announce itself as one.
+          if (!isAborted() && isCleanCompletion) {
             await runLifecycle.afterRunComplete({
               context,
               notification: { content: finalContent },
@@ -2325,8 +2422,23 @@ export const executeHeterogeneousAgent = async (
       agentSystemContext: heterogeneousProvider.systemContext,
       contextSelections,
       pageSelections,
-      workingDirectory,
+      // The native CLI session already retains its workspace context. Reinjecting this note on
+      // every resumed turn makes it accumulate in persistent Codex/Claude conversations.
+      workingDirectory: resumeSessionId ? undefined : workingDirectory,
     });
+
+    // When resuming, hand main the prior turns so it can rebuild a Claude Code
+    // transcript the CLI already garbage-collected (default 30 days) — without
+    // it, `--resume <staleId>` dies with "No conversation found with session ID".
+    // Raw rows first: the display map collapses history into virtual
+    // `assistantGroup` rows, which carry no replayable turn.
+    const resumeReplayMessages = resumeSessionId
+      ? buildResumeReplayMessages(
+          (get().dbMessagesMap?.[messageMapKey(context)] ??
+            get().messagesMap?.[messageMapKey(context)]) as UIChatMessage[] | undefined,
+          message,
+        )
+      : undefined;
 
     // Send the prompt — blocks until process exits
     await heterogeneousAgentService.sendPrompt({
@@ -2334,6 +2446,7 @@ export const executeHeterogeneousAgent = async (
       imageList,
       operationId,
       prompt: message,
+      ...(resumeReplayMessages?.length ? { resumeReplayMessages } : {}),
       sessionId: agentSessionId,
       systemContext: systemContext || undefined,
       topicId: context.topicId ?? undefined,
@@ -2376,7 +2489,14 @@ export const executeHeterogeneousAgent = async (
     // Cast: TS narrows the closure-mutated `deferredTerminalEvent` back to
     // `null` in linear flow (it can't see writes from the async IPC handler).
     const terminalEvent = deferredTerminalEvent as AgentStreamEvent | null;
-    if (!isAborted() && terminalEvent?.type !== 'error') {
+    // A stop reported by the CLI itself terminates as `agent_runtime_end
+    // { reason: 'interrupted' }` rather than an error, so testing for "not an
+    // error" is no longer enough — that would drain the queue on a stop the
+    // user made, which is exactly what this guard exists to prevent.
+    const drainableTerminal =
+      terminalEvent?.type !== 'error' &&
+      isCompletedRuntimeEnd((terminalEvent?.data as { reason?: string } | undefined)?.reason);
+    if (!isAborted() && drainableTerminal) {
       const contextKey = messageMapKey(context);
       const remainingQueued = get().drainQueuedMessages?.(contextKey) ?? [];
       if (remainingQueued.length > 0) {
