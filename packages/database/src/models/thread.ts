@@ -1,9 +1,18 @@
 import type { CreateThreadParams } from '@lobechat/types';
 import { RequestTrigger, ThreadStatus } from '@lobechat/types';
-import { and, desc, eq, isNotNull, isNull, notExists, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import { and, desc, eq, exists, isNotNull, isNull, not, notExists, or, sql } from 'drizzle-orm';
 
 import type { ThreadItem } from '../schemas';
-import { agentOperations, agents, chatGroups, messages, threads, topics } from '../schemas';
+import {
+  agentOperations,
+  agents,
+  agentsToSessions,
+  chatGroups,
+  messages,
+  threads,
+  topics,
+} from '../schemas';
 import type { LobeChatDatabase } from '../type';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
 
@@ -81,18 +90,54 @@ export class ThreadModel {
 
   /**
    * Threads inherit conversation visibility from their own target first, then
-   * from the parent topic for legacy rows. Callers must join the topic, agent,
-   * and group tables before applying this filter.
+   * from the parent topic or its legacy session mapping. Callers must join the
+   * topic, agent, and group tables before applying this filter.
    */
   private resourceAccess = () => {
-    const scope = { userId: this.userId, workspaceId: this.workspaceId };
+    const workspaceId = this.workspaceId;
+    const scope = { userId: this.userId, workspaceId };
     const groupId = sql<string | null>`COALESCE(${threads.groupId}, ${topics.groupId})`;
     const agentId = sql<string | null>`COALESCE(${threads.agentId}, ${topics.agentId})`;
+    const groupAccess = and(isNotNull(groupId), buildWorkspaceWhere(scope, chatGroups));
+    const agentAccess = and(
+      isNull(groupId),
+      isNotNull(agentId),
+      buildWorkspaceWhere(scope, agents),
+    );
+    const noDirectResource = and(isNull(groupId), isNull(agentId));
+
+    if (!workspaceId) {
+      return or(groupAccess, agentAccess, and(noDirectResource, eq(threads.userId, this.userId)));
+    }
+
+    const linkedWorkspaceAgents = (extraCondition?: SQL) =>
+      this.db
+        .select({ agentId: agentsToSessions.agentId })
+        .from(agentsToSessions)
+        .innerJoin(agents, eq(agents.id, agentsToSessions.agentId))
+        .where(
+          and(
+            eq(agentsToSessions.sessionId, topics.sessionId),
+            eq(agents.workspaceId, workspaceId),
+            extraCondition,
+          ),
+        );
+    const hasLinkedWorkspaceAgent = exists(linkedWorkspaceAgents());
 
     return or(
-      and(isNotNull(groupId), buildWorkspaceWhere(scope, chatGroups)),
-      and(isNull(groupId), isNotNull(agentId), buildWorkspaceWhere(scope, agents)),
-      and(isNull(groupId), isNull(agentId), eq(threads.userId, this.userId)),
+      groupAccess,
+      agentAccess,
+      and(
+        noDirectResource,
+        isNotNull(topics.sessionId),
+        hasLinkedWorkspaceAgent,
+        notExists(linkedWorkspaceAgents(not(buildWorkspaceWhere(scope, agents)))),
+      ),
+      and(
+        noDirectResource,
+        eq(topics.userId, this.userId),
+        or(isNull(topics.sessionId), not(hasLinkedWorkspaceAgent)),
+      ),
     );
   };
 

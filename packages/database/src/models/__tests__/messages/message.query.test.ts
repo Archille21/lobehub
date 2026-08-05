@@ -1477,6 +1477,93 @@ describe('MessageModel Query Tests', () => {
 
       expect(result.map((message) => message.id)).toEqual(['message-list-public-message']);
     });
+
+    it('inherits legacy session visibility from the linked agent', async () => {
+      const workspaceId = 'message-legacy-workspace';
+      await serverDB.insert(workspaces).values({
+        id: workspaceId,
+        name: 'Message Legacy Workspace',
+        primaryOwnerId: userId,
+        slug: workspaceId,
+      });
+      await serverDB.insert(sessions).values([
+        { id: 'message-legacy-public-session', userId, workspaceId },
+        { id: 'message-legacy-private-session', userId, workspaceId },
+      ]);
+      await serverDB.insert(agents).values([
+        {
+          id: 'message-legacy-public-agent',
+          userId,
+          visibility: 'public',
+          workspaceId,
+        },
+        {
+          id: 'message-legacy-private-agent',
+          userId,
+          visibility: 'private',
+          workspaceId,
+        },
+      ]);
+      await serverDB.insert(agentsToSessions).values([
+        {
+          agentId: 'message-legacy-public-agent',
+          sessionId: 'message-legacy-public-session',
+          userId,
+          workspaceId,
+        },
+        {
+          agentId: 'message-legacy-private-agent',
+          sessionId: 'message-legacy-private-session',
+          userId,
+          workspaceId,
+        },
+      ]);
+      await serverDB.insert(topics).values([
+        {
+          id: 'message-legacy-public-topic',
+          sessionId: 'message-legacy-public-session',
+          userId,
+          workspaceId,
+        },
+        {
+          id: 'message-legacy-private-topic',
+          sessionId: 'message-legacy-private-session',
+          userId,
+          workspaceId,
+        },
+      ]);
+      await serverDB.insert(messages).values([
+        {
+          content: 'legacy public message',
+          createdAt: new Date('2024-01-01'),
+          id: 'message-legacy-public',
+          role: 'assistant',
+          topicId: 'message-legacy-public-topic',
+          userId,
+          workspaceId,
+        },
+        {
+          content: 'legacy private message',
+          createdAt: new Date('2024-01-02'),
+          id: 'message-legacy-private',
+          role: 'assistant',
+          topicId: 'message-legacy-private-topic',
+          userId,
+          workspaceId,
+        },
+      ]);
+
+      const memberModel = new MessageModel(serverDB, otherUserId, workspaceId);
+      const ownerModel = new MessageModel(serverDB, userId, workspaceId);
+
+      await expect(memberModel.queryAll()).resolves.toEqual([
+        expect.objectContaining({ id: 'message-legacy-public' }),
+      ]);
+      await expect(ownerModel.queryAll()).resolves.toEqual([
+        expect.objectContaining({ id: 'message-legacy-private' }),
+        expect.objectContaining({ id: 'message-legacy-public' }),
+      ]);
+    });
   });
 
   describe('findById', () => {

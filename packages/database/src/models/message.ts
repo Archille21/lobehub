@@ -42,6 +42,7 @@ import {
   count,
   desc,
   eq,
+  exists,
   getTableColumns,
   gt,
   gte,
@@ -50,6 +51,7 @@ import {
   isNull,
   lte,
   not,
+  notExists,
   or,
   sql,
 } from 'drizzle-orm';
@@ -380,18 +382,56 @@ export class MessageModel {
 
   /**
    * Unscoped message lists/searches inherit visibility from the direct message
-   * target, falling back to the owning topic for legacy rows. Callers must join
-   * `topics`, `agents`, and `chatGroups` before applying this filter.
+   * target, falling back to the owning topic or its legacy session mapping.
+   * Callers must join `topics`, `agents`, and `chatGroups` before applying this
+   * filter.
    */
   private resourceAccess = () => {
-    const scope = { userId: this.userId, workspaceId: this.workspaceId };
+    const workspaceId = this.workspaceId;
+    const scope = { userId: this.userId, workspaceId };
     const groupId = sql<string | null>`COALESCE(${messages.groupId}, ${topics.groupId})`;
     const agentId = sql<string | null>`COALESCE(${messages.agentId}, ${topics.agentId})`;
+    const creatorId = sql<string>`COALESCE(${topics.userId}, ${messages.userId})`;
+    const groupAccess = and(isNotNull(groupId), buildWorkspaceWhere(scope, chatGroups));
+    const agentAccess = and(
+      isNull(groupId),
+      isNotNull(agentId),
+      buildWorkspaceWhere(scope, agents),
+    );
+    const noDirectResource = and(isNull(groupId), isNull(agentId));
+
+    if (!workspaceId) {
+      return or(groupAccess, agentAccess, and(noDirectResource, eq(messages.userId, this.userId)));
+    }
+
+    const linkedWorkspaceAgents = (extraCondition?: SQL) =>
+      this.db
+        .select({ agentId: agentsToSessions.agentId })
+        .from(agentsToSessions)
+        .innerJoin(agents, eq(agents.id, agentsToSessions.agentId))
+        .where(
+          and(
+            eq(agentsToSessions.sessionId, topics.sessionId),
+            eq(agents.workspaceId, workspaceId),
+            extraCondition,
+          ),
+        );
+    const hasLinkedWorkspaceAgent = exists(linkedWorkspaceAgents());
 
     return or(
-      and(isNotNull(groupId), buildWorkspaceWhere(scope, chatGroups)),
-      and(isNull(groupId), isNotNull(agentId), buildWorkspaceWhere(scope, agents)),
-      and(isNull(groupId), isNull(agentId), eq(messages.userId, this.userId)),
+      groupAccess,
+      agentAccess,
+      and(
+        noDirectResource,
+        isNotNull(topics.sessionId),
+        hasLinkedWorkspaceAgent,
+        notExists(linkedWorkspaceAgents(not(buildWorkspaceWhere(scope, agents)))),
+      ),
+      and(
+        noDirectResource,
+        eq(creatorId, this.userId),
+        or(isNull(topics.sessionId), not(hasLinkedWorkspaceAgent)),
+      ),
     );
   };
 

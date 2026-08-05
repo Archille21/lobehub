@@ -6,6 +6,7 @@ import { getTestDB } from '../../core/getTestDB';
 import {
   agentOperations,
   agents,
+  agentsToSessions,
   messages,
   sessions,
   threads,
@@ -157,6 +158,92 @@ describe('ThreadModel', () => {
         expect.objectContaining({ id: 'thread-public' }),
       ]);
       await expect(model.queryByTopicId('thread-private-topic')).resolves.toEqual([]);
+    });
+
+    it('inherits legacy session visibility from the linked agent', async () => {
+      const workspaceId = 'thread-legacy-workspace';
+      await serverDB.insert(workspaces).values({
+        id: workspaceId,
+        name: 'Thread Legacy Workspace',
+        primaryOwnerId: userId,
+        slug: workspaceId,
+      });
+      await serverDB.insert(sessions).values([
+        { id: 'thread-legacy-public-session', userId, workspaceId },
+        { id: 'thread-legacy-private-session', userId, workspaceId },
+      ]);
+      await serverDB.insert(agents).values([
+        {
+          id: 'thread-legacy-public-agent',
+          userId,
+          visibility: 'public',
+          workspaceId,
+        },
+        {
+          id: 'thread-legacy-private-agent',
+          userId,
+          visibility: 'private',
+          workspaceId,
+        },
+      ]);
+      await serverDB.insert(agentsToSessions).values([
+        {
+          agentId: 'thread-legacy-public-agent',
+          sessionId: 'thread-legacy-public-session',
+          userId,
+          workspaceId,
+        },
+        {
+          agentId: 'thread-legacy-private-agent',
+          sessionId: 'thread-legacy-private-session',
+          userId,
+          workspaceId,
+        },
+      ]);
+      await serverDB.insert(topics).values([
+        {
+          id: 'thread-legacy-public-topic',
+          sessionId: 'thread-legacy-public-session',
+          userId,
+          workspaceId,
+        },
+        {
+          id: 'thread-legacy-private-topic',
+          sessionId: 'thread-legacy-private-session',
+          userId,
+          workspaceId,
+        },
+      ]);
+      await serverDB.insert(threads).values([
+        {
+          id: 'thread-legacy-public',
+          topicId: 'thread-legacy-public-topic',
+          type: ThreadType.Standalone,
+          userId,
+          workspaceId,
+        },
+        {
+          id: 'thread-legacy-private',
+          topicId: 'thread-legacy-private-topic',
+          type: ThreadType.Standalone,
+          userId,
+          workspaceId,
+        },
+      ]);
+
+      const memberModel = new ThreadModel(serverDB, otherUserId, workspaceId);
+      const ownerModel = new ThreadModel(serverDB, userId, workspaceId);
+
+      await expect(memberModel.query()).resolves.toEqual([
+        expect.objectContaining({ id: 'thread-legacy-public' }),
+      ]);
+      await expect(memberModel.queryByTopicId('thread-legacy-public-topic')).resolves.toEqual([
+        expect.objectContaining({ id: 'thread-legacy-public' }),
+      ]);
+      await expect(memberModel.queryByTopicId('thread-legacy-private-topic')).resolves.toEqual([]);
+      await expect(ownerModel.queryByTopicId('thread-legacy-private-topic')).resolves.toEqual([
+        expect.objectContaining({ id: 'thread-legacy-private' }),
+      ]);
     });
   });
 
