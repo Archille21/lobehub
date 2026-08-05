@@ -500,6 +500,17 @@ export class MessageModel {
       agentCondition = this.matchSession(sessionId);
     }
 
+    // Root/inbox messages have no conversation resource whose visibility can
+    // authorize workspace-wide reads, so they remain private to their creator.
+    const rootCreatorCondition =
+      !agentId &&
+      !groupId &&
+      !topicId &&
+      !threadId &&
+      (!sessionId || sessionId === INBOX_SESSION_ID)
+        ? eq(messages.userId, this.userId)
+        : undefined;
+
     // For thread queries, we need to fetch complete thread data (parent + thread messages)
     if (threadId) {
       const threadCondition = await runTimedStage(
@@ -564,6 +575,7 @@ export class MessageModel {
       conversationCondition,
       this.matchGroup(groupId),
       this.matchThread(threadId),
+      rootCreatorCondition,
     );
 
     const messageItems = await this.queryWithWhere({
