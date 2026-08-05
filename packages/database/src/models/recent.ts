@@ -87,13 +87,21 @@ export class RecentModel {
     // In personal mode the view is inert because every ownership predicate is
     // already pinned to the caller.
     const teamAgentWhere =
-      this.workspaceId && view === 'team' ? eq(agents.visibility, 'public') : undefined;
+      workspaceId && view === 'team'
+        ? or(isNull(agents.visibility), eq(agents.visibility, 'public'))
+        : undefined;
     const teamGroupWhere =
-      this.workspaceId && view === 'team' ? eq(chatGroups.visibility, 'public') : undefined;
+      workspaceId && view === 'team'
+        ? or(isNull(chatGroups.visibility), eq(chatGroups.visibility, 'public'))
+        : undefined;
     const teamDocumentWhere =
-      this.workspaceId && view === 'team' ? eq(documents.visibility, 'public') : undefined;
+      workspaceId && view === 'team'
+        ? or(isNull(documents.visibility), eq(documents.visibility, 'public'))
+        : undefined;
     const teamTaskWhere =
-      this.workspaceId && view === 'team' ? eq(tasks.visibility, 'public') : undefined;
+      workspaceId && view === 'team'
+        ? or(isNull(tasks.visibility), eq(tasks.visibility, 'public'))
+        : undefined;
     const mineTopicWhere = view === 'mine' ? eq(topics.userId, this.userId) : undefined;
     const mineDocumentWhere = view === 'mine' ? eq(documents.userId, this.userId) : undefined;
     const mineTaskWhere = view === 'mine' ? eq(tasks.createdByUserId, this.userId) : undefined;

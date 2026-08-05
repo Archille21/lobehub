@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { getTestDB } from '../../core/getTestDB';
@@ -822,6 +823,34 @@ describe('RecentModel', () => {
           expect.arrayContaining([expect.objectContaining({ id: 'recent-legacy-public-topic' })]),
         );
         expect(team.map((item) => item.id)).not.toContain('recent-legacy-private-topic');
+      });
+
+      it('treats legacy NULL visibility as public in Team', async () => {
+        await serverDB.execute(sql`ALTER TABLE agents ALTER COLUMN visibility DROP NOT NULL`);
+
+        try {
+          await serverDB.execute(
+            sql`INSERT INTO agents (id, user_id, workspace_id, visibility) VALUES (${'recent-legacy-null-agent'}, ${otherUserId}, ${workspaceId}, NULL)`,
+          );
+          await serverDB.insert(topics).values({
+            agentId: 'recent-legacy-null-agent',
+            id: 'recent-legacy-null-topic',
+            updatedAt: now(),
+            userId: otherUserId,
+            workspaceId,
+          });
+
+          const team = await workspaceModel.queryRecent(10, ['topic'], false, 'team');
+
+          expect(team).toEqual(
+            expect.arrayContaining([expect.objectContaining({ id: 'recent-legacy-null-topic' })]),
+          );
+        } finally {
+          await serverDB.execute(
+            sql`UPDATE agents SET visibility = 'public' WHERE visibility IS NULL`,
+          );
+          await serverDB.execute(sql`ALTER TABLE agents ALTER COLUMN visibility SET NOT NULL`);
+        }
       });
     });
   });
