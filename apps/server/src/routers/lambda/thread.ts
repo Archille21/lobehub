@@ -14,7 +14,10 @@ import { createThreadSchema } from '@/types/topic/thread';
 import { markdownToTxt } from '@/utils/markdownToTxt';
 
 import { assertWorkspaceRowManageable } from './_helpers/assertWorkspaceRowManageable';
-import { assertCanViewTopicTargets } from './_helpers/conversationResourceGuard';
+import {
+  assertCanUseTopicTargets,
+  assertCanViewTopicTargets,
+} from './_helpers/conversationResourceGuard';
 
 const guardCtx = (ctx: {
   serverDB: LobeChatDatabase;
@@ -62,6 +65,8 @@ export const threadRouter = router({
     .use(withScopedPermission('topic:create'))
     .input(createThreadSchema)
     .mutation(async ({ input, ctx }) => {
+      await assertCanUseTopicTargets(guardCtx(ctx), [input.topicId]);
+
       const thread = ensureThreadCreated(
         await ctx.threadModel.create({
           id: input.id,
@@ -85,6 +90,8 @@ export const threadRouter = router({
       }),
     )
     .mutation(async ({ input, ctx }) => {
+      await assertCanUseTopicTargets(guardCtx(ctx), [input.topicId]);
+
       const thread = ensureThreadCreated(
         await ctx.threadModel.create({
           id: input.id,

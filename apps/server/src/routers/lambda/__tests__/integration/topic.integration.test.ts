@@ -5,14 +5,17 @@ import {
   chatGroups,
   messages,
   sessions,
+  threads,
   topics,
   workspaceMembers,
   workspaces,
 } from '@lobechat/database/schemas';
 import { getTestDB } from '@lobechat/database/test-utils';
+import { ThreadType } from '@lobechat/types';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { threadRouter } from '../../thread';
 import { topicRouter } from '../../topic';
 import { cleanupTestUser, createTestAgent, createTestContext, createTestUser } from './setup';
 
@@ -343,6 +346,101 @@ describe('Topic Router Integration Tests', () => {
       await expect(
         otherCaller.getTopicTranscript({ topicId: 'legacy-owner-only-transcript-topic' }),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
+  });
+
+  describe('thread creation visibility', () => {
+    it('does not let another workspace member create threads in a private topic', async () => {
+      otherUserId = await createTestUser(serverDB);
+      const [workspace] = await serverDB
+        .insert(workspaces)
+        .values({ name: 'Private thread workspace', primaryOwnerId: userId, slug: userId })
+        .returning();
+      await serverDB.insert(workspaceMembers).values([
+        { role: 'owner', userId, workspaceId: workspace.id },
+        { role: 'member', userId: otherUserId, workspaceId: workspace.id },
+      ]);
+      await serverDB.insert(agents).values({
+        id: 'private-workspace-thread-agent',
+        userId,
+        visibility: 'private',
+        workspaceId: workspace.id,
+      });
+      await serverDB.insert(topics).values({
+        agentId: 'private-workspace-thread-agent',
+        id: 'private-workspace-thread-topic',
+        userId,
+        workspaceId: workspace.id,
+      });
+
+      const ownerCaller = threadRouter.createCaller({
+        ...createTestContext(userId),
+        workspaceId: workspace.id,
+      });
+      const otherCaller = threadRouter.createCaller({
+        ...createTestContext(otherUserId),
+        workspaceId: workspace.id,
+      });
+
+      await expect(
+        otherCaller.createThread({
+          id: 'forbidden-private-thread',
+          topicId: 'private-workspace-thread-topic',
+          type: ThreadType.Continuation,
+        }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(
+        otherCaller.createThreadWithMessage({
+          id: 'forbidden-private-thread-with-message',
+          message: {
+            agentId: 'private-workspace-thread-agent',
+            content: 'forbidden private thread content',
+            id: 'forbidden-private-thread-message',
+            role: 'user',
+            topicId: 'private-workspace-thread-topic',
+          },
+          topicId: 'private-workspace-thread-topic',
+          type: ThreadType.Continuation,
+        }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+
+      await expect(
+        serverDB
+          .select({ id: threads.id })
+          .from(threads)
+          .where(eq(threads.topicId, 'private-workspace-thread-topic')),
+      ).resolves.toEqual([]);
+      await expect(
+        serverDB
+          .select({ id: messages.id })
+          .from(messages)
+          .where(eq(messages.threadId, 'forbidden-private-thread-with-message')),
+      ).resolves.toEqual([]);
+
+      await expect(
+        ownerCaller.createThread({
+          id: 'allowed-private-thread',
+          topicId: 'private-workspace-thread-topic',
+          type: ThreadType.Continuation,
+        }),
+      ).resolves.toBe('allowed-private-thread');
+      await expect(
+        ownerCaller.createThreadWithMessage({
+          id: 'allowed-private-thread-with-message',
+          message: {
+            agentId: 'private-workspace-thread-agent',
+            content: 'allowed private thread content',
+            id: 'allowed-private-thread-message',
+            role: 'user',
+            topicId: 'private-workspace-thread-topic',
+          },
+          topicId: 'private-workspace-thread-topic',
+          type: ThreadType.Continuation,
+        }),
+      ).resolves.toEqual({
+        messageId: expect.any(String),
+        threadId: 'allowed-private-thread-with-message',
+      });
     });
   });
 
