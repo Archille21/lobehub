@@ -328,7 +328,7 @@ describe('ClassicOnboardingPage', () => {
     it('finishes instead of stranding a user on a persisted picker step', async () => {
       // A user mid-flow when the picker was turned off has currentStep === 4
       // persisted; without this they would see a screen they can never leave.
-      mocks.currentStep = MAX_ONBOARDING_STEPS;
+      mocks.currentStep = CLASSIC_ONBOARDING_MAX_STEP;
 
       renderClassic();
 
