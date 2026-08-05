@@ -906,9 +906,12 @@ export class TopicModel {
         count: count(topics.id),
       })
       .from(topics)
+      .leftJoin(agents, eq(topics.agentId, agents.id))
+      .leftJoin(chatGroups, eq(topics.groupId, chatGroups.id))
       .where(
         genWhere([
           this.ownership(),
+          this.resourceAccess(),
           agentCondition,
           params?.containerId ? this.matchContainer(params.containerId) : undefined,
           params?.range
