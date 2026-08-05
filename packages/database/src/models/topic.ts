@@ -19,6 +19,7 @@ import {
   count,
   desc,
   eq,
+  exists,
   getTableColumns,
   gt,
   gte,
@@ -28,6 +29,7 @@ import {
   lte,
   ne,
   not,
+  notExists,
   or,
   sql,
 } from 'drizzle-orm';
@@ -36,6 +38,7 @@ import type { TopicItem } from '../schemas';
 import {
   agentOperations,
   agents,
+  agentsToSessions,
   chatGroups,
   messagePlugins,
   messages,
@@ -254,15 +257,53 @@ export class TopicModel {
 
   /**
    * Topic rows inherit visibility from their owning group or agent. Legacy
-   * rows without either resource remain creator-only in workspace mode.
-   * Callers must join both `agents` and `chatGroups` before using this filter.
+   * session-only rows resolve through `agentsToSessions`; rows without any
+   * resolvable workspace resource remain creator-only. Callers must join both
+   * `agents` and `chatGroups` before using this filter.
    */
   private resourceAccess = () => {
-    const scope = { userId: this.userId, workspaceId: this.workspaceId };
+    const workspaceId = this.workspaceId;
+    const scope = { userId: this.userId, workspaceId };
+    const groupAccess = and(isNotNull(topics.groupId), buildWorkspaceWhere(scope, chatGroups));
+    const agentAccess = and(
+      isNull(topics.groupId),
+      isNotNull(topics.agentId),
+      buildWorkspaceWhere(scope, agents),
+    );
+    const noDirectResource = and(isNull(topics.groupId), isNull(topics.agentId));
+
+    if (!workspaceId) {
+      return or(groupAccess, agentAccess, and(noDirectResource, eq(topics.userId, this.userId)));
+    }
+
+    const linkedWorkspaceAgents = (extraCondition?: SQL) =>
+      this.db
+        .select({ agentId: agentsToSessions.agentId })
+        .from(agentsToSessions)
+        .innerJoin(agents, eq(agents.id, agentsToSessions.agentId))
+        .where(
+          and(
+            eq(agentsToSessions.sessionId, topics.sessionId),
+            eq(agents.workspaceId, workspaceId),
+            extraCondition,
+          ),
+        );
+    const hasLinkedWorkspaceAgent = exists(linkedWorkspaceAgents());
+
     return or(
-      and(isNotNull(topics.groupId), buildWorkspaceWhere(scope, chatGroups)),
-      and(isNull(topics.groupId), isNotNull(topics.agentId), buildWorkspaceWhere(scope, agents)),
-      and(isNull(topics.groupId), isNull(topics.agentId), eq(topics.userId, this.userId)),
+      groupAccess,
+      agentAccess,
+      and(
+        noDirectResource,
+        isNotNull(topics.sessionId),
+        hasLinkedWorkspaceAgent,
+        notExists(linkedWorkspaceAgents(not(buildWorkspaceWhere(scope, agents)))),
+      ),
+      and(
+        noDirectResource,
+        eq(topics.userId, this.userId),
+        or(isNull(topics.sessionId), not(hasLinkedWorkspaceAgent)),
+      ),
     );
   };
   // **************** Query *************** //

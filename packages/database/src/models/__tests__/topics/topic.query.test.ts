@@ -110,6 +110,204 @@ describe('TopicModel - Query', () => {
       });
     });
 
+    it('should inherit visibility from the linked agent for legacy session-only topics', async () => {
+      await serverDB.insert(workspaces).values({
+        id: 'legacy-topic-workspace',
+        name: 'Legacy Topic Workspace',
+        primaryOwnerId: userId,
+        slug: 'legacy-topic-workspace',
+      });
+      await serverDB.insert(sessions).values([
+        { id: 'legacy-public-session', userId, workspaceId: 'legacy-topic-workspace' },
+        { id: 'legacy-private-session', userId, workspaceId: 'legacy-topic-workspace' },
+        { id: 'legacy-unmapped-session', userId, workspaceId: 'legacy-topic-workspace' },
+      ]);
+      await serverDB.insert(agents).values([
+        {
+          id: 'legacy-public-agent',
+          userId,
+          visibility: 'public',
+          workspaceId: 'legacy-topic-workspace',
+        },
+        {
+          id: 'legacy-private-agent',
+          userId,
+          visibility: 'private',
+          workspaceId: 'legacy-topic-workspace',
+        },
+      ]);
+      await serverDB.insert(agentsToSessions).values([
+        {
+          agentId: 'legacy-public-agent',
+          sessionId: 'legacy-public-session',
+          userId,
+          workspaceId: 'legacy-topic-workspace',
+        },
+        {
+          agentId: 'legacy-private-agent',
+          sessionId: 'legacy-private-session',
+          userId,
+          workspaceId: 'legacy-topic-workspace',
+        },
+      ]);
+      await serverDB.insert(topics).values([
+        {
+          id: 'legacy-public-topic',
+          sessionId: 'legacy-public-session',
+          userId,
+          workspaceId: 'legacy-topic-workspace',
+        },
+        {
+          id: 'legacy-private-topic',
+          sessionId: 'legacy-private-session',
+          userId,
+          workspaceId: 'legacy-topic-workspace',
+        },
+        {
+          id: 'legacy-unmapped-topic',
+          sessionId: 'legacy-unmapped-session',
+          userId,
+          workspaceId: 'legacy-topic-workspace',
+        },
+      ]);
+
+      const memberModel = new TopicModel(serverDB, userId2, 'legacy-topic-workspace');
+      const ownerModel = new TopicModel(serverDB, userId, 'legacy-topic-workspace');
+
+      await expect(
+        memberModel.query({ containerId: 'legacy-public-session' }),
+      ).resolves.toMatchObject({
+        items: [expect.objectContaining({ id: 'legacy-public-topic' })],
+        total: 1,
+      });
+      await expect(
+        memberModel.query({ containerId: 'legacy-private-session' }),
+      ).resolves.toMatchObject({ items: [], total: 0 });
+      await expect(
+        memberModel.query({ containerId: 'legacy-unmapped-session' }),
+      ).resolves.toMatchObject({ items: [], total: 0 });
+      await expect(
+        ownerModel.query({ containerId: 'legacy-private-session' }),
+      ).resolves.toMatchObject({
+        items: [expect.objectContaining({ id: 'legacy-private-topic' })],
+        total: 1,
+      });
+      await expect(
+        ownerModel.query({ containerId: 'legacy-unmapped-session' }),
+      ).resolves.toMatchObject({
+        items: [expect.objectContaining({ id: 'legacy-unmapped-topic' })],
+        total: 1,
+      });
+    });
+
+    it('should fail closed for foreign and mixed legacy session mappings', async () => {
+      const workspaceId = 'legacy-mapping-workspace';
+      await serverDB.insert(workspaces).values({
+        id: workspaceId,
+        name: 'Legacy Mapping Workspace',
+        primaryOwnerId: userId,
+        slug: workspaceId,
+      });
+      await serverDB.insert(sessions).values([
+        { id: 'legacy-foreign-session', userId, workspaceId },
+        { id: 'legacy-mixed-session', userId, workspaceId },
+        { id: 'legacy-other-creator-session', userId: userId2, workspaceId },
+      ]);
+      await serverDB.insert(agents).values([
+        { id: 'legacy-foreign-agent', userId, visibility: 'public' },
+        {
+          id: 'legacy-mixed-public-agent',
+          userId,
+          visibility: 'public',
+          workspaceId,
+        },
+        {
+          id: 'legacy-mixed-private-agent',
+          userId,
+          visibility: 'private',
+          workspaceId,
+        },
+      ]);
+      await serverDB.insert(agentsToSessions).values([
+        {
+          agentId: 'legacy-foreign-agent',
+          sessionId: 'legacy-foreign-session',
+          userId,
+          workspaceId,
+        },
+        {
+          agentId: 'legacy-mixed-public-agent',
+          sessionId: 'legacy-mixed-session',
+          userId,
+          workspaceId,
+        },
+        {
+          agentId: 'legacy-mixed-private-agent',
+          sessionId: 'legacy-mixed-session',
+          userId,
+          workspaceId,
+        },
+        {
+          agentId: 'legacy-mixed-private-agent',
+          sessionId: 'legacy-other-creator-session',
+          userId,
+          workspaceId,
+        },
+      ]);
+      await serverDB.insert(topics).values([
+        {
+          id: 'legacy-foreign-topic',
+          sessionId: 'legacy-foreign-session',
+          userId,
+          workspaceId,
+        },
+        {
+          id: 'legacy-mixed-topic',
+          sessionId: 'legacy-mixed-session',
+          userId,
+          workspaceId,
+        },
+        {
+          id: 'legacy-other-creator-topic',
+          sessionId: 'legacy-other-creator-session',
+          userId: userId2,
+          workspaceId,
+        },
+      ]);
+
+      const memberModel = new TopicModel(serverDB, userId2, workspaceId);
+      const ownerModel = new TopicModel(serverDB, userId, workspaceId);
+
+      for (const containerId of [
+        'legacy-foreign-session',
+        'legacy-mixed-session',
+        'legacy-other-creator-session',
+      ]) {
+        await expect(memberModel.query({ containerId })).resolves.toMatchObject({
+          items: [],
+          total: 0,
+        });
+      }
+      await expect(
+        ownerModel.query({ containerId: 'legacy-foreign-session' }),
+      ).resolves.toMatchObject({
+        items: [expect.objectContaining({ id: 'legacy-foreign-topic' })],
+        total: 1,
+      });
+      await expect(
+        ownerModel.query({ containerId: 'legacy-mixed-session' }),
+      ).resolves.toMatchObject({
+        items: [expect.objectContaining({ id: 'legacy-mixed-topic' })],
+        total: 1,
+      });
+      await expect(
+        ownerModel.query({ containerId: 'legacy-other-creator-session' }),
+      ).resolves.toMatchObject({
+        items: [expect.objectContaining({ id: 'legacy-other-creator-topic' })],
+        total: 1,
+      });
+    });
+
     it('should order by status priority when sortBy is "status"', async () => {
       await serverDB.insert(topics).values([
         // favorite floats to the top regardless of its (lower-priority) status
