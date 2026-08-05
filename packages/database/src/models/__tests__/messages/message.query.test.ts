@@ -1415,7 +1415,7 @@ describe('MessageModel Query Tests', () => {
       expect(result[1].id).toBe('1');
     });
 
-    it('does not return another workspace member private agent messages', async () => {
+    it('does not let direct message targets override private topic visibility', async () => {
       await serverDB.insert(workspaces).values({
         id: 'message-list-workspace',
         name: 'Message List Workspace',
@@ -1436,6 +1436,13 @@ describe('MessageModel Query Tests', () => {
           workspaceId: 'message-list-workspace',
         },
       ]);
+      await serverDB.insert(chatGroups).values({
+        id: 'message-list-public-group',
+        title: 'Message List Public Group',
+        userId,
+        visibility: 'public',
+        workspaceId: 'message-list-workspace',
+      });
       await serverDB.insert(topics).values([
         {
           agentId: 'message-list-public-agent',
@@ -1467,15 +1474,36 @@ describe('MessageModel Query Tests', () => {
           userId,
           workspaceId: 'message-list-workspace',
         },
+        {
+          agentId: 'message-list-public-agent',
+          content: 'private workspace child-agent message',
+          id: 'message-list-private-child-message',
+          role: 'assistant',
+          topicId: 'message-list-private-topic',
+          userId,
+          workspaceId: 'message-list-workspace',
+        },
+        {
+          content: 'private workspace child-group message',
+          groupId: 'message-list-public-group',
+          id: 'message-list-private-child-group-message',
+          role: 'assistant',
+          topicId: 'message-list-private-topic',
+          userId,
+          workspaceId: 'message-list-workspace',
+        },
       ]);
 
-      const result = await new MessageModel(
-        serverDB,
-        otherUserId,
-        'message-list-workspace',
-      ).queryAll();
+      const memberModel = new MessageModel(serverDB, otherUserId, 'message-list-workspace');
 
-      expect(result.map((message) => message.id)).toEqual(['message-list-public-message']);
+      await expect(memberModel.queryAll()).resolves.toEqual([
+        expect.objectContaining({ id: 'message-list-public-message' }),
+      ]);
+      if (process.env.TEST_SERVER_DB === '1') {
+        await expect(memberModel.queryByKeyword('workspace')).resolves.toEqual([
+          expect.objectContaining({ id: 'message-list-public-message' }),
+        ]);
+      }
     });
 
     it('inherits legacy session visibility from the linked agent', async () => {

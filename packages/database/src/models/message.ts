@@ -380,18 +380,31 @@ export class MessageModel {
   private ownership = () =>
     buildWorkspaceWhere({ userId: this.userId, workspaceId: this.workspaceId }, messages);
 
+  private effectiveAgentId = () =>
+    sql<
+      string | null
+    >`CASE WHEN ${messages.topicId} IS NOT NULL THEN ${topics.agentId} ELSE ${messages.agentId} END`;
+
+  private effectiveGroupId = () =>
+    sql<
+      string | null
+    >`CASE WHEN ${messages.topicId} IS NOT NULL THEN ${topics.groupId} ELSE ${messages.groupId} END`;
+
   /**
-   * Unscoped message lists/searches inherit visibility from the direct message
-   * target, falling back to the owning topic or its legacy session mapping.
+   * Unscoped message lists/searches inherit visibility from the owning topic,
+   * including its legacy session mapping. Messages without a topic use their
+   * direct target instead.
    * Callers must join `topics`, `agents`, and `chatGroups` before applying this
    * filter.
    */
   private resourceAccess = () => {
     const workspaceId = this.workspaceId;
     const scope = { userId: this.userId, workspaceId };
-    const groupId = sql<string | null>`COALESCE(${messages.groupId}, ${topics.groupId})`;
-    const agentId = sql<string | null>`COALESCE(${messages.agentId}, ${topics.agentId})`;
-    const creatorId = sql<string>`COALESCE(${topics.userId}, ${messages.userId})`;
+    const groupId = this.effectiveGroupId();
+    const agentId = this.effectiveAgentId();
+    const creatorId = sql<
+      string | null
+    >`CASE WHEN ${messages.topicId} IS NOT NULL THEN ${topics.userId} ELSE ${messages.userId} END`;
     const groupAccess = and(isNotNull(groupId), buildWorkspaceWhere(scope, chatGroups));
     const agentAccess = and(
       isNull(groupId),
@@ -1954,14 +1967,8 @@ export class MessageModel {
       .select(getTableColumns(messages))
       .from(messages)
       .leftJoin(topics, eq(messages.topicId, topics.id))
-      .leftJoin(
-        agents,
-        eq(agents.id, sql<string | null>`COALESCE(${messages.agentId}, ${topics.agentId})`),
-      )
-      .leftJoin(
-        chatGroups,
-        eq(chatGroups.id, sql<string | null>`COALESCE(${messages.groupId}, ${topics.groupId})`),
-      )
+      .leftJoin(agents, eq(agents.id, this.effectiveAgentId()))
+      .leftJoin(chatGroups, eq(chatGroups.id, this.effectiveGroupId()))
       .where(and(this.ownership(), this.resourceAccess()))
       .orderBy(desc(messages.createdAt))
       .limit(pageSize)
@@ -1987,14 +1994,8 @@ export class MessageModel {
       .select(getTableColumns(messages))
       .from(messages)
       .leftJoin(topics, eq(messages.topicId, topics.id))
-      .leftJoin(
-        agents,
-        eq(agents.id, sql<string | null>`COALESCE(${messages.agentId}, ${topics.agentId})`),
-      )
-      .leftJoin(
-        chatGroups,
-        eq(chatGroups.id, sql<string | null>`COALESCE(${messages.groupId}, ${topics.groupId})`),
-      )
+      .leftJoin(agents, eq(agents.id, this.effectiveAgentId()))
+      .leftJoin(chatGroups, eq(chatGroups.id, this.effectiveGroupId()))
       .where(
         and(this.ownership(), this.resourceAccess(), sql`${messages.content} @@@ ${bm25Query}`),
       )
