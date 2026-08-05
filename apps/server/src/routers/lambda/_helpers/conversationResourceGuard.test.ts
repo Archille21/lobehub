@@ -226,6 +226,20 @@ describe('assertCanUseTopicTargets', () => {
     );
   });
 
+  it('uses the group as the effective owner when a topic also has a stale agent', async () => {
+    const db = createDb([[{ agentId: 'private-agent', groupId: 'group-1' }]]);
+
+    await assertCanUseTopicTargets(baseCtx(db), ['t-1']);
+
+    expect(assertActionMock).toHaveBeenCalledTimes(1);
+    expect(assertActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: 'group-1', resourceType: 'agentGroup' }),
+    );
+    expect(assertActionMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: 'private-agent', resourceType: 'agent' }),
+    );
+  });
+
   it('can require read-only view access to the owning resource', async () => {
     const db = createDb([[{ agentId: 'agent-1', groupId: null }]]);
 
@@ -234,6 +248,22 @@ describe('assertCanUseTopicTargets', () => {
     expect(assertActionMock).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'view', resourceId: 'agent-1', resourceType: 'agent' }),
     );
+  });
+
+  it('allows only the creator to view a topic without a resolvable resource', async () => {
+    const ownerDb = createDb([
+      [{ agentId: null, groupId: null, sessionId: null, userId: 'user-1' }],
+    ]);
+    await expect(assertCanViewTopicTargets(baseCtx(ownerDb), ['t-1'])).resolves.toBeUndefined();
+
+    const memberDb = createDb([
+      [{ agentId: null, groupId: null, sessionId: null, userId: 'user-2' }],
+    ]);
+    await expect(assertCanViewTopicTargets(baseCtx(memberDb), ['t-1'])).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+
+    expect(assertActionMock).not.toHaveBeenCalled();
   });
 });
 
@@ -270,6 +300,26 @@ describe('filterUserIdsByTopicViewAccess', () => {
     expect(canPerformActionMock).toHaveBeenCalledWith(
       expect.objectContaining({ effectiveAccessLevel: 'view', userId: 'user-1' }),
     );
+  });
+
+  it('keeps only the creator for a topic without a resolvable resource', async () => {
+    const db = createDb([[{ agentId: null, groupId: null, sessionId: null, userId: 'user-1' }]]);
+    vi.spyOn(RbacModel, 'getWorkspaceUsersPermissions').mockResolvedValueOnce(
+      new Map([
+        ['user-1', ['topic:read:all']],
+        ['user-2', ['topic:read:all']],
+      ]),
+    );
+
+    await expect(
+      filterUserIdsByTopicViewAccess(
+        { db, workspaceId: 'ws-1' },
+        ['topic-1'],
+        ['user-1', 'user-2'],
+      ),
+    ).resolves.toEqual(['user-1']);
+
+    expect(canPerformActionMock).not.toHaveBeenCalled();
   });
 });
 

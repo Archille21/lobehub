@@ -1,3 +1,4 @@
+import { TRPCError } from '@trpc/server';
 import { inArray } from 'drizzle-orm';
 
 import { RbacModel } from '@/database/models/rbac';
@@ -32,6 +33,11 @@ interface ResolvedConversationTarget {
   meta: NonNullable<Awaited<ReturnType<typeof getResourceMeta>>>;
   resourceId: string;
   resourceType: 'agent' | 'agentGroup';
+}
+
+interface ResolvedTopicAccess {
+  creatorOnlyUserIds: Set<string>;
+  resources: ResolvedConversationTarget[];
 }
 
 /**
@@ -159,11 +165,18 @@ export const assertCanUseMessageTargets = async (
 const resolveTopicTargets = async (
   ctx: Pick<ConversationGuardCtx, 'db' | 'workspaceId'>,
   topicIds: string[],
-): Promise<ResolvedConversationTarget[]> => {
-  if (!ctx.workspaceId || topicIds.length === 0) return [];
+): Promise<ResolvedTopicAccess> => {
+  if (!ctx.workspaceId || topicIds.length === 0) {
+    return { creatorOnlyUserIds: new Set(), resources: [] };
+  }
 
   const rows = await ctx.db
-    .select({ agentId: topics.agentId, groupId: topics.groupId, sessionId: topics.sessionId })
+    .select({
+      agentId: topics.agentId,
+      groupId: topics.groupId,
+      sessionId: topics.sessionId,
+      userId: topics.userId,
+    })
     .from(topics)
     .where(inArray(topics.id, topicIds));
 
@@ -177,15 +190,43 @@ const resolveTopicTargets = async (
         .map((row) => row.sessionId!),
     ),
   ];
-  const sessionTargets: ConversationTarget[] =
+  const sessionTargets: { agentId: string; sessionId: string }[] =
     unresolvedSessionIds.length > 0
       ? await ctx.db
-          .select({ agentId: agentsToSessions.agentId })
+          .select({ agentId: agentsToSessions.agentId, sessionId: agentsToSessions.sessionId })
           .from(agentsToSessions)
           .where(inArray(agentsToSessions.sessionId, unresolvedSessionIds))
       : [];
 
-  return resolveConversationTargets(ctx, [...rows, ...sessionTargets]);
+  const sessionTargetsById = new Map<string, ConversationTarget[]>();
+  for (const target of sessionTargets) {
+    const targets = sessionTargetsById.get(target.sessionId) ?? [];
+    targets.push(target);
+    sessionTargetsById.set(target.sessionId, targets);
+  }
+  const targetsByTopic = rows.map((row): ConversationTarget[] => {
+    if (row.groupId) return [{ groupId: row.groupId }];
+    if (row.agentId) return [{ agentId: row.agentId }];
+    if (row.sessionId) return sessionTargetsById.get(row.sessionId) ?? [];
+    return [];
+  });
+  const resources = await resolveConversationTargets(ctx, targetsByTopic.flat());
+  const resolvedResourceKeys = new Set(
+    resources.map(({ resourceId, resourceType }) => `${resourceType}:${resourceId}`),
+  );
+  const creatorOnlyUserIds = new Set(
+    rows
+      .filter((_, index) => {
+        const targets = targetsByTopic[index];
+        return targets.every((target) => {
+          const key = target.groupId ? `agentGroup:${target.groupId}` : `agent:${target.agentId}`;
+          return !resolvedResourceKeys.has(key);
+        });
+      })
+      .map((row) => row.userId),
+  );
+
+  return { creatorOnlyUserIds, resources };
 };
 
 const assertCanAccessTopicTargets = async (
@@ -196,8 +237,12 @@ const assertCanAccessTopicTargets = async (
   const workspaceId = ctx.workspaceId ?? undefined;
   if (!workspaceId) return;
 
-  const resolved = await resolveTopicTargets(ctx, topicIds);
-  for (const { meta, resourceId, resourceType } of resolved) {
+  const { creatorOnlyUserIds, resources } = await resolveTopicTargets(ctx, topicIds);
+  if ([...creatorOnlyUserIds].some((creatorId) => creatorId !== ctx.userId)) {
+    throw new TRPCError({ code: 'NOT_FOUND', message: 'Topic not found' });
+  }
+
+  for (const { meta, resourceId, resourceType } of resources) {
     await assertCanPerformResourceAction({
       action,
       db: ctx.db,
@@ -266,7 +311,7 @@ export const filterUserIdsByTopicViewAccess = async (
   const uniqueUserIds = [...new Set(userIds)];
   if (!workspaceId || uniqueUserIds.length === 0) return [];
 
-  const [resolvedTargets, permissionsByUserId] = await Promise.all([
+  const [resolvedTopicAccess, permissionsByUserId] = await Promise.all([
     resolveTopicTargets(ctx, topicIds),
     RbacModel.getWorkspaceUsersPermissions({
       db: ctx.db,
@@ -278,9 +323,13 @@ export const filterUserIdsByTopicViewAccess = async (
   const activeUserIds = uniqueUserIds.filter((userId) => permissionsByUserId.has(userId));
   const access = await Promise.all(
     activeUserIds.map(async (userId) => {
+      if ([...resolvedTopicAccess.creatorOnlyUserIds].some((creatorId) => creatorId !== userId)) {
+        return false;
+      }
+
       const grantedPermissions = permissionsByUserId.get(userId)!;
       const checks = await Promise.all(
-        resolvedTargets.map(({ meta, resourceId, resourceType }) =>
+        resolvedTopicAccess.resources.map(({ meta, resourceId, resourceType }) =>
           canPerformResourceAction({
             action: 'view',
             db: ctx.db,

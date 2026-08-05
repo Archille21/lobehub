@@ -213,7 +213,7 @@ describe('TopicModel - Query', () => {
       // The client sorts the sidebar by `sortUpdatedAt`, so it must carry the same
       // activity time the server ORDER BY uses (topicActivityAt) — otherwise the two
       // sorts disagree and the list jumps. `updatedAt` stays the raw row value so
-      // rename/favorite edits still show a real edit time. 
+      // rename/favorite edits still show a real edit time.
       await serverDB.insert(topics).values([
         { id: 'has-msg', sessionId, updatedAt: new Date('2023-01-01'), userId },
         { id: 'no-msg', sessionId, updatedAt: new Date('2023-03-01'), userId },
@@ -735,34 +735,22 @@ describe('TopicModel - Query', () => {
       expect(result.items[0].id).toBe('user-topic');
     });
 
-    it('should only lookup agentsToSessions for current user', async () => {
+    it('should not return a topic linked to another user agent', async () => {
       const otherUserId = 'other-user-for-topic-test-2';
 
       await serverDB.transaction(async (trx) => {
         await trx.insert(users).values([{ id: otherUserId }]);
-        await trx.insert(sessions).values([
-          { id: 'user-session', userId },
-          { id: 'other-user-session', userId: otherUserId },
-        ]);
-        await trx.insert(agents).values([
-          { id: 'user-agent', userId, title: 'User Agent' },
-          { id: 'other-user-agent', userId: otherUserId, title: 'Other User Agent' },
-        ]);
         await trx
-          .insert(agentsToSessions)
-          .values([
-            { agentId: 'other-user-agent', sessionId: 'other-user-session', userId: otherUserId },
-          ]);
-        await trx.insert(topics).values([
-          { id: 'topic-user', userId, agentId: 'other-user-agent' },
-          { id: 'topic-other-user', userId: otherUserId, sessionId: 'other-user-session' },
-        ]);
+          .insert(agents)
+          .values([{ id: 'other-user-agent', userId: otherUserId, title: 'Other User Agent' }]);
+        await trx
+          .insert(topics)
+          .values([{ id: 'topic-user', userId, agentId: 'other-user-agent' }]);
       });
 
       const result = await topicModel.query({ agentId: 'other-user-agent' });
 
-      expect(result.items).toHaveLength(1);
-      expect(result.items[0].id).toBe('topic-user');
+      expect(result.items).toHaveLength(0);
     });
 
     it('should work with agentId and pagination', async () => {

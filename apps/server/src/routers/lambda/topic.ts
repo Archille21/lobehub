@@ -854,8 +854,7 @@ export const topicRouter = router({
     .query(async ({ input, ctx }) => {
       if (input.groupId) {
         await assertCanViewConversationTargets(guardCtx(ctx), [{ groupId: input.groupId }]);
-      }
-      if (input.agentId) {
+      } else if (input.agentId) {
         await assertCanViewConversationTargets(guardCtx(ctx), [{ agentId: input.agentId }]);
       } else if (input.sessionId) {
         await assertCanViewSessionTargets(guardCtx(ctx), [input.sessionId]);

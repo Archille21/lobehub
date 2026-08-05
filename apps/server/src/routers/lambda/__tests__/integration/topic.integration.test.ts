@@ -2,6 +2,7 @@
 import { type LobeChatDatabase } from '@lobechat/database';
 import {
   agents,
+  chatGroups,
   messages,
   sessions,
   topics,
@@ -301,6 +302,48 @@ describe('Topic Router Integration Tests', () => {
         otherCaller.getTopicTranscript({ topicId: 'private-workspace-transcript-topic' }),
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
     });
+
+    it('does not expose an owner-only legacy workspace topic to another member', async () => {
+      otherUserId = await createTestUser(serverDB);
+      const [workspace] = await serverDB
+        .insert(workspaces)
+        .values({ name: 'Legacy transcript workspace', primaryOwnerId: userId, slug: userId })
+        .returning();
+      await serverDB.insert(workspaceMembers).values([
+        { role: 'owner', userId, workspaceId: workspace.id },
+        { role: 'member', userId: otherUserId, workspaceId: workspace.id },
+      ]);
+      await serverDB.insert(topics).values({
+        id: 'legacy-owner-only-transcript-topic',
+        title: 'Legacy Owner-only Transcript',
+        userId,
+        workspaceId: workspace.id,
+      });
+      await serverDB.insert(messages).values({
+        content: 'legacy owner-only content',
+        id: 'legacy-owner-only-transcript-message',
+        role: 'user',
+        topicId: 'legacy-owner-only-transcript-topic',
+        userId,
+        workspaceId: workspace.id,
+      });
+
+      const ownerCaller = topicRouter.createCaller({
+        ...createTestContext(userId),
+        workspaceId: workspace.id,
+      });
+      const otherCaller = topicRouter.createCaller({
+        ...createTestContext(otherUserId),
+        workspaceId: workspace.id,
+      });
+
+      await expect(
+        ownerCaller.getTopicTranscript({ topicId: 'legacy-owner-only-transcript-topic' }),
+      ).resolves.toMatchObject({ total: 1 });
+      await expect(
+        otherCaller.getTopicTranscript({ topicId: 'legacy-owner-only-transcript-topic' }),
+      ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    });
   });
 
   describe('batchCreateTopics', () => {
@@ -502,6 +545,43 @@ describe('Topic Router Integration Tests', () => {
       await expect(
         caller.searchTopics({ agentId: 'private-agent-for-search', keywords: 'private' }),
       ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    });
+
+    it('ignores an unused private agent when searching a visible group', async () => {
+      otherUserId = await createTestUser(serverDB);
+      const [workspace] = await serverDB
+        .insert(workspaces)
+        .values({ name: 'Group search workspace', primaryOwnerId: userId, slug: userId })
+        .returning();
+      await serverDB.insert(workspaceMembers).values([
+        { role: 'owner', userId, workspaceId: workspace.id },
+        { role: 'member', userId: otherUserId, workspaceId: workspace.id },
+      ]);
+      await serverDB.insert(chatGroups).values({
+        id: 'public-group-for-search',
+        userId,
+        visibility: 'public',
+        workspaceId: workspace.id,
+      });
+      await serverDB.insert(agents).values({
+        id: 'unused-private-agent-for-group-search',
+        userId,
+        visibility: 'private',
+        workspaceId: workspace.id,
+      });
+
+      const caller = topicRouter.createCaller({
+        ...createTestContext(otherUserId),
+        workspaceId: workspace.id,
+      });
+
+      await expect(
+        caller.searchTopics({
+          agentId: 'unused-private-agent-for-group-search',
+          groupId: 'public-group-for-search',
+          keywords: '',
+        }),
+      ).resolves.toEqual([]);
     });
   });
 
