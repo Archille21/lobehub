@@ -206,7 +206,6 @@ describe('skillRouter.getSkillList error mapping', () => {
 
   it.each([
     [400, 'BAD_REQUEST'],
-    [401, 'UNAUTHORIZED'],
     [403, 'FORBIDDEN'],
     [404, 'NOT_FOUND'],
   ])('maps upstream %i to %s', async (status, code) => {
@@ -214,6 +213,24 @@ describe('skillRouter.getSkillList error mapping', () => {
     const caller = await createCaller();
 
     await expect(caller.getSkillList({ page: 1 })).rejects.toMatchObject({ code });
+  });
+
+  /**
+   * `UNAUTHORIZED` drives re-authentication UI: `createResponseMeta` tags it
+   * with `X-Auth-Required` (unless it carries the Market sentinel message) and
+   * the desktop proxy opens the LobeHub re-login prompt on that header. These
+   * are `publicProcedure`s authenticated by the server's trusted-client token,
+   * so an upstream 401 is our misconfiguration — it must never ask the user to
+   * sign in again.
+   */
+  it('never maps an upstream 401 onto the app re-auth path', async () => {
+    mockSearchSkill.mockRejectedValue(new MarketAPIError(401, 'invalid_token', undefined));
+    const caller = await createCaller();
+
+    const error = await caller.getSkillList({ page: 1 }).catch((e) => e);
+
+    expect(error.code).toBe('INTERNAL_SERVER_ERROR');
+    expect(error.code).not.toBe('UNAUTHORIZED');
   });
 
   it('falls back to INTERNAL_SERVER_ERROR for unmapped upstream statuses', async () => {

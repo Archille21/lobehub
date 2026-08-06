@@ -10,9 +10,24 @@ import { SkillSorts } from '@/types/discover';
 
 const log = debug('lambda-router:market:skill');
 
+/**
+ * Note the deliberate absence of `401`.
+ *
+ * `UNAUTHORIZED` is not an inert status code here — it drives re-authentication
+ * UI. `createResponseMeta` tags any `UNAUTHORIZED` whose message isn't the
+ * `MARKET_AUTH_REQUIRED_MESSAGE` sentinel with `X-Auth-Required`, and the
+ * desktop proxy opens the LobeHub re-login prompt on that header. Mapping an
+ * upstream 401 through would therefore ask the user to re-sign into LobeHub
+ * because *Market* rejected a credential.
+ *
+ * Routing it to the Market sentinel instead would be just as wrong for this
+ * router: these are `publicProcedure`s with no `requireMarketAuth`, authenticated
+ * by the server's trusted-client token. A 401 here means that server credential
+ * is broken — a misconfiguration the user cannot fix by signing in anywhere. So
+ * it stays a 500, which is what it is: our problem, not theirs.
+ */
 const MARKET_STATUS_TO_TRPC_CODE: Record<number, TRPCError['code']> = {
   400: 'BAD_REQUEST',
-  401: 'UNAUTHORIZED',
   403: 'FORBIDDEN',
   404: 'NOT_FOUND',
   429: 'TOO_MANY_REQUESTS',
