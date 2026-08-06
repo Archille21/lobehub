@@ -1,3 +1,4 @@
+import { MarketAPIError } from '@lobehub/market-sdk';
 import { TRPCError } from '@trpc/server';
 import debug from 'debug';
 import { z } from 'zod';
@@ -8,6 +9,36 @@ import { MarketService } from '@/server/services/market';
 import { SkillSorts } from '@/types/discover';
 
 const log = debug('lambda-router:market:skill');
+
+const MARKET_STATUS_TO_TRPC_CODE: Record<number, TRPCError['code']> = {
+  400: 'BAD_REQUEST',
+  401: 'UNAUTHORIZED',
+  403: 'FORBIDDEN',
+  404: 'NOT_FOUND',
+  429: 'TOO_MANY_REQUESTS',
+};
+
+/**
+ * Preserve the upstream Market status instead of collapsing everything into a
+ * blanket 500.
+ *
+ * This matters most for `429`: Market rate limits these endpoints, and a client
+ * that only sees `INTERNAL_SERVER_ERROR` cannot tell a transient throttle from a
+ * real outage — so it retries with exponential backoff, and those retries land
+ * inside the same rate-limit window and keep the bucket empty. Surfacing
+ * `TOO_MANY_REQUESTS` lets the SWR retry gate stand down (see `useClientDataSWR`)
+ * and lets the UI say something true.
+ */
+function mapMarketError(error: unknown, fallbackMessage: string): TRPCError {
+  if (error instanceof MarketAPIError) {
+    return new TRPCError({
+      cause: error,
+      code: MARKET_STATUS_TO_TRPC_CODE[error.status] ?? 'INTERNAL_SERVER_ERROR',
+      message: error.message || fallbackMessage,
+    });
+  }
+  return new TRPCError({ cause: error, code: 'INTERNAL_SERVER_ERROR', message: fallbackMessage });
+}
 
 // Public procedure with optional user info for trusted client token
 const marketProcedure = publicProcedure
@@ -41,10 +72,7 @@ export const skillRouter = router({
         return await ctx.marketService.getSkillCategories();
       } catch (error) {
         log('Error fetching skill categories: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch skill categories',
-        });
+        throw mapMarketError(error, 'Failed to fetch skill categories');
       }
     }),
 
@@ -66,10 +94,7 @@ export const skillRouter = router({
         return await ctx.marketService.getSkillComments(identifier, params);
       } catch (error) {
         log('Error fetching skill comments: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch skill comments',
-        });
+        throw mapMarketError(error, 'Failed to fetch skill comments');
       }
     }),
 
@@ -100,10 +125,7 @@ export const skillRouter = router({
         };
       } catch (error) {
         log('Error fetching skill detail: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch skill detail',
-        });
+        throw mapMarketError(error, 'Failed to fetch skill detail');
       }
     }),
 
@@ -128,10 +150,7 @@ export const skillRouter = router({
         return await ctx.marketService.searchSkill(input ?? {});
       } catch (error) {
         log('Error fetching skill list: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch skill list',
-        });
+        throw mapMarketError(error, 'Failed to fetch skill list');
       }
     }),
 
@@ -144,10 +163,7 @@ export const skillRouter = router({
         return await ctx.marketService.getSkillRatingDistribution(input.identifier);
       } catch (error) {
         log('Error fetching skill rating distribution: %O', error);
-        throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: 'Failed to fetch skill rating distribution',
-        });
+        throw mapMarketError(error, 'Failed to fetch skill rating distribution');
       }
     }),
 });
