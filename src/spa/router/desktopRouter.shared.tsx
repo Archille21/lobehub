@@ -7,6 +7,7 @@ import {
   Image,
   LibraryBigIcon,
   MessageSquarePlus,
+  NotebookPenIcon,
   Settings,
   ShapesIcon,
 } from 'lucide-react';
@@ -789,6 +790,38 @@ export const sharedMainAreaChildren: RouteObject[] = [
     ),
     errorElement: <ErrorBoundary />,
     path: 'page',
+  },
+
+  // Quick Note routes
+  {
+    children: [
+      {
+        element: dynamicElement(() => import('@/routes/(main)/note'), 'Desktop > Note', {
+          preloadId: 'note',
+        }),
+        handle: {
+          meta: routeMeta({ icon: NotebookPenIcon, titleKey: 'navigation.note' }),
+        },
+        index: true,
+      },
+      {
+        element: dynamicElement(
+          () => import('@/routes/(main)/note/[id]'),
+          'Desktop > Note > Detail',
+        ),
+        handle: {
+          meta: routeMeta({ icon: NotebookPenIcon, titleKey: 'navigation.note' }),
+        },
+        path: ':id',
+      },
+    ],
+    element: dynamicLayout(
+      () => import('@/routes/(main)/note/_layout'),
+      'Desktop > Note > Layout',
+      { preloadId: 'note' },
+    ),
+    errorElement: <ErrorBoundary />,
+    path: 'note',
   },
 ];
 

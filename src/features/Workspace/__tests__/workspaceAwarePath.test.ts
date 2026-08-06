@@ -21,6 +21,8 @@ describe('buildWorkspaceAwarePath', () => {
       '/acme/community/agent/jailbreak',
     );
     expect(buildWorkspaceAwarePath('/group/group-1', 'acme')).toBe('/acme/group/group-1');
+    expect(buildWorkspaceAwarePath('/note', 'acme')).toBe('/acme/note');
+    expect(buildWorkspaceAwarePath('/note/note-1', 'acme')).toBe('/acme/note/note-1');
   });
 
   it('prefixes deep agent and evaluation paths used by cross-page navigation', () => {

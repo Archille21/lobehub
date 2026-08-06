@@ -188,6 +188,7 @@ describe('systemStatusSelectors', () => {
         'agent',
         'recents',
         'pages',
+        'note',
         'tasks',
         'image',
         'community',
@@ -203,6 +204,7 @@ describe('systemStatusSelectors', () => {
         'recents',
         SIDEBAR_SPACER_ID,
         'pages',
+        'note',
         'tasks',
         'image',
         'community',
@@ -214,6 +216,7 @@ describe('systemStatusSelectors', () => {
     it('should preserve a canonically-positioned spacer', () => {
       const stored = [
         'pages',
+        'note',
         'recents',
         'private',
         'agent',
@@ -236,6 +239,7 @@ describe('systemStatusSelectors', () => {
       const stored = [
         'tasks',
         'pages',
+        'note',
         SIDEBAR_SPACER_ID,
         'recents',
         'private',
@@ -251,6 +255,7 @@ describe('systemStatusSelectors', () => {
       expect(systemStatusSelectors.sidebarItems(null)(s)).toEqual([
         'tasks',
         'pages',
+        'note',
         'recents',
         'private',
         'agent',
@@ -270,6 +275,7 @@ describe('systemStatusSelectors', () => {
       const spacerIdx = items.indexOf(SIDEBAR_SPACER_ID);
       // every known key is present
       expect(items).toContain('pages');
+      expect(items).toContain('note');
       expect(items).toContain('tasks');
       expect(items).toContain('community');
       expect(items).toContain('resource');
@@ -280,6 +286,7 @@ describe('systemStatusSelectors', () => {
       // missing top-group defaults slot in just before the accordion
       expect(items.indexOf('tasks')).toBeLessThan(spacerIdx - 2);
       expect(items.indexOf('pages')).toBeLessThan(spacerIdx - 2);
+      expect(items.indexOf('note')).toBeLessThan(spacerIdx - 2);
       // missing bottom-group defaults sit after the spacer
       expect(items.indexOf('image')).toBeGreaterThan(spacerIdx);
     });
@@ -294,6 +301,7 @@ describe('systemStatusSelectors', () => {
       expect(items).toEqual([
         'tasks',
         'pages',
+        'note',
         'private',
         'agent',
         'recents',
@@ -315,6 +323,7 @@ describe('systemStatusSelectors', () => {
       expect(items).toEqual([
         'tasks',
         'pages',
+        'note',
         'private',
         'recents',
         'agent',

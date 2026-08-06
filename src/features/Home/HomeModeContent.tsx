@@ -40,6 +40,7 @@ import { homeType } from './components/homeType';
 import Time from './components/Time';
 import EmptySuggestions from './EmptySuggestions';
 import { resolveHomeChatContentState } from './homeChatContentState';
+import NotesFeed from './NotesFeed';
 import type { HomeMode } from './types';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
@@ -404,6 +405,17 @@ const HomeModeContent = memo<HomeModeContentProps>(({ inlineRail, mode, onSugges
   }
 
   if (!isLogin) return null;
+
+  if (mode === 'note') {
+    if (!inlineRail) return <NotesFeed />;
+
+    return (
+      <Flexbox gap={32}>
+        <NotesFeed />
+        <Recommendations variant={'main'} />
+      </Flexbox>
+    );
+  }
 
   if (mode === 'task') {
     if (!inlineRail) return tasksHidden ? null : <TaskContent />;
