@@ -27,18 +27,21 @@ vi.mock('node:fs', async (importOriginal) => {
 const FAKE_DESKTOP_PATH = '/Users/fake/Desktop';
 
 describe('redactPromptArgs', () => {
-  it('redacts separated and inline prompt values without changing unrelated arguments', () => {
+  it('redacts separated and inline Kimi prompt values without changing unrelated arguments', () => {
     expect(
-      redactPromptArgs([
-        '--prompt',
-        'private',
-        '--model',
-        'x',
-        '-p',
-        'short-private',
-        '-p=inline',
-        '--prompt=other',
-      ]),
+      redactPromptArgs(
+        [
+          '--prompt',
+          'private',
+          '--model',
+          'x',
+          '-p',
+          'short-private',
+          '-p=inline',
+          '--prompt=other',
+        ],
+        'kimi-code',
+      ),
     ).toEqual([
       '--prompt',
       '[REDACTED]',
@@ -50,6 +53,15 @@ describe('redactPromptArgs', () => {
       '--prompt=[REDACTED]',
     ]);
   });
+
+  it.each(['claude-code', 'qoder'] as const)(
+    'keeps the %s mode flag and its following input-format argument intact',
+    (agentType) => {
+      expect(
+        redactPromptArgs(['-p', '--input-format', 'stream-json', '--prompt=private'], agentType),
+      ).toEqual(['-p', '--input-format', 'stream-json', '--prompt=[REDACTED]']);
+    },
+  );
 });
 
 const { mockGetAllWindows } = vi.hoisted(() => ({

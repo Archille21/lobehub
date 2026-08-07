@@ -1,10 +1,11 @@
-import { exec, execFile } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { homedir, platform } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
 import type { LocalHeterogeneousAgentType } from '../config';
 import { HETEROGENEOUS_AGENT_CONFIGS } from '../config';
+import { resolveCliSpawnPlan } from './cliSpawn';
 
 /**
  * Shared resolver for external CLI-agent binaries.
@@ -21,7 +22,6 @@ import { HETEROGENEOUS_AGENT_CONFIGS } from '../config';
  */
 
 const execFilePromise = promisify(execFile);
-const execPromise = promisify(exec);
 
 export type HeterogeneousCliAgentType = LocalHeterogeneousAgentType;
 
@@ -60,13 +60,12 @@ interface ResolvedCommand {
 const isWindows = () => platform() === 'win32';
 let shellPathPromise: Promise<string | undefined> | undefined;
 
-// Reject anything that could break out of the `cmd /c "<path>" --version`
-// shell line we build for Windows .cmd shims (see `detectValidatedCommand`).
-// User-supplied custom commands flow through here via `detectHeterogeneousCliCommand`.
+// Reject shell syntax in user-supplied custom commands instead of treating it
+// as part of a command name.
 const WINDOWS_SHELL_METAS = /[&|;<>^`!"]/;
 
-// Extensions we can actually execute on Windows.
-// `.exe` runs directly via `execFile`, `.cmd` / `.bat` runs via `cmd.exe`.
+// Extensions eligible for execution on Windows. `.exe` runs directly, while
+// supported `.cmd` / `.bat` shims are unwrapped by `resolveCliSpawnPlan`.
 // `.ps1` and extensionless wrappers (npm sometimes drops a Unix shell script
 // next to the `.cmd` shim) are deliberately excluded — we can't run them.
 //
@@ -187,6 +186,15 @@ const resolveCommandPath = async (command: string): Promise<ResolvedCommand | un
   return { env: lookupEnv, path: lines[0] };
 };
 
+const execResolvedCommand = async (command: string, args: string[], env?: NodeJS.ProcessEnv) => {
+  const spawnPlan = await resolveCliSpawnPlan(command, args);
+  return execFilePromise(spawnPlan.command, spawnPlan.args, {
+    env,
+    timeout: 5000,
+    windowsHide: true,
+  });
+};
+
 /**
  * Resolve a command via which/where, then confirm it's the binary we expect by
  * matching `--version` output against a keyword or output pattern (avoids
@@ -216,18 +224,7 @@ export const detectValidatedCommand = async (
   const { env, path: resolvedPath } = resolvedCommand;
 
   try {
-    const needsShell = isWindows() && /\.(?:cmd|bat)$/i.test(resolvedPath);
-    const { stderr, stdout } = needsShell
-      ? await execPromise(`"${resolvedPath}" ${validateFlag}`, {
-          env,
-          timeout: 5000,
-          windowsHide: true,
-        })
-      : await execFilePromise(resolvedPath, [validateFlag], {
-          env,
-          timeout: 5000,
-          windowsHide: true,
-        });
+    const { stderr, stdout } = await execResolvedCommand(resolvedPath, [validateFlag], env);
     const output = `${stdout}\n${stderr}`.trim();
     const loweredOutput = output.toLowerCase();
     const matchesKeyword = validateKeywords?.some((keyword) =>
@@ -243,17 +240,11 @@ export const detectValidatedCommand = async (
     // kimi-cli. Both can print a valid version, so capability-probe the exact
     // resolved binary before accepting it as the stream-json runtime.
     if (validateHelpKeywords?.length) {
-      const { stderr: helpStderr, stdout: helpStdout } = needsShell
-        ? await execPromise(`"${resolvedPath}" --help`, {
-            env,
-            timeout: 5000,
-            windowsHide: true,
-          })
-        : await execFilePromise(resolvedPath, ['--help'], {
-            env,
-            timeout: 5000,
-            windowsHide: true,
-          });
+      const { stderr: helpStderr, stdout: helpStdout } = await execResolvedCommand(
+        resolvedPath,
+        ['--help'],
+        env,
+      );
       const helpOutput = `${helpStdout}\n${helpStderr}`.toLowerCase();
       if (!validateHelpKeywords.every((keyword) => helpOutput.includes(keyword.toLowerCase()))) {
         return { available: false };

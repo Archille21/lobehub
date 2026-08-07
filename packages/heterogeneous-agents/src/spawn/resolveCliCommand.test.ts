@@ -36,14 +36,6 @@ const callExecFileError = (err: Error) => {
     return {} as any;
   }) as any);
 };
-const callExec = (stdout: string, stderr = '') => {
-  execMock.mockImplementationOnce(((cmd: string, opts: any, cb: any) => {
-    const callback = typeof opts === 'function' ? opts : cb;
-    callback(noErr, { stdout, stderr });
-    return {} as any;
-  }) as any);
-};
-
 const importModule = () => import('./resolveCliCommand');
 
 describe('resolveCliCommand', () => {
@@ -308,18 +300,18 @@ describe('resolveCliCommand', () => {
       platformMock.mockReturnValue('win32');
     });
 
-    it('resolves `codex` to the .cmd shim via `where`, then runs it through the shell', async () => {
+    it('resolves `codex` to the .cmd shim without constructing a shell command', async () => {
       callExecFile('C:\\Users\\x\\AppData\\Roaming\\npm\\codex.cmd\r\n');
-      callExec('codex 0.142.5');
+      callExecFile('codex 0.142.5');
 
       const { detectValidatedCommand } = await importModule();
       const status = await detectValidatedCommand('codex', { validateKeywords: ['codex'] });
 
       expect(status.available).toBe(true);
       expect(status.path).toBe('C:\\Users\\x\\AppData\\Roaming\\npm\\codex.cmd');
-      expect(execMock.mock.calls[0]![0]).toBe(
-        '"C:\\Users\\x\\AppData\\Roaming\\npm\\codex.cmd" --version',
-      );
+      expect(execFileMock.mock.calls[1]![0]).toBe('C:\\Users\\x\\AppData\\Roaming\\npm\\codex.cmd');
+      expect(execFileMock.mock.calls[1]![1]).toEqual(['--version']);
+      expect(execMock).not.toHaveBeenCalled();
     });
 
     it('prefers the .cmd shim when `where` returns multiple PATHEXT matches', async () => {
@@ -330,7 +322,7 @@ describe('resolveCliCommand', () => {
           'C:\\Users\\x\\AppData\\Roaming\\npm\\codex.ps1',
         ].join('\r\n'),
       );
-      callExec('codex 0.142.5');
+      callExecFile('codex 0.142.5');
 
       const { detectValidatedCommand } = await importModule();
       const status = await detectValidatedCommand('codex', { validateKeywords: ['codex'] });
@@ -349,7 +341,7 @@ describe('resolveCliCommand', () => {
           'C:\\Users\\hp\\.vite-plus\\bin\\claude.exe',
         ].join('\r\n'),
       );
-      callExec('1.2.3 (Claude Code)');
+      callExecFile('1.2.3 (Claude Code)');
 
       const { detectValidatedCommand } = await importModule();
       const status = await detectValidatedCommand('claude', {
@@ -358,6 +350,26 @@ describe('resolveCliCommand', () => {
 
       expect(status.available).toBe(true);
       expect(status.path).toBe('C:\\Users\\hp\\AppData\\Roaming\\npm\\claude.cmd');
+    });
+
+    it('capability-probes a Kimi .cmd shim without constructing a shell command', async () => {
+      const commandPath = 'C:\\Users\\x\\AppData\\Roaming\\npm\\kimi.cmd';
+      callExecFile(`${commandPath}\r\n`);
+      callExecFile('1.8.0');
+      callExecFile('Usage: kimi --prompt <text> --output-format <format>');
+
+      const { detectValidatedCommand } = await importModule();
+      const status = await detectValidatedCommand('kimi', {
+        validateHelpKeywords: ['--prompt', '--output-format'],
+        validatePattern: /^\d+\.\d+\.\d+$/,
+      });
+
+      expect(status.available).toBe(true);
+      expect(execFileMock.mock.calls[1]![0]).toBe(commandPath);
+      expect(execFileMock.mock.calls[1]![1]).toEqual(['--version']);
+      expect(execFileMock.mock.calls[2]![0]).toBe(commandPath);
+      expect(execFileMock.mock.calls[2]![1]).toEqual(['--help']);
+      expect(execMock).not.toHaveBeenCalled();
     });
 
     it('rejects a command containing shell metacharacters', async () => {
