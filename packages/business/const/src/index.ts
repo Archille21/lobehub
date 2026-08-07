@@ -113,6 +113,23 @@ export const BUILTIN_SKILLS_HIDDEN: readonly string[] = [];
 export const AGENT_GROUP_CREATION_ENABLED = true;
 
 /**
+ * Whether the home dashboard shows the Chief Agent portrait and the speech
+ * bubble beside it.
+ *
+ * A slot rather than a constant because the artwork is served from the hosted
+ * ops bucket (`OPS_ASSETS_BASE_URL`), so it is the one thing on the dashboard a
+ * self-hosted deployment cannot render from its own origin — an air-gapped
+ * install gets a broken image, and any install gets a third-party request on
+ * every home view.
+ *
+ * The bubble is covered by the same switch on purpose: its tail points at the
+ * portrait and its copy is written as the agent speaking, so on its own it is a
+ * caption with nothing to caption. The greeting reclaims the width both of them
+ * were holding (see `--home-greeting-measure`).
+ */
+export const HOME_PORTRAIT_ENABLED = true;
+
+/**
  * The infrastructure the cloud sandbox actually runs on, as told to the model.
  *
  * A slot rather than a literal because this is a deployment fact, not a product

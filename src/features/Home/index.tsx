@@ -17,6 +17,7 @@ import HomePortrait from './HomePortrait';
 import InputArea from './InputArea';
 import PortraitBubble from './PortraitBubble';
 import type { HomeMode } from './types';
+import { useShowPortrait } from './useShowPortrait';
 
 /** Trailing gutter that keeps the rail's cards off the page's scroll lane. */
 const RAIL_GUTTER = 14;
@@ -96,8 +97,14 @@ const styles = createStaticStyles(({ css }) => ({
     position: relative;
     grid-area: 1 / 1;
 
-    @container home (width >= ${BUBBLE_INLINE_MIN}px) {
-      --home-greeting-measure: calc(100cqw - ${GREETING_LANE}px);
+    /* Keyed off the portrait rather than the breakpoint: the measure exists to
+       keep the greeting clear of the bubble, so with neither of them rendered
+       (HOME_PORTRAIT_ENABLED) there is nothing to clear and the greeting keeps
+       the full row. */
+    &[data-portrait='true'] {
+      @container home (width >= ${BUBBLE_INLINE_MIN}px) {
+        --home-greeting-measure: calc(100cqw - ${GREETING_LANE}px);
+      }
     }
   `,
   // Parks beside the portrait when the row is wide enough for the three of them;
@@ -237,6 +244,7 @@ const Home = memo(() => {
   const [inputValue, setInputValue] = useState('');
   const railVisible = Boolean(isLogin && showHomeRail);
   const railCollapsed = !railVisible;
+  const showPortrait = useShowPortrait();
 
   const handleInputValueChange = useCallback((value: string) => {
     setInputValue(value);
@@ -256,17 +264,20 @@ const Home = memo(() => {
 
   return (
     <Flexbox className={styles.grid}>
-      <div className={cx(styles.header, styles.content, railCollapsed && styles.contentCollapsed)}>
+      <div
+        className={cx(styles.header, styles.content, railCollapsed && styles.contentCollapsed)}
+        data-portrait={showPortrait}
+      >
         <HomeHeader />
         {/* No portrait for signed-out visitors, so no one to speak the line. */}
-        {isLogin && (
+        {showPortrait && (
           <div className={cx(styles.bubbleSlot, railCollapsed && styles.bubbleSlotCollapsed)}>
             <PortraitBubble />
           </div>
         )}
       </div>
 
-      {isLogin && (
+      {showPortrait && (
         <div className={cx(styles.portrait, railCollapsed && styles.portraitCollapsed)}>
           <HomePortrait />
         </div>

@@ -256,6 +256,7 @@
     "@lobechat/builtin-tool-web-browsing": "workspace:*",
     "@lobechat/builtin-tool-web-onboarding": "workspace:*",
     "@lobechat/builtin-tools": "workspace:*",
+    "@lobechat/business-auth": "workspace:*",
     "@lobechat/business-config": "workspace:*",
     "@lobechat/business-const": "workspace:*",
     "@lobechat/business-model-bank": "workspace:*",
