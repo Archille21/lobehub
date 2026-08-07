@@ -475,6 +475,7 @@ export class TaskModel {
     parentTaskId?: string | null;
     /** Only return tasks carrying the goal-controller marker in `config.goal`. */
     hasGoal?: boolean;
+    projectId?: string;
     /** Same semantics as `list({ visibility })` — UI narrowing on top of the
      *  already ownership-filtered set. */
     visibility?: 'private' | 'public';
@@ -488,12 +489,13 @@ export class TaskModel {
       total: number;
     }>
   > {
-    const { groups, assigneeAgentId, hasGoal, parentTaskId, visibility } = options;
+    const { groups, assigneeAgentId, hasGoal, parentTaskId, projectId, visibility } = options;
 
     const baseConditions = [this.ownership()];
     if (assigneeAgentId) baseConditions.push(eq(tasks.assigneeAgentId, assigneeAgentId));
     if (hasGoal === true) baseConditions.push(sql`COALESCE(${tasks.config} ->> 'goal', '') <> ''`);
     if (hasGoal === false) baseConditions.push(sql`COALESCE(${tasks.config} ->> 'goal', '') = ''`);
+    if (projectId) baseConditions.push(eq(tasks.projectId, projectId));
     if (visibility) baseConditions.push(eq(tasks.visibility, visibility));
     if (parentTaskId === null) {
       baseConditions.push(isNull(tasks.parentTaskId));
@@ -604,6 +606,7 @@ export class TaskModel {
     offset?: number;
     parentTaskId?: string | null;
     priorities?: number[];
+    projectId?: string;
     statuses?: string[];
     /**
      * UI-side narrowing of the (already ownership-filtered) result set.
@@ -618,6 +621,7 @@ export class TaskModel {
       parentTaskId,
       assigneeAgentId,
       hasGoal,
+      projectId,
       visibility,
       limit = 50,
       offset = 0,
@@ -630,6 +634,7 @@ export class TaskModel {
     if (assigneeAgentId) conditions.push(eq(tasks.assigneeAgentId, assigneeAgentId));
     if (hasGoal === true) conditions.push(sql`COALESCE(${tasks.config} ->> 'goal', '') <> ''`);
     if (hasGoal === false) conditions.push(sql`COALESCE(${tasks.config} ->> 'goal', '') = ''`);
+    if (projectId) conditions.push(eq(tasks.projectId, projectId));
     if (visibility) conditions.push(eq(tasks.visibility, visibility));
 
     if (parentTaskId === null) {

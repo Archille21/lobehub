@@ -17,6 +17,10 @@ import type {
  * the two don't collide and `refreshTaskList()` can invalidate the correct entry.
  */
 export const ALL_AGENTS_LIST_KEY = '__all__';
+const PROJECT_LIST_KEY_PREFIX = '__project__:';
+
+const projectIdFromListKey = (key?: string) =>
+  key?.startsWith(PROJECT_LIST_KEY_PREFIX) ? key.slice(PROJECT_LIST_KEY_PREFIX.length) : undefined;
 
 // Default kanban groups: 5 columns
 // 'scheduled' shares the 'running' column — both represent "automation in
@@ -76,7 +80,9 @@ export class TaskListSliceActionImpl {
 
   refreshTaskGroupList = async (): Promise<void> => {
     const { listAgentId, listVisibility } = this.#get();
-    await mutate(taskKeys.groupList(listAgentId, listVisibility));
+    await mutate(
+      taskKeys.groupList(listAgentId, listVisibility, projectIdFromListKey(listAgentId)),
+    );
   };
 
   fetchTaskList = async (params: Parameters<typeof taskService.list>[0]) =>
@@ -85,8 +91,8 @@ export class TaskListSliceActionImpl {
   refreshTaskList = async (): Promise<void> => {
     const { listAgentId, listQueryVisibility, listVisibility } = this.#get();
     await Promise.all([
-      mutate(taskKeys.list(listAgentId, listQueryVisibility)),
-      mutate(taskKeys.groupList(listAgentId, listVisibility)),
+      mutate(taskKeys.list(listAgentId, listQueryVisibility, projectIdFromListKey(listAgentId))),
+      mutate(taskKeys.groupList(listAgentId, listVisibility, projectIdFromListKey(listAgentId))),
     ]);
   };
 
@@ -118,10 +124,15 @@ export class TaskListSliceActionImpl {
       agentId?: string;
       allAgents?: boolean;
       enabled?: boolean;
+      projectId?: string;
     } = {},
   ) => {
-    const { agentId, allAgents = false, enabled = true } = options;
-    const effectiveKey = allAgents ? ALL_AGENTS_LIST_KEY : agentId;
+    const { agentId, allAgents = false, enabled = true, projectId } = options;
+    const effectiveKey = projectId
+      ? `${PROJECT_LIST_KEY_PREFIX}${projectId}`
+      : allAgents
+        ? ALL_AGENTS_LIST_KEY
+        : agentId;
     if (effectiveKey && this.#get().listAgentId !== effectiveKey) {
       this.#set(
         { ...scopeChangeResetState, listAgentId: effectiveKey },
@@ -132,12 +143,13 @@ export class TaskListSliceActionImpl {
     const listVisibility = this.#get().listVisibility;
 
     return useClientDataSWR(
-      enabled && effectiveKey ? taskKeys.groupList(effectiveKey, listVisibility) : null,
+      enabled && effectiveKey ? taskKeys.groupList(effectiveKey, listVisibility, projectId) : null,
       async () => {
         return taskService.groupList({
           assigneeAgentId: allAgents ? undefined : agentId,
           groups: DEFAULT_KANBAN_GROUPS,
           hasGoal: false,
+          projectId,
           visibility: filterToServerVisibility(listVisibility),
         });
       },
@@ -159,12 +171,17 @@ export class TaskListSliceActionImpl {
       agentId?: string;
       allAgents?: boolean;
       enabled?: boolean;
+      projectId?: string;
       /** Override the Task page's persisted filter for embedded consumers. */
       visibility?: TaskListVisibilityFilter;
     } = {},
   ) => {
-    const { agentId, allAgents = false, enabled = true, visibility } = options;
-    const effectiveKey = allAgents ? ALL_AGENTS_LIST_KEY : agentId;
+    const { agentId, allAgents = false, enabled = true, projectId, visibility } = options;
+    const effectiveKey = projectId
+      ? `${PROJECT_LIST_KEY_PREFIX}${projectId}`
+      : allAgents
+        ? ALL_AGENTS_LIST_KEY
+        : agentId;
     const listVisibility = visibility ?? this.#get().listVisibility;
     const { listAgentId, listQueryVisibility } = this.#get();
 
@@ -184,11 +201,12 @@ export class TaskListSliceActionImpl {
     }
 
     return useClientDataSWR(
-      enabled && effectiveKey ? taskKeys.list(effectiveKey, listVisibility) : null,
+      enabled && effectiveKey ? taskKeys.list(effectiveKey, listVisibility, projectId) : null,
       async ([, id]: [string, string]) => {
         return this.fetchTaskList({
-          ...(allAgents ? {} : { assigneeAgentId: id }),
+          ...(allAgents || projectId ? {} : { assigneeAgentId: id }),
           hasGoal: false,
+          projectId,
           visibility: filterToServerVisibility(listVisibility),
         });
       },

@@ -266,11 +266,14 @@ export const taskKeys = {
   detail: def('task:detail', (taskId: string) => ['task:detail', taskId]),
   groupList: def(
     'task:groupList',
-    (agentKey: string | undefined, visibility: 'all' | 'private' | 'workspace' = 'all') => [
-      'task:groupList',
-      agentKey,
-      visibility,
-    ],
+    (
+      agentKey: string | undefined,
+      visibility: 'all' | 'private' | 'workspace' = 'all',
+      projectId?: string,
+    ) =>
+      projectId
+        ? ['task:groupList', agentKey, visibility, projectId]
+        : ['task:groupList', agentKey, visibility],
   ),
   /**
    * The home rail's cross-agent goal roll-up. Scoped by cache scope like the
@@ -280,11 +283,14 @@ export const taskKeys = {
   homeGoals: def('task:homeGoals', (scope: string) => ['task:homeGoals', scope]),
   list: def(
     'task:list',
-    (agentKey: string | undefined, visibility: 'all' | 'private' | 'workspace' = 'all') => [
-      'task:list',
-      agentKey,
-      visibility,
-    ],
+    (
+      agentKey: string | undefined,
+      visibility: 'all' | 'private' | 'workspace' = 'all',
+      projectId?: string,
+    ) =>
+      projectId
+        ? ['task:list', agentKey, visibility, projectId]
+        : ['task:list', agentKey, visibility],
   ),
   /**
    * AgentSidebar task panel. Lives in the `task:` domain (not a `sidebar:`
