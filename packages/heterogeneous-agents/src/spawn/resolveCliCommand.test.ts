@@ -104,6 +104,33 @@ describe('resolveCliCommand', () => {
       });
     });
 
+    it('validates Kimi Code using its bare semver and stream-json capabilities', async () => {
+      callExecFile('/Users/x/.kimi-code/bin/kimi\n');
+      callExecFile('1.8.0');
+      callExecFile('Usage: kimi --prompt <text> --output-format <format>');
+
+      const { detectHeterogeneousCliCommand } = await importModule();
+      const status = await detectHeterogeneousCliCommand('kimi-code', 'kimi');
+
+      expect(status).toMatchObject({
+        available: true,
+        path: '/Users/x/.kimi-code/bin/kimi',
+        version: '1.8.0',
+      });
+      expect(execFileMock.mock.calls[2]![1]).toEqual(['--help']);
+    });
+
+    it('rejects the retired kimi-cli when stream-json capabilities are missing', async () => {
+      callExecFile('0.1.0');
+      callExecFile('Usage: kimi chat [options]');
+
+      const { detectHeterogeneousCliCommand } = await importModule();
+
+      await expect(
+        detectHeterogeneousCliCommand('kimi-code', '/Users/x/.local/bin/kimi'),
+      ).resolves.toMatchObject({ available: false });
+    });
+
     it('resolves and validates Qoder using its bare semver output', async () => {
       callExecFile('/Users/x/.local/bin/qodercli\n');
       callExecFile('1.1.15');
@@ -135,6 +162,32 @@ describe('resolveCliCommand', () => {
           available: true,
           path: path.join(os.homedir(), '.opencode', 'bin', 'opencode'),
           version: '1.18.3',
+        });
+      } finally {
+        process.env.PATH = originalPath;
+        if (originalShell === undefined) delete process.env.SHELL;
+        else process.env.SHELL = originalShell;
+      }
+    });
+
+    it('finds Kimi Code in its official user-local install path', async () => {
+      const originalPath = process.env.PATH;
+      const originalShell = process.env.SHELL;
+      process.env.PATH = '/usr/bin:/bin';
+      delete process.env.SHELL;
+
+      try {
+        callExecFileError(new Error('not found')); // which kimi
+        callExecFile('1.8.0'); // ~/.kimi-code/bin/kimi --version
+        callExecFile('Usage: kimi --prompt <text> --output-format <format>');
+
+        const { detectHeterogeneousCliCommand } = await importModule();
+        const status = await detectHeterogeneousCliCommand('kimi-code', 'kimi');
+
+        expect(status).toMatchObject({
+          available: true,
+          path: path.join(os.homedir(), '.kimi-code', 'bin', 'kimi'),
+          version: '1.8.0',
         });
       } finally {
         process.env.PATH = originalPath;

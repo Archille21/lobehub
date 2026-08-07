@@ -435,6 +435,33 @@ describe('AiAgentService.execAgent - hetero early-exit file attachments', () => 
     expect(mockSpawnHeteroSandbox).not.toHaveBeenCalled();
   });
 
+  it('dispatches Kimi Code to a bound device with its model args', async () => {
+    heteroAgentConfig.model = 'kimi-code';
+    heteroAgentConfig.provider = 'kimi-code';
+    heteroAgentConfig.agencyConfig = {
+      boundDeviceId: 'device-1',
+      executionTarget: 'device',
+      heterogeneousProvider: {
+        model: 'kimi-for-coding',
+        type: 'kimi-code',
+      },
+    } as any;
+
+    await service.execAgent({
+      agentId: 'agent-1',
+      prompt: 'Use Kimi Code on my device',
+    });
+
+    expect(mockDispatchAgentRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentType: 'kimi-code',
+        args: ['--model', 'kimi-for-coding'],
+        deviceId: 'device-1',
+      }),
+    );
+    expect(mockSpawnHeteroSandbox).not.toHaveBeenCalled();
+  });
+
   it('never falls back to a cloud sandbox for unbound OpenCode', async () => {
     heteroAgentConfig.model = 'opencode';
     heteroAgentConfig.provider = 'opencode';
@@ -647,7 +674,7 @@ describe('AiAgentService.execAgent - hetero early-exit file attachments', () => 
     const findRunningOpSeed = () =>
       topicMock.updateMetadata.mock.calls
         .map((call) => call[1])
-        .find((patch: any) => patch?.runningOperation?.operationId);
+        .findLast((patch: any) => patch?.runningOperation?.operationId);
 
     it('serializes the onComplete webhook hook onto runningOperation (sandbox dispatch)', async () => {
       await service.execAgent({
@@ -739,6 +766,43 @@ describe('AiAgentService.execAgent - hetero early-exit file attachments', () => 
       expect(mockPublishAgentRuntimeInit).toHaveBeenCalledWith(
         expect.any(String),
         expect.objectContaining({ heteroType: 'claude-code' }),
+      );
+    });
+
+    it('persists and cancels the connected-device route for Kimi Code', async () => {
+      heteroAgentConfig.model = 'kimi-code';
+      heteroAgentConfig.provider = 'kimi-code';
+      heteroAgentConfig.agencyConfig = {
+        boundDeviceId: 'device-1',
+        executionTarget: 'device',
+        heterogeneousProvider: { type: 'kimi-code' },
+      } as any;
+
+      const result = await service.execAgent({
+        agentId: 'agent-1',
+        prompt: 'run Kimi Code and let me stop it',
+      } as any);
+      const seed = findRunningOpSeed();
+      expect(seed.runningOperation).toEqual(
+        expect.objectContaining({
+          deviceId: 'device-1',
+          deviceUserId: userId,
+          heteroType: 'kimi-code',
+          operationId: result.operationId,
+        }),
+      );
+
+      mockExecuteToolCall.mockClear();
+      topicMock.findById.mockResolvedValue({ metadata: seed });
+      await service.interruptTask({ operationId: result.operationId, topicId: 'topic-1' });
+
+      expect(mockExecuteToolCall).toHaveBeenCalledWith(
+        expect.objectContaining({ deviceId: 'device-1', userId }),
+        expect.objectContaining({
+          apiName: 'cancelHeteroTask',
+          arguments: JSON.stringify({ signal: 'SIGINT', taskId: result.operationId }),
+        }),
+        5_000,
       );
     });
 

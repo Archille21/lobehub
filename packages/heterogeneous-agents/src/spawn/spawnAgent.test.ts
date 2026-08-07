@@ -346,6 +346,31 @@ describe('spawnAgent', () => {
     expect((nextFakeProc as any).stdin.write.mock.calls[0][0]).toBe('hello opencode');
   });
 
+  it('spawns Kimi Code fresh and resumed with prompt only in argv', async () => {
+    nextFakeProc = createFakeProc().proc;
+    const { spawnAgent } = await import('./spawnAgent');
+    await spawnAgent({
+      agentType: 'kimi-code',
+      extraArgs: ['--model', 'kimi-for-coding'],
+      operationId: 'op-kimi',
+      prompt: 'private prompt',
+      resumeSessionId: 'kimi-session',
+    });
+
+    expect(spawnCalls[0]).toMatchObject({ command: 'kimi' });
+    expect(spawnCalls[0].args).toEqual([
+      '--output-format',
+      'stream-json',
+      '--session',
+      'kimi-session',
+      '--model',
+      'kimi-for-coding',
+      '--prompt',
+      'private prompt',
+    ]);
+    expect((nextFakeProc as any).stdin.write.mock.calls[0][0]).toBe('');
+  });
+
   it('spawns OpenCode resume with --session and --file before extra args', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'lobe-opencode-spawn-'));
     tempDirs.push(dir);

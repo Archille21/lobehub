@@ -48,6 +48,7 @@ import type {
   ChatAudioItem,
   ChatFileItem,
   ChatTopicBotContext,
+  ChatTopicMetadata,
   ChatVideoItem,
   ErrorType,
   ExecAgentParams,
@@ -1911,8 +1912,8 @@ export class AiAgentService {
     // 3.5. Hetero-agent early exit — local CLI and remote platform agents bypass the
     // server-side LLM pipeline.  After topic + message creation we hand off to
     // the device gateway (desktop) or cloud sandbox, which will push events
-    // back via `heteroIngest` / `heteroFinish` (amp / claude-code / codex / opencode / pi / qoder) or
-    // `agentNotify.notify` (openclaw / hermes).
+    // back via `heteroIngest` / `heteroFinish` (amp / claude-code / codex /
+    // kimi-code / opencode / pi / qoder) or `agentNotify.notify` (openclaw / hermes).
     //
     // Detection: prefer agencyConfig.heterogeneousProvider.type (set by the UI),
     // fall back to the legacy `model` field for backwards compatibility (shared
@@ -2213,6 +2214,7 @@ export class AiAgentService {
         heteroType === 'amp' ||
         heteroType === 'claude-code' ||
         heteroType === 'codex' ||
+        heteroType === 'kimi-code' ||
         heteroType === 'opencode' ||
         heteroType === 'pi' ||
         heteroType === 'qoder'
@@ -2278,28 +2280,29 @@ export class AiAgentService {
       // delivers the serialized webhooks persisted on runningOperation below.
       if (hooks?.length) hookDispatcher.register(operationId, hooks);
       const serializedHooks = hookDispatcher.getSerializedHooks(operationId);
+      const runningOperation: NonNullable<ChatTopicMetadata['runningOperation']> = {
+        assistantMessageId: assistantMessageRecord.id,
+        hooks: serializedHooks,
+        // Store the device route so interruptTask can cancel a device process.
+        ...(isRemoteHetero && remoteDeviceId
+          ? {
+              deviceId: remoteDeviceId,
+              deviceUserId: remoteDeviceUserId,
+              deviceWorkspaceId: remoteDeviceWorkspaceId,
+              heteroType,
+            }
+          : undefined),
+        operationId,
+        scope: appContext?.scope ?? undefined,
+        threadId: appContext?.threadId ?? undefined,
+      };
 
       // Seed topic.metadata.runningOperation so heteroIngest can validate the
       // operation, and so every terminal site (heteroFinish, agentNotify done,
       // dispatch failure) can re-fire the serialized hooks across a process
       // boundary in queue mode.
       await this.topicModel.updateMetadata(topicId, {
-        runningOperation: {
-          assistantMessageId: assistantMessageRecord.id,
-          hooks: serializedHooks,
-          // Store deviceId + heteroType so interruptTask can cancel remote processes
-          ...(isRemoteHetero && remoteDeviceId
-            ? {
-                deviceId: remoteDeviceId,
-                deviceUserId: remoteDeviceUserId,
-                deviceWorkspaceId: remoteDeviceWorkspaceId,
-                heteroType,
-              }
-            : undefined),
-          operationId,
-          scope: appContext?.scope ?? undefined,
-          threadId: appContext?.threadId ?? undefined,
-        },
+        runningOperation,
       });
 
       // Notify-based platform agents (openclaw / hermes) communicate back via
@@ -2433,8 +2436,9 @@ export class AiAgentService {
           };
         }
       } else {
-        // Local CLI hetero (Amp / Claude Code / Codex / OpenCode / Pi) — fork between device dispatch
-        // and cloud sandbox via the shared execution plan:
+        // Local CLI hetero (Amp / Claude Code / Codex / Kimi Code / OpenCode /
+        // Pi / Qoder) — fork between device dispatch and cloud sandbox via the
+        // shared execution plan:
         //   - requestedDeviceId (topic-level override) always wins
         //   - executionTarget 'device' → dispatch to boundDeviceId (errors if unset)
         //   - executionTarget 'local' + boundDeviceId (desktop sync opened on web)
@@ -2495,6 +2499,7 @@ export class AiAgentService {
               assistantMessageId: assistantMessageRecord.id,
               detail:
                 heteroType === 'amp' ||
+                heteroType === 'kimi-code' ||
                 heteroType === 'opencode' ||
                 heteroType === 'pi' ||
                 heteroType === 'qoder'
@@ -2530,6 +2535,17 @@ export class AiAgentService {
             (await deviceModelForCwd.findByDeviceId(dispatchDeviceId)) ??
             (await deviceModelForCwd.findWorkspaceDeviceById(dispatchDeviceId));
           const dispatchWorkspaceId = await this.resolveDeviceWorkspaceId(dispatchDeviceId);
+          // Persist the exact local-CLI device route before dispatch. Both
+          // Desktop and `lh connect` expose cancellation through
+          // cancelHeteroTask(taskId=operationId), so interruptTask can use the
+          // same metadata path as notify-based platform agents.
+          Object.assign(runningOperation, {
+            deviceId: dispatchDeviceId,
+            deviceUserId: this.userId,
+            deviceWorkspaceId: dispatchWorkspaceId,
+            heteroType,
+          });
+          await this.topicModel.updateMetadata(topicId, { runningOperation });
           // Resolve via the shared precedence helper so dispatch, workspace-init,
           // and the new-topic backfill below all agree on the cwd.
           const deviceCwdConfig = resolveDeviceWorkingDirectoryConfig({
@@ -5445,9 +5461,9 @@ export class AiAgentService {
       resolvedTopicId = operation?.topicId ?? undefined;
     }
 
-    // 2. Cancel remote hetero process (openclaw / hermes) if applicable.
+    // 2. Cancel a device-backed hetero process if applicable.
     // Check topic.metadata.runningOperation for device + heteroType info seeded by execAgent.
-    // This runs regardless of whether interruptOperation succeeds — the remote process
+    // This runs regardless of whether interruptOperation succeeds — the device process
     // is independent of the local operation registry.
     if (resolvedTopicId) {
       const topic = await this.topicModel.findById(resolvedTopicId);
@@ -5464,12 +5480,11 @@ export class AiAgentService {
       if (
         runningOp?.deviceId &&
         runningOp.heteroType &&
-        runningOp.operationId === resolvedOperationId &&
-        isRemoteHeterogeneousType(runningOp.heteroType)
+        runningOp.operationId === resolvedOperationId
       ) {
         const taskId = runningOp.operationId ?? resolvedOperationId;
         log(
-          'interruptTask: cancelling remote hetero process heteroType=%s deviceId=%s taskId=%s',
+          'interruptTask: cancelling device hetero process heteroType=%s deviceId=%s taskId=%s',
           runningOp.heteroType,
           runningOp.deviceId,
           taskId,

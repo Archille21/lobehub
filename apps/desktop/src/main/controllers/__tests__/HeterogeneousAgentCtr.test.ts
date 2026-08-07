@@ -12,7 +12,7 @@ import { HeterogeneousAgentSessionErrorCode } from '@lobechat/electron-client-ip
 import { app as electronAppMock } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import HeterogeneousAgentCtr from '../HeterogeneousAgentImpl';
+import HeterogeneousAgentCtr, { redactPromptArgs } from '../HeterogeneousAgentImpl';
 
 vi.mock('node:os', async () => {
   const actual = await vi.importActual<typeof os>('node:os');
@@ -25,6 +25,32 @@ vi.mock('node:fs', async (importOriginal) => {
 });
 
 const FAKE_DESKTOP_PATH = '/Users/fake/Desktop';
+
+describe('redactPromptArgs', () => {
+  it('redacts separated and inline prompt values without changing unrelated arguments', () => {
+    expect(
+      redactPromptArgs([
+        '--prompt',
+        'private',
+        '--model',
+        'x',
+        '-p',
+        'short-private',
+        '-p=inline',
+        '--prompt=other',
+      ]),
+    ).toEqual([
+      '--prompt',
+      '[REDACTED]',
+      '--model',
+      'x',
+      '-p',
+      '[REDACTED]',
+      '-p=[REDACTED]',
+      '--prompt=[REDACTED]',
+    ]);
+  });
+});
 
 const { mockGetAllWindows } = vi.hoisted(() => ({
   mockGetAllWindows: vi.fn<() => any[]>(() => []),
@@ -1497,11 +1523,13 @@ describe('HeterogeneousAgentCtr', () => {
       topicId: 'topic-gateway',
     };
 
-    const createGatewayCliProc = () => {
+    const createGatewayCliProc = (pid?: number) => {
       const proc = new EventEmitter() as any;
       const stdin = new EventEmitter() as any;
       stdin.end = vi.fn();
       stdin.write = vi.fn(() => true);
+      proc.kill = vi.fn(() => true);
+      proc.pid = pid;
       proc.stdin = stdin;
       return proc;
     };
@@ -1548,6 +1576,30 @@ describe('HeterogeneousAgentCtr', () => {
       await expect(ack).resolves.toEqual({ status: 'accepted' });
       expect(proc.stdin.write).toHaveBeenCalledOnce();
       expect(proc.stdin.end).toHaveBeenCalledOnce();
+    });
+
+    it('tracks and cancels a connected-device CLI wrapper by operation id', async () => {
+      const proc = createGatewayCliProc(4321);
+      nextFakeProc = proc;
+      const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+      const ctr = new HeterogeneousAgentCtr({
+        appStoragePath,
+        storeManager: { get: vi.fn() },
+      } as any);
+
+      const ack = ctr.spawnLhHeteroExec({ ...params, operationId: 'op-cancel' });
+      proc.emit('spawn');
+      await ack;
+
+      expect(ctr.cancelLhHeteroExec({ operationId: 'op-cancel' })).toEqual({
+        pid: 4321,
+        signal: 'SIGINT',
+      });
+      expect(killSpy).toHaveBeenCalledWith(-4321, 'SIGINT');
+
+      proc.emit('exit', 130, 'SIGINT');
+      expect(ctr.cancelLhHeteroExec({ operationId: 'op-cancel' })).toBeUndefined();
+      killSpy.mockRestore();
     });
 
     it('rejects the gateway request when the embedded CLI cannot spawn', async () => {

@@ -140,6 +140,27 @@ const HETERO_RUNTIME_LAB_ENABLED_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const waitForHeteroSessionCompleteGrace = () =>
   new Promise<void>((resolve) => setTimeout(resolve, HETERO_SESSION_COMPLETE_GRACE_MS));
 
+export const redactPromptArgs = (args: string[]): string[] => {
+  let redactNext = false;
+
+  return args.map((arg) => {
+    if (redactNext) {
+      redactNext = false;
+      return '[REDACTED]';
+    }
+
+    if (arg === '--prompt' || arg === '-p') {
+      redactNext = true;
+      return arg;
+    }
+
+    if (arg.startsWith('--prompt=')) return '--prompt=[REDACTED]';
+    if (arg.startsWith('-p=')) return '-p=[REDACTED]';
+
+    return arg;
+  });
+};
+
 // ─── IPC types ───
 
 interface StartSessionParams {
@@ -353,6 +374,8 @@ export default class HeterogeneousAgentCtr {
   }
 
   private sessions = new Map<string, AgentSession>();
+  /** Gateway-dispatched `lh hetero exec` wrappers, keyed by server operation id. */
+  private gatewayAgentRuns = new Map<string, ChildProcess>();
   /**
    * Per-operation AskUserQuestion bridge state. Keyed by `operationId` so the
    * `submitIntervention` IPC can route an answer to the right pending MCP
@@ -718,7 +741,7 @@ export default class HeterogeneousAgentCtr {
           {
             agentSessionId: session.agentSessionId,
             agentType: session.agentType,
-            args: cliArgs,
+            args: redactPromptArgs(cliArgs),
             attachments: imageList.map((image) => this.getAttachmentTraceSummary(image)),
             command: session.command,
             createdAt: createdAt.toISOString(),
@@ -1162,7 +1185,7 @@ export default class HeterogeneousAgentCtr {
     logger.info(
       'Spawning agent:',
       resolvedCliSpawnPlan.command,
-      resolvedCliSpawnPlan.args.join(' '),
+      redactPromptArgs(resolvedCliSpawnPlan.args).join(' '),
       `(cwd: ${cwd})`,
     );
 
@@ -1990,6 +2013,23 @@ export default class HeterogeneousAgentCtr {
   }
 
   /**
+   * Cancel a connected-device run started by {@link spawnLhHeteroExec}.
+   * The wrapper forwards the signal to its agent process tree and completes the
+   * normal heteroFinish cancellation path.
+   */
+  cancelLhHeteroExec(params: {
+    operationId: string;
+    signal?: NodeJS.Signals;
+  }): { pid: number; signal: NodeJS.Signals } | undefined {
+    const child = this.gatewayAgentRuns.get(params.operationId);
+    if (!child?.pid) return undefined;
+
+    const signal = params.signal ?? 'SIGINT';
+    this.killProcessTree(child, signal);
+    return { pid: child.pid, signal };
+  }
+
+  /**
    * Spawn the embedded CLI's `hetero exec` for gateway-driven agent runs.
    * The bundled CLI handles everything downstream — no local
    * AgentStreamPipeline or IPC broadcast needed. Mirrors
@@ -2086,6 +2126,9 @@ export default class HeterogeneousAgentCtr {
     });
 
     child.on('exit', (code, signal) => {
+      if (this.gatewayAgentRuns.get(operationId) === child) {
+        this.gatewayAgentRuns.delete(operationId);
+      }
       logger.info('spawnLhHeteroExec: exited — op=%s code=%s signal=%s', operationId, code, signal);
     });
 
@@ -2107,6 +2150,7 @@ export default class HeterogeneousAgentCtr {
       });
 
       child.once('spawn', () => {
+        if (child.pid) this.gatewayAgentRuns.set(operationId, child);
         try {
           child.stdin.write(stdinPayload);
           child.stdin.end();
@@ -2123,6 +2167,9 @@ export default class HeterogeneousAgentCtr {
       });
 
       child.once('error', (err) => {
+        if (this.gatewayAgentRuns.get(operationId) === child) {
+          this.gatewayAgentRuns.delete(operationId);
+        }
         logger.error('spawnLhHeteroExec: spawn failed — %s', err.message);
         settle({ reason: err.message, status: 'rejected' });
       });

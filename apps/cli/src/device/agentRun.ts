@@ -31,6 +31,30 @@ interface SpawnHeteroAgentRunLogger {
   info?: (msg: string) => void;
 }
 
+/** Active `lh hetero exec` wrappers, keyed by the server operation/task id. */
+const activeAgentRuns = new Map<string, ReturnType<typeof spawn>>();
+
+/**
+ * Cancel a gateway-dispatched local CLI run. The wrapper owns SIGINT/SIGTERM
+ * forwarding to the actual agent process tree, so signalling it preserves the
+ * same graceful heteroFinish path as Ctrl-C in `lh hetero exec`.
+ */
+export function cancelHeteroAgentRun(
+  operationId: string,
+  signal: NodeJS.Signals = 'SIGINT',
+): { pid: number; signal: NodeJS.Signals } | undefined {
+  const child = activeAgentRuns.get(operationId);
+  if (!child?.pid) return undefined;
+
+  if (process.platform === 'win32') {
+    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+  } else {
+    child.kill(signal);
+  }
+
+  return { pid: child.pid, signal };
+}
+
 /**
  * Spawn `lh hetero exec` for a gateway-dispatched agent run. Mirrors the
  * desktop app's `spawnLhHeteroExec`: the spawned CLI owns the full pipeline
@@ -114,6 +138,7 @@ export function spawnHeteroAgentRun(
     });
 
     child.once('spawn', () => {
+      if (child.pid) activeAgentRuns.set(operationId, child);
       // Only safe to write stdin once the process actually started.
       try {
         child.stdin?.write(stdinPayload);
@@ -127,11 +152,13 @@ export function spawnHeteroAgentRun(
     });
 
     child.once('error', (err) => {
+      if (activeAgentRuns.get(operationId) === child) activeAgentRuns.delete(operationId);
       logger?.error?.(`hetero exec spawn failed (op=${operationId}): ${err.message}`);
       settle({ reason: err.message, status: 'rejected' });
     });
 
     child.on('exit', (code, signal) => {
+      if (activeAgentRuns.get(operationId) === child) activeAgentRuns.delete(operationId);
       logger?.info?.(`hetero exec exited (op=${operationId}) code=${code} signal=${signal}`);
     });
   });

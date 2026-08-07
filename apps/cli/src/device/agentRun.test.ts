@@ -2,16 +2,20 @@ import { EventEmitter } from 'node:events';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { spawnHeteroAgentRun } from './agentRun';
+import { cancelHeteroAgentRun, spawnHeteroAgentRun } from './agentRun';
 
 const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
 
 vi.mock('node:child_process', () => ({ spawn: spawnMock }));
 
-const makeFakeChild = () => {
+const makeFakeChild = (pid = 9999) => {
   const child = new EventEmitter() as EventEmitter & {
+    kill: ReturnType<typeof vi.fn>;
+    pid: number;
     stdin: { end: ReturnType<typeof vi.fn>; write: ReturnType<typeof vi.fn> };
   };
+  child.kill = vi.fn(() => true);
+  child.pid = pid;
   child.stdin = { end: vi.fn(), write: vi.fn() };
   return child;
 };
@@ -154,5 +158,19 @@ describe('spawnHeteroAgentRun', () => {
         { source: { id: 'file-1', type: 'url', url: 'https://signed/a.png' }, type: 'image' },
       ]),
     );
+  });
+
+  it('cancels an active gateway-dispatched wrapper by operation id', async () => {
+    const child = makeFakeChild(4321);
+    spawnMock.mockReturnValue(child);
+    const ackPromise = spawnHeteroAgentRun({ ...baseParams, operationId: 'op-cancel' });
+    child.emit('spawn');
+    await ackPromise;
+
+    expect(cancelHeteroAgentRun('op-cancel', 'SIGINT')).toEqual({ pid: 4321, signal: 'SIGINT' });
+    expect(child.kill).toHaveBeenCalledWith('SIGINT');
+
+    child.emit('exit', 130, 'SIGINT');
+    expect(cancelHeteroAgentRun('op-cancel')).toBeUndefined();
   });
 });
