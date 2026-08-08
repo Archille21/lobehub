@@ -2722,17 +2722,24 @@ export class AgentRuntimeService {
       status = state?.status as string | undefined;
     }
 
-    // Terminal (or expired) child. Stand down only when the placeholder was
-    // actually backfilled — this watchdog doubles as the parent-side fallback
-    // for a lost completion bridge, so "terminal" alone doesn't prove the
-    // parent was ever woken.
+    // Terminal (or expired) child. Stand down from re-bridging only when the
+    // placeholder was actually backfilled — this watchdog doubles as the
+    // parent-side fallback for a lost completion bridge, so "terminal" alone
+    // doesn't prove the parent was ever woken. Even then, still retry the
+    // resume: a fulfilled placeholder proves the bridge's backfill half
+    // landed, not that its resume half ran (in-process hook bridges have no
+    // redelivery). The CAS makes this a no-op when the parent already moved.
     if (await this.isToolMessageFulfilled(params.toolMessageId)) {
       log(
-        '[%s] sub-agent timeout: child terminal (%s) and placeholder fulfilled, no-op',
+        '[%s] sub-agent timeout: child terminal (%s) and placeholder fulfilled, retrying parent resume',
         params.subAgentOperationId,
         status,
       );
-      return { nextStepScheduled: false, state: {}, success: true };
+      const resumed = await this.tryResumeParentFromAsyncTool(
+        { parentOperationId: params.parentOperationId },
+        { knownFulfilledMessageId: params.toolMessageId, scheduleVerifyOnHold: true },
+      );
+      return { nextStepScheduled: resumed, state: {}, success: true };
     }
 
     log(
@@ -2827,48 +2834,60 @@ export class AgentRuntimeService {
   }
 
   /**
-   * Enforce a group member's timeout. No-op if the member already reached a
-   * terminal state (its own completion bridge handles that). Otherwise interrupt
-   * the member and bridge a `timeout` completion — backfilling its anchor and
-   * resuming/finishing the parked supervisor via the K=N barrier. The member's
-   * own interrupt bridge may also fire; both are idempotent (anchor rewrite +
-   * CAS-guarded resume).
+   * Enforce a group member's timeout. A still-running member is interrupted
+   * and bridged as a `timeout` completion — backfilling its anchor and
+   * resuming/finishing the parked supervisor via the K=N barrier. A member
+   * that is already terminal (or whose state expired) gets the bridge re-run
+   * with its real outcome as a lost-bridge repair; every bridge half is
+   * idempotent, so this is a no-op when the member's own bridge succeeded.
    */
   private async handleGroupMemberTimeout(
     params: GroupMemberTimeoutParams,
   ): Promise<AgentExecutionResult> {
     const state = await this.coordinator.loadAgentState(params.memberOperationId);
     const status = state?.status as string | undefined;
-    if (!state || status === 'done' || status === 'error' || status === 'interrupted') {
+    const terminal = !state || status === 'done' || status === 'error' || status === 'interrupted';
+
+    if (!terminal) {
       log(
-        '[%s] group-member timeout: member already terminal (%s), no-op',
+        '[%s] group-member timeout fired, interrupting + bridging timeout to parent %s',
+        params.memberOperationId,
+        params.parentOperationId,
+      );
+      await this.interruptOperation(params.memberOperationId);
+    } else {
+      log(
+        '[%s] group-member timeout: member already terminal (%s), re-running bridge as repair',
         params.memberOperationId,
         status,
       );
-      return { nextStepScheduled: false, state: {}, success: true };
     }
 
-    log(
-      '[%s] group-member timeout fired, interrupting + bridging timeout to parent %s',
-      params.memberOperationId,
-      params.parentOperationId,
-    );
-    await this.interruptOperation(params.memberOperationId);
-
+    // For a still-running member this bridges the interrupt as `timeout`. For
+    // a terminal (or expired) member it re-runs the bridge with the member's
+    // real outcome instead of standing down: the member's own bridge may have
+    // died before the anchor backfill or before the barrier/resume half
+    // (in-process hook bridges have no redelivery), which would park the
+    // supervisor forever. Every half is idempotent — fulfilled anchors stand
+    // down from rewrite, the K=N barrier re-checks, and the resume is
+    // CAS-guarded — so a healthy earlier bridge makes this a no-op.
     const resumed = await this.completeGroupActionMember({
       anchorMessageId: params.anchorMessageId,
       expectedMembers: params.expectedMembers,
-      finalState: state,
+      finalState: state ?? undefined,
       groupToolMessageId: params.groupToolMessageId,
       mode: params.mode,
       onComplete: params.onComplete,
       operationId: params.memberOperationId,
       parentOperationId: params.parentOperationId,
-      reason: 'timeout',
+      // An `interrupted` status maps back to `timeout` for the same reasons as
+      // the sub-agent watchdog: on this path it is our own first delivery's
+      // interrupt whose bridge crashed, and the deadline did expire.
+      reason: status === 'done' || status === 'error' ? status : 'timeout',
       // Fall back to the op state's threadId for watchdog payloads queued
       // before the payload carried one (deploy-window messages) — without it
       // the bridge cannot mark the isolated member's thread terminal.
-      threadId: params.threadId ?? state.metadata?.threadId,
+      threadId: params.threadId ?? state?.metadata?.threadId,
     });
 
     return { nextStepScheduled: resumed, state: {}, success: true };

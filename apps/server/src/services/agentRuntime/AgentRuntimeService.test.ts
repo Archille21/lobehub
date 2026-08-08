@@ -2916,11 +2916,17 @@ describe('AgentRuntimeService', () => {
       };
     };
 
-    it('no-ops when the child is terminal and the placeholder is already fulfilled', async () => {
+    it('retries the parent resume when the child is terminal and the placeholder fulfilled', async () => {
+      // Regression (PR #18046 review round 9): a completion bridge can commit
+      // its backfill and then die before the resume half runs (in-process hook
+      // bridges have no redelivery). A plain no-op here would leave the parent
+      // parked in waiting_for_async_tool past its own deadline — the watchdog
+      // must retry the CAS resume, which is a no-op when the parent moved on.
       mockCoordinator.loadAgentState.mockResolvedValue({ status: 'done' });
       mockPlaceholder({ fulfilled: true });
       const interruptSpy = vi.spyOn(service, 'interruptOperation');
       const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge');
+      const resumeSpy = vi.spyOn(service, 'tryResumeParentFromAsyncTool').mockResolvedValue(true);
 
       const result = await service.executeStep({
         operationId: 'child-op-1',
@@ -2929,9 +2935,13 @@ describe('AgentRuntimeService', () => {
       } as any);
 
       expect(result.success).toBe(true);
-      expect(result.nextStepScheduled).toBe(false);
+      expect(result.nextStepScheduled).toBe(true);
       expect(interruptSpy).not.toHaveBeenCalled();
       expect(bridgeSpy).not.toHaveBeenCalled();
+      expect(resumeSpy).toHaveBeenCalledWith(
+        { parentOperationId: 'parent-1' },
+        { knownFulfilledMessageId: 'tool-msg-1', scheduleVerifyOnHold: true },
+      );
     });
 
     it('re-bridges a terminal child when its completion bridge was lost', async () => {
@@ -3016,6 +3026,7 @@ describe('AgentRuntimeService', () => {
       mockPlaceholder({ fulfilled: true });
       const interruptSpy = vi.spyOn(service, 'interruptOperation').mockResolvedValue(false);
       const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge');
+      const resumeSpy = vi.spyOn(service, 'tryResumeParentFromAsyncTool').mockResolvedValue(false);
 
       const result = await service.executeStep({
         operationId: 'child-op-1',
@@ -3025,6 +3036,9 @@ describe('AgentRuntimeService', () => {
 
       expect(interruptSpy).toHaveBeenCalledWith('child-op-1');
       expect(bridgeSpy).not.toHaveBeenCalled();
+      // The fulfilled placeholder still gets a resume retry (see the
+      // partial-bridge regression above); a lost CAS reports no reschedule.
+      expect(resumeSpy).toHaveBeenCalled();
       expect(result.nextStepScheduled).toBe(false);
     });
 
@@ -3060,10 +3074,14 @@ describe('AgentRuntimeService', () => {
       threadId: 'member-thread-1',
     };
 
-    it('no-ops when the member already reached a terminal state', async () => {
+    it('re-runs the bridge with the real outcome for a terminal member instead of no-oping', async () => {
+      // Regression (PR #18046 review round 9, group parity): the member's own
+      // bridge can die before the anchor backfill or the barrier/resume half.
+      // A plain terminal no-op here left the supervisor parked forever — the
+      // watchdog must re-run the (idempotent) bridge with the real outcome.
       mockCoordinator.loadAgentState.mockResolvedValue({ status: 'done' });
       const interruptSpy = vi.spyOn(service, 'interruptOperation');
-      const bridgeSpy = vi.spyOn(service, 'completeGroupActionMember');
+      const bridgeSpy = vi.spyOn(service, 'completeGroupActionMember').mockResolvedValue(true);
 
       const result = await service.executeStep({
         groupMemberTimeout: timeoutParams,
@@ -3072,9 +3090,33 @@ describe('AgentRuntimeService', () => {
       } as any);
 
       expect(result.success).toBe(true);
-      expect(result.nextStepScheduled).toBe(false);
+      expect(result.nextStepScheduled).toBe(true);
       expect(interruptSpy).not.toHaveBeenCalled();
-      expect(bridgeSpy).not.toHaveBeenCalled();
+      expect(bridgeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operationId: 'member-op-1',
+          parentOperationId: 'parent-1',
+          reason: 'done',
+        }),
+      );
+    });
+
+    it('bridges a timeout for an expired member state (lost bridge, state evicted)', async () => {
+      mockCoordinator.loadAgentState.mockResolvedValue(null);
+      const interruptSpy = vi.spyOn(service, 'interruptOperation');
+      const bridgeSpy = vi.spyOn(service, 'completeGroupActionMember').mockResolvedValue(true);
+
+      const result = await service.executeStep({
+        groupMemberTimeout: timeoutParams,
+        operationId: 'member-op-1',
+        stepIndex: 0,
+      } as any);
+
+      expect(interruptSpy).not.toHaveBeenCalled();
+      expect(bridgeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ finalState: undefined, reason: 'timeout' }),
+      );
+      expect(result.nextStepScheduled).toBe(true);
     });
 
     it('interrupts the member and bridges a timeout when it is still running', async () => {
