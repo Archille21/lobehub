@@ -10,9 +10,6 @@ import { taskService } from '@/services/task';
 import { type BriefStore } from '@/store/brief/store';
 import { type BriefItem } from '@/store/brief/types';
 import { type StoreSetter } from '@/store/types';
-import { setNamespace } from '@/utils/storeDebug';
-
-const n = setNamespace('briefList');
 
 export interface NewsDay {
   /**
@@ -33,39 +30,17 @@ export const createBriefListSlice = (set: Setter, get: () => BriefStore, _api?: 
   new BriefListActionImpl(set, get, _api);
 
 export class BriefListActionImpl {
-  readonly #get: () => BriefStore;
-  readonly #set: Setter;
-
-  constructor(set: Setter, get: () => BriefStore, _api?: unknown) {
+  constructor(_set: Setter, _get: () => BriefStore, _api?: unknown) {
+    void _set;
+    void _get;
     void _api;
-    this.#set = set;
-    this.#get = get;
   }
-
-  internal_updateBrief = (id: string, data: Partial<BriefItem>) => {
-    const briefs = this.#get().briefs;
-    const index = briefs.findIndex((b) => b.id === id);
-    if (index === -1) return;
-
-    const updated = [...briefs];
-    updated[index] = { ...briefs[index], ...data };
-    this.#set({ briefs: updated }, false, n('internal_updateBrief'));
-  };
 
   deleteBrief = async (id: string) => {
     const scope = getCacheScope();
     const observedAt = Date.now();
     await briefService.delete(id);
     getClientDataStoreState().deleteBriefEntity(scope, id, observedAt);
-
-    const previous = this.#get().briefs;
-    const briefs = previous.filter((b) => b.id !== id);
-    // Nothing removed — the brief was already gone, or the list has since been
-    // replaced by another scope's (a workspace switch while the request was in
-    // flight). Either way, writing an identical list only churns subscribers.
-    if (briefs.length === previous.length) return;
-
-    this.#set({ briefs }, false, n('deleteBrief'));
   };
 
   markBriefRead = async (id: string) => {
@@ -73,14 +48,9 @@ export class BriefListActionImpl {
     const observedAt = Date.now();
     const result = await briefService.markRead(id);
     const readAt = result.data.readAt ?? new Date().toISOString();
-    this.internal_updateBrief(id, { readAt });
     getClientDataStoreState().updateBriefReadState(scope, id, readAt, observedAt);
   };
 
-  /**
-   * "Mark all read" resolves news briefs with the neutral `read` action and drops
-   * them from both the legacy Zustand projection and the canonical Home index.
-   */
   resolveBriefsAsRead = async (ids: string[]) => {
     if (ids.length === 0) return;
 
@@ -98,15 +68,6 @@ export class BriefListActionImpl {
       new Date().toISOString(),
       observedAt,
     );
-
-    // The legacy projection is patched only while it still belongs to this
-    // scope: the switch already cleared the bucket, so a mismatch means there
-    // is nothing of ours left to patch.
-    const state = this.#get();
-    if (state.briefsScope !== scope) return;
-
-    const briefs = state.briefs.filter((b) => !resolvedIds.has(b.id));
-    this.#set({ briefs }, false, n('resolveBriefsAsRead'));
   };
 
   resolveBrief = async (id: string, action?: string, comment?: string) => {
@@ -116,11 +77,6 @@ export class BriefListActionImpl {
     const resolvedAction = result.data.resolvedAction ?? action ?? null;
     const resolvedAt = result.data.resolvedAt ?? new Date().toISOString();
     const resolvedComment = result.data.resolvedComment ?? comment ?? null;
-    this.internal_updateBrief(id, {
-      resolvedAction,
-      resolvedAt,
-      resolvedComment,
-    });
     getClientDataStoreState().updateBriefResolution(
       scope,
       id,

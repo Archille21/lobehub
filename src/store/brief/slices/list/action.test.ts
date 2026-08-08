@@ -4,31 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as clientDataStore from '@/client-data';
 import * as cacheScope from '@/libs/swr/useCacheScope';
 import { briefService } from '@/services/brief';
-import type { BriefStore } from '@/store/brief/store';
-import type { BriefItem } from '@/store/brief/types';
 
 import { BriefListActionImpl } from './action';
-
-const createBrief = (id: string): BriefItem => ({
-  actions: null,
-  agent: null,
-  agentId: null,
-  artifacts: null,
-  createdAt: '2026-07-31T00:00:00.000Z',
-  cronJobId: null,
-  id,
-  priority: null,
-  readAt: null,
-  resolvedAction: null,
-  resolvedAt: null,
-  resolvedComment: null,
-  summary: `${id} summary`,
-  taskId: null,
-  title: `${id} title`,
-  topicId: null,
-  type: 'result',
-  userId: 'user-1',
-});
 
 describe('BriefListActionImpl', () => {
   const clientDataActions = {
@@ -37,6 +14,8 @@ describe('BriefListActionImpl', () => {
     updateBriefReadState: vi.fn(),
     updateBriefResolution: vi.fn(),
   };
+
+  const createAction = () => new BriefListActionImpl(vi.fn() as never, vi.fn() as never);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -51,58 +30,40 @@ describe('BriefListActionImpl', () => {
     vi.restoreAllMocks();
   });
 
-  const SCOPE = 'user-1:workspace-1';
-
-  it('removes resolved briefs from the legacy projection and canonical Home index', async () => {
-    const resolvedBrief = createBrief('brief-resolved');
-    const remainingBrief = createBrief('brief-remaining');
-    const state = {
-      briefs: [resolvedBrief, remainingBrief],
-      briefsScope: SCOPE,
-      isBriefsInit: true,
-    };
-    const set = vi.fn((patch: Partial<typeof state>) => Object.assign(state, patch));
-    const action = new BriefListActionImpl(set as never, () => state as BriefStore);
+  it('resolves briefs as read through the canonical Home index', async () => {
+    const action = createAction();
     vi.spyOn(briefService, 'resolveManyAsRead').mockResolvedValue({
-      data: [resolvedBrief.id],
+      data: ['brief-resolved'],
     } as never);
 
-    await action.resolveBriefsAsRead([resolvedBrief.id, remainingBrief.id]);
+    await action.resolveBriefsAsRead(['brief-resolved', 'brief-remaining']);
 
-    expect(state.briefs).toEqual([remainingBrief]);
     expect(clientDataActions.resolveBriefEntitiesAsRead).toHaveBeenCalledWith(
       'user-1:workspace-1',
-      [resolvedBrief.id],
+      ['brief-resolved'],
       expect.any(String),
       100,
     );
   });
 
   it('writes read state through the canonical entity mutation path', async () => {
-    const brief = createBrief('brief-1');
-    const state = { briefs: [brief], isBriefsInit: true };
-    const set = vi.fn((patch: Partial<typeof state>) => Object.assign(state, patch));
-    const action = new BriefListActionImpl(set as never, () => state as BriefStore);
+    const action = createAction();
     vi.spyOn(briefService, 'markRead').mockResolvedValue({
       data: { readAt: '2026-07-31T01:00:00.000Z' },
     } as never);
 
-    await action.markBriefRead(brief.id);
+    await action.markBriefRead('brief-1');
 
-    expect(state.briefs[0].readAt).toBe('2026-07-31T01:00:00.000Z');
     expect(clientDataActions.updateBriefReadState).toHaveBeenCalledWith(
       'user-1:workspace-1',
-      brief.id,
-      state.briefs[0].readAt,
+      'brief-1',
+      '2026-07-31T01:00:00.000Z',
       100,
     );
   });
 
   it('uses the request-start observation for an authoritative Brief resolution', async () => {
-    const brief = createBrief('brief-1');
-    const state = { briefs: [brief], isBriefsInit: true };
-    const set = vi.fn((patch: Partial<typeof state>) => Object.assign(state, patch));
-    const action = new BriefListActionImpl(set as never, () => state as BriefStore);
+    const action = createAction();
     vi.spyOn(briefService, 'resolve').mockResolvedValue({
       data: {
         resolvedAction: 'approve',
@@ -111,88 +72,30 @@ describe('BriefListActionImpl', () => {
       },
     } as never);
 
-    await action.resolveBrief(brief.id, 'approve');
+    await action.resolveBrief('brief-1', 'approve');
 
-    const resolution = {
-      resolvedAction: 'approve',
-      resolvedAt: '2026-07-31T02:00:00.000Z',
-      resolvedComment: null,
-    };
-    expect(state.briefs[0]).toMatchObject(resolution);
     expect(clientDataActions.updateBriefResolution).toHaveBeenCalledWith(
       'user-1:workspace-1',
-      brief.id,
-      resolution,
+      'brief-1',
+      {
+        resolvedAction: 'approve',
+        resolvedAt: '2026-07-31T02:00:00.000Z',
+        resolvedComment: null,
+      },
       100,
     );
   });
 
   it('tombstones a deleted brief in the canonical entity graph', async () => {
-    const deleted = createBrief('brief-deleted');
-    const remaining = createBrief('brief-remaining');
-    const state = { briefs: [deleted, remaining], isBriefsInit: true };
-    const set = vi.fn((patch: Partial<typeof state>) => Object.assign(state, patch));
-    const action = new BriefListActionImpl(set as never, () => state as BriefStore);
+    const action = createAction();
     vi.spyOn(briefService, 'delete').mockResolvedValue(undefined as never);
 
-    await action.deleteBrief(deleted.id);
+    await action.deleteBrief('brief-deleted');
 
-    expect(state.briefs).toEqual([remaining]);
     expect(clientDataActions.deleteBriefEntity).toHaveBeenCalledWith(
       'user-1:workspace-1',
-      deleted.id,
+      'brief-deleted',
       100,
     );
-  });
-
-  // The legacy-projection patch must land on the list the ids came from. On a
-  // mid-flight workspace switch the bucket already belongs to the next
-  // partition, so splicing it would leak the previous workspace's briefs —
-  // while the canonical entity resolution still lands in the captured scope.
-  it('should abandon the write when the workspace changed while the request was in flight', async () => {
-    const brief = createBrief('brief-1');
-    const nextScopeBrief = createBrief('brief-from-next-workspace');
-    const state = { briefs: [brief], briefsScope: SCOPE, isBriefsInit: true };
-    const set = vi.fn((patch: Partial<typeof state>) => Object.assign(state, patch));
-    const action = new BriefListActionImpl(set as never, () => state as BriefStore);
-    vi.spyOn(briefService, 'resolveManyAsRead').mockImplementation(async () => {
-      // The switch lands before the response does.
-      Object.assign(state, { briefs: [nextScopeBrief], briefsScope: 'user-1:workspace-2' });
-      return { data: [brief.id] } as never;
-    });
-
-    await action.resolveBriefsAsRead([brief.id]);
-
-    expect(state.briefs).toEqual([nextScopeBrief]);
-    expect(set).not.toHaveBeenCalled();
-    expect(clientDataActions.resolveBriefEntitiesAsRead).toHaveBeenCalledWith(
-      SCOPE,
-      [brief.id],
-      expect.any(String),
-      100,
-    );
-  });
-
-  it('should not write an unstamped brief list into any scope entry', async () => {
-    const brief = createBrief('brief-1');
-    const state = { briefs: [brief], briefsScope: undefined, isBriefsInit: true };
-    const set = vi.fn((patch: Partial<typeof state>) => Object.assign(state, patch));
-    const action = new BriefListActionImpl(set as never, () => state as BriefStore);
-    vi.spyOn(briefService, 'resolveManyAsRead').mockResolvedValue({ data: [brief.id] } as never);
-
-    await action.resolveBriefsAsRead([brief.id]);
-
-    expect(set).not.toHaveBeenCalled();
-  });
-
-  it('should skip the store write when deleting a brief the list no longer holds', async () => {
-    const state = { briefs: [createBrief('brief-1')], briefsScope: SCOPE, isBriefsInit: true };
-    const set = vi.fn((patch: Partial<typeof state>) => Object.assign(state, patch));
-    const action = new BriefListActionImpl(set as never, () => state as BriefStore);
-    vi.spyOn(briefService, 'delete').mockResolvedValue(undefined as never);
-
-    await action.deleteBrief('brief-from-another-workspace');
-
-    expect(set).not.toHaveBeenCalled();
   });
 });
