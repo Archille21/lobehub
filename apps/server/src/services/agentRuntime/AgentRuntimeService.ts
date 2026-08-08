@@ -2146,6 +2146,70 @@ export class AgentRuntimeService {
   }
 
   /**
+   * Best-effort terminal write for a child's isolation thread when its
+   * completion bridges. The thread table is `getSubAgentTaskStatus`'s
+   * persistent source of truth, and its poller-side reconciliation only
+   * recognizes `done`/`error` runtime states while the Redis blob is alive —
+   * an interrupted/timed-out child (or a lost queue-mode completion whose
+   * hooks never ran) would otherwise pin the task card at `processing`
+   * forever. The write also carries the terminal metadata the poller would
+   * have reconciled (completedAt / duration / usage / error): once the thread
+   * leaves `processing`, the status endpoint stops reading Redis, so anything
+   * missing here stays missing on the task card. Failures are swallowed —
+   * bridge redelivery retries them and the tool-result backfill has already
+   * landed.
+   */
+  private async markIsolationThreadTerminal(params: {
+    failed: boolean;
+    finalState?: AgentState;
+    operationId: string;
+    reason: string;
+    threadId: string;
+  }): Promise<void> {
+    const { failed, finalState, operationId, reason, threadId } = params;
+    try {
+      // Keyed off `failed` so the status agrees with the tool-result backfill:
+      // success-like caps (done / max_steps / cost_limit) are Completed, not
+      // Cancel — a capped child still delivered a successful tool result.
+      const threadStatus = failed
+        ? reason === 'error'
+          ? ThreadStatus.Failed
+          : ThreadStatus.Cancel // interrupted / timeout
+        : ThreadStatus.Completed;
+      const threadModel = new ThreadModel(this.serverDB, this.userId, this.workspaceId);
+      const thread = await threadModel.findById(threadId);
+      const threadMetadata: Record<string, any> = {
+        ...thread?.metadata,
+        completedAt: new Date().toISOString(),
+      };
+      if (thread?.metadata?.startedAt) {
+        threadMetadata.duration = Date.now() - new Date(thread.metadata.startedAt).getTime();
+      }
+      if (finalState?.usage) {
+        threadMetadata.totalTokens = finalState.usage.llm?.tokens?.total;
+        threadMetadata.totalToolCalls = finalState.usage.tools?.totalCalls;
+      }
+      if (finalState?.cost?.total !== undefined) {
+        threadMetadata.totalCost = finalState.cost.total;
+      }
+      if (finalState?.stepCount) {
+        threadMetadata.totalSteps = finalState.stepCount;
+      }
+      if (failed) {
+        threadMetadata.error = formatErrorForMetadata(finalState?.error) ?? {
+          message: `Agent run did not complete (${reason}).`,
+        };
+      }
+      await threadModel.update(threadId, {
+        metadata: threadMetadata,
+        status: threadStatus,
+      });
+    } catch (error) {
+      log('[%s] failed to mark isolation thread terminal (non-fatal): %O', operationId, error);
+    }
+  }
+
+  /**
    * Sub-agent completion bridge for the server `callSubAgent` deferred-tool
    * path. Runs when a child sub-agent op reaches a terminal state — invoked
    * in-process by the child's `onComplete` hook handler (local mode) or via
@@ -2261,62 +2325,9 @@ export class AgentRuntimeService {
       );
     }
 
-    // Mark the isolation thread terminal alongside the backfill. The thread
-    // table is `getSubAgentTaskStatus`'s persistent source of truth, and its
-    // poller-side reconciliation only recognizes `done`/`error` runtime states
-    // while the Redis blob is alive — an interrupted/timed-out child (or a
-    // lost queue-mode completion whose hooks never ran) would otherwise pin
-    // the task card at `processing` forever. The write must also carry the
-    // same terminal metadata the poller would have reconciled (completedAt /
-    // duration / usage / error): once the thread leaves `processing`, the
-    // status endpoint stops reading Redis, so anything missing here stays
-    // missing on the task card. Best-effort: a failed write is non-fatal
-    // because bridge redelivery retries it and the parent's own result is
-    // already backfilled above.
-    try {
-      // Keyed off `failed` so the status agrees with the backfill above:
-      // success-like caps (done / max_steps / cost_limit) are Completed, not
-      // Cancel — a capped child still delivered a successful tool result.
-      const threadStatus = failed
-        ? reason === 'error'
-          ? ThreadStatus.Failed
-          : ThreadStatus.Cancel // interrupted / timeout
-        : ThreadStatus.Completed;
-      const threadModel = new ThreadModel(this.serverDB, this.userId, this.workspaceId);
-      const thread = await threadModel.findById(threadId);
-      const threadMetadata: Record<string, any> = {
-        ...thread?.metadata,
-        completedAt: new Date().toISOString(),
-      };
-      if (thread?.metadata?.startedAt) {
-        threadMetadata.duration = Date.now() - new Date(thread.metadata.startedAt).getTime();
-      }
-      if (finalState?.usage) {
-        threadMetadata.totalTokens = finalState.usage.llm?.tokens?.total;
-        threadMetadata.totalToolCalls = finalState.usage.tools?.totalCalls;
-      }
-      if (finalState?.cost?.total !== undefined) {
-        threadMetadata.totalCost = finalState.cost.total;
-      }
-      if (finalState?.stepCount) {
-        threadMetadata.totalSteps = finalState.stepCount;
-      }
-      if (failed) {
-        threadMetadata.error = formatErrorForMetadata(finalState?.error) ?? {
-          message: `Sub-agent did not complete (${reason}).`,
-        };
-      }
-      await threadModel.update(threadId, {
-        metadata: threadMetadata,
-        status: threadStatus,
-      });
-    } catch (error) {
-      log(
-        '[%s] sub-agent bridge: failed to update thread status (non-fatal): %O',
-        operationId,
-        error,
-      );
-    }
+    // Mark the isolation thread terminal alongside the backfill — see
+    // markIsolationThreadTerminal for why this is required and best-effort.
+    await this.markIsolationThreadTerminal({ failed, finalState, operationId, reason, threadId });
 
     // 2. Barrier + CAS + resume the parent op (infra errors propagate too).
     // Pass the just-backfilled message id so the barrier trusts this write
@@ -2490,29 +2501,57 @@ export class AgentRuntimeService {
         ? `Agent ${agentLabel} responded in the group.`
         : lastAssistantContent || 'Agent member completed without a textual answer.';
 
-    const anchorBackfill = await this.messageModel.updateToolMessage(anchorMessageId, {
-      content: anchorContent,
-      pluginError: failed ? formatErrorForMetadata(finalState?.error) : undefined,
-      pluginState: {
-        model: finalState?.modelRuntimeConfig?.model,
-        status: failed ? 'error' : 'completed',
-        threadId,
-        // The child's spend rides on this anchor row so the parent's usage tray can
-        // account for it. The tray sums per-MESSAGE usage, and the child's own
-        // assistant messages live in an isolation thread the parent never loads —
-        // this row is the only place the child's cost surfaces in the parent's own
-        // message list.
-        totalCost: finalState?.cost?.total,
-        totalInputTokens: finalState?.usage?.llm?.tokens?.input,
-        totalOutputTokens: finalState?.usage?.llm?.tokens?.output,
-        totalToolCalls: finalState?.usage?.tools?.totalCalls,
-        totalTokens: finalState?.usage?.llm?.tokens?.total,
-      },
-    });
-    if (!anchorBackfill.success) {
-      throw new Error(
-        `Group-member bridge: failed to backfill anchor ${anchorMessageId} for parent ${parentOperationId}`,
+    // Stand down from rewriting a fulfilled anchor — e.g. the member timeout
+    // watchdog bridged `timeout` first and this is the member's own late
+    // `interrupted` onComplete bridge, or a redelivery whose backfill landed.
+    // The barrier below already counts the existing content, and a rewrite
+    // would swap the result the supervisor may have consumed. Still fall
+    // through to the barrier + resume so a lost resume half is retried.
+    if (await this.isToolMessageFulfilled(anchorMessageId)) {
+      log(
+        '[%s] group-member bridge: anchor %s already fulfilled, standing down from rewrite',
+        operationId,
+        anchorMessageId,
       );
+    } else {
+      const anchorBackfill = await this.messageModel.updateToolMessage(anchorMessageId, {
+        content: anchorContent,
+        pluginError: failed ? formatErrorForMetadata(finalState?.error) : undefined,
+        pluginState: {
+          model: finalState?.modelRuntimeConfig?.model,
+          status: failed ? 'error' : 'completed',
+          threadId,
+          // The child's spend rides on this anchor row so the parent's usage tray can
+          // account for it. The tray sums per-MESSAGE usage, and the child's own
+          // assistant messages live in an isolation thread the parent never loads —
+          // this row is the only place the child's cost surfaces in the parent's own
+          // message list.
+          totalCost: finalState?.cost?.total,
+          totalInputTokens: finalState?.usage?.llm?.tokens?.input,
+          totalOutputTokens: finalState?.usage?.llm?.tokens?.output,
+          totalToolCalls: finalState?.usage?.tools?.totalCalls,
+          totalTokens: finalState?.usage?.llm?.tokens?.total,
+        },
+      });
+      if (!anchorBackfill.success) {
+        throw new Error(
+          `Group-member bridge: failed to backfill anchor ${anchorMessageId} for parent ${parentOperationId}`,
+        );
+      }
+
+      // Isolated members carry their own task thread, polled through
+      // getSubAgentTaskStatus like sub-agent tasks — mark it terminal for the
+      // same reasons (in_group members speak in the shared session and have
+      // no thread of their own).
+      if (threadId) {
+        await this.markIsolationThreadTerminal({
+          failed,
+          finalState,
+          operationId,
+          reason,
+          threadId,
+        });
+      }
     }
 
     // 2. K=N member barrier (multi-member actions only — single-member actions
@@ -2660,9 +2699,15 @@ export class AgentRuntimeService {
       finalState: state ?? undefined,
       operationId: params.subAgentOperationId,
       parentOperationId: params.parentOperationId,
-      // Bridge the child's real outcome when its state is still known; an
-      // expired state degrades to the timeout error note.
-      reason: isTerminal(status) ? (status as string) : 'timeout',
+      // Bridge the child's real outcome (done/error) when its state is still
+      // known; an expired state degrades to the timeout error note. An
+      // `interrupted` status maps back to `timeout`: on this path it is our
+      // own first delivery's interrupt whose bridge crashed before the
+      // backfill (QStash then redelivered this watchdog) — and even in the
+      // rare raced user-cancel-with-lost-bridge case the deadline did expire,
+      // so the parent still sees the deadline result instead of an
+      // unexplained interruption.
+      reason: status === 'done' || status === 'error' ? status : 'timeout',
       threadId: params.threadId,
       toolMessageId: params.toolMessageId,
     });

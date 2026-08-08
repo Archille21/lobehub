@@ -2070,6 +2070,12 @@ describe('AgentRuntimeService', () => {
     beforeEach(() => {
       updateToolMessage = vi.fn().mockResolvedValue({ success: true });
       (service as any).messageModel.updateToolMessage = updateToolMessage;
+      // Default: the anchor is unfulfilled so the bridge proceeds to backfill
+      // (the stand-down guard reads message content + plugin state).
+      (service as any).messageModel.findById = vi.fn().mockResolvedValue({ content: '' });
+      (service as any).serverDB.query = {
+        messagePlugins: { findFirst: vi.fn().mockResolvedValue(null) },
+      };
       resumeSpy = vi.spyOn(service, 'tryResumeParentFromAsyncTool').mockResolvedValue(true);
     });
 
@@ -2257,6 +2263,85 @@ describe('AgentRuntimeService', () => {
           pluginState: expect.objectContaining({ status: 'completed' }),
         }),
       );
+      expect(resumeSpy).toHaveBeenCalled();
+    });
+
+    it('marks an isolated member thread terminal with metadata on completion', async () => {
+      // Same gap as the sub-agent bridge (PR #18046 review): isolated member
+      // threads are polled through getSubAgentTaskStatus, so an interrupted or
+      // Redis-expired member would pin its task card at processing forever.
+      threadModelUpdate.mockClear();
+      threadModelFindById.mockResolvedValue({ metadata: {} });
+
+      await service.completeGroupActionMember({
+        anchorMessageId: 'grp-tool-1',
+        expectedMembers: 1,
+        finalState: { ...memberState, stepCount: 5 } as any,
+        groupToolMessageId: 'grp-tool-1',
+        mode: 'isolated',
+        onComplete: 'resume',
+        operationId: 'child-1',
+        parentOperationId: 'parent-1',
+        reason: 'done',
+        threadId: 'member-thread-1',
+      });
+
+      expect(threadModelUpdate).toHaveBeenCalledWith('member-thread-1', {
+        metadata: expect.objectContaining({
+          completedAt: expect.any(String),
+          totalSteps: 5,
+          totalTokens: 42,
+          totalToolCalls: 2,
+        }),
+        status: ThreadStatus.Completed,
+      });
+    });
+
+    it('does not touch the thread table for in_group members', async () => {
+      // in_group members speak in the shared group session — there is no
+      // member-owned thread to mark terminal.
+      threadModelUpdate.mockClear();
+
+      await service.completeGroupActionMember({
+        anchorMessageId: 'grp-tool-1',
+        expectedMembers: 1,
+        finalState: memberState as any,
+        groupToolMessageId: 'grp-tool-1',
+        mode: 'in_group',
+        onComplete: 'resume',
+        operationId: 'child-1',
+        parentOperationId: 'parent-1',
+        reason: 'done',
+      });
+
+      expect(threadModelUpdate).not.toHaveBeenCalled();
+    });
+
+    it('stands down from rewriting a fulfilled anchor but still resumes', async () => {
+      // Same double-bridge race as the sub-agent path: the member timeout
+      // watchdog bridges `timeout` first; the member's late `interrupted`
+      // onComplete bridge must keep that content and only retry the resume.
+      threadModelUpdate.mockClear();
+      (service as any).messageModel.findById = vi
+        .fn()
+        .mockResolvedValue({ content: 'Agent member did not complete (timeout).' });
+
+      const won = await service.completeGroupActionMember({
+        anchorMessageId: 'grp-tool-1',
+        expectedMembers: 1,
+        finalState: memberState as any,
+        groupToolMessageId: 'grp-tool-1',
+        mode: 'isolated',
+        onComplete: 'resume',
+        operationId: 'child-1',
+        parentOperationId: 'parent-1',
+        reason: 'interrupted',
+        threadId: 'member-thread-1',
+      });
+
+      expect(won).toBe(true);
+      expect(updateToolMessage).not.toHaveBeenCalled();
+      expect(threadModelUpdate).not.toHaveBeenCalled();
       expect(resumeSpy).toHaveBeenCalled();
     });
 
@@ -2779,6 +2864,30 @@ describe('AgentRuntimeService', () => {
       expect(interruptSpy).not.toHaveBeenCalled();
       expect(bridgeSpy).toHaveBeenCalledWith(
         expect.objectContaining({ operationId: 'child-op-1', reason: 'done' }),
+      );
+      expect(result.nextStepScheduled).toBe(true);
+    });
+
+    it('re-bridges an interrupted child as timeout on watchdog redelivery', async () => {
+      // Regression (PR #18046 review round 6): the first delivery interrupts
+      // the child but the bridge crashes before the backfill; QStash then
+      // redelivers this watchdog with the child already `interrupted`.
+      // Deriving the reason from the terminal status would report
+      // `interrupted` and lose the deadline result — keep bridging `timeout`.
+      mockCoordinator.loadAgentState.mockResolvedValue({ status: 'interrupted' });
+      mockPlaceholder({ fulfilled: false });
+      const interruptSpy = vi.spyOn(service, 'interruptOperation');
+      const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge').mockResolvedValue(true);
+
+      const result = await service.executeStep({
+        operationId: 'child-op-1',
+        stepIndex: 0,
+        subAgentTimeout: timeoutParams,
+      } as any);
+
+      expect(interruptSpy).not.toHaveBeenCalled();
+      expect(bridgeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ operationId: 'child-op-1', reason: 'timeout' }),
       );
       expect(result.nextStepScheduled).toBe(true);
     });
