@@ -103,7 +103,31 @@ export async function runStep(c: Context): Promise<Response> {
     const coordinator = new AgentRuntimeCoordinator();
     const metadata = await coordinator.getOperationMetadata(operationId);
 
-    if (!metadata?.userId) {
+    let userId = metadata?.userId;
+    let workspaceId = metadata?.workspaceId;
+
+    if (!userId) {
+      // The Redis metadata expires 2h after the last state save
+      // (AgentStateManager.DEFAULT_TTL), but a scheduled message can outlive
+      // it — e.g. a sub-agent timeout watchdog whose configured deadline
+      // exceeds the TTL while the child hangs inside a single step. The
+      // request is already QStash-signature-verified and the durable
+      // agent_operations row carries the same ownership, so fall back to it
+      // instead of dropping the delivery with a 401.
+      const db = await getServerDB();
+      const [dbOp] = await db
+        .select({ userId: agentOperations.userId, workspaceId: agentOperations.workspaceId })
+        .from(agentOperations)
+        .where(eq(agentOperations.id, operationId))
+        .limit(1);
+      if (dbOp) {
+        userId = dbOp.userId;
+        workspaceId = dbOp.workspaceId ?? undefined;
+        log(`[${operationId}] Redis metadata missing, resolved owner from agent_operations row`);
+      }
+    }
+
+    if (!userId) {
       const dbRow = await getOperationRowDiagnostic(operationId);
       const diagnostic = {
         dbRow,
@@ -130,8 +154,8 @@ export async function runStep(c: Context): Promise<Response> {
     // Thread the operation's workspace through so the runtime's models stay
     // workspace-scoped. Without it the worker is personal-scoped and the
     // parent-message lookup misses workspace-scoped rows → ConversationParentMissing.
-    const aiAgentService = new AiAgentService(serverDB, metadata.userId, {
-      workspaceId: metadata.workspaceId,
+    const aiAgentService = new AiAgentService(serverDB, userId, {
+      workspaceId,
     });
 
     const result = await aiAgentService.executeStep({

@@ -2013,16 +2013,34 @@ export class AgentRuntimeService {
     );
 
     if (this.queueService) {
-      await this.queueService.scheduleMessage({
-        context: undefined,
-        delay: 100,
-        endpoint: `${this.baseURL}/run`,
-        operationId: parentOperationId,
-        payload:
-          onComplete === 'finish' ? { finishAfterAsyncTool: true } : { resumeAsyncTool: true },
-        priority: 'high',
-        stepIndex: state.stepCount,
-      });
+      try {
+        await this.queueService.scheduleMessage({
+          context: undefined,
+          delay: 100,
+          endpoint: `${this.baseURL}/run`,
+          operationId: parentOperationId,
+          payload:
+            onComplete === 'finish' ? { finishAfterAsyncTool: true } : { resumeAsyncTool: true },
+          priority: 'high',
+          stepIndex: state.stepCount,
+        });
+      } catch (error) {
+        // Publishing the resume step failed AFTER the CAS was won. Without a
+        // compensation the op row stays `running` while the parked runtime
+        // state still says waiting_for_async_tool — every redelivered bridge
+        // would then lose the CAS and the parent strands forever. Revert the
+        // claim and rethrow so the (QStash-redelivered) caller re-claims and
+        // re-publishes.
+        log(
+          '[%s] resume publish failed after CAS win, reverting claim: %O',
+          parentOperationId,
+          error,
+        );
+        await new AgentOperationModel(this.serverDB, this.userId).revertResumeFromAsyncTool(
+          parentOperationId,
+        );
+        throw error;
+      }
     } else {
       log('[%s] queue service disabled, skipping async-tool resume schedule', parentOperationId);
     }

@@ -210,6 +210,47 @@ describe('AgentOperationModel', () => {
     });
   });
 
+  describe('revertResumeFromAsyncTool', () => {
+    it('flips a running row back to waiting_for_async_tool so the CAS can be re-claimed', async () => {
+      const model = new AgentOperationModel(serverDB, userId);
+      const operationId = 'op-revert-1';
+      // Simulate a won resume CAS: parked → running.
+      await model.recordStart({ operationId });
+      await model.recordCompletion(operationId, {
+        completionReason: 'waiting_for_async_tool',
+        status: 'waiting_for_async_tool',
+      });
+      expect(await model.tryResumeFromAsyncTool(operationId)).toBe(true);
+
+      expect(await model.revertResumeFromAsyncTool(operationId)).toBe(true);
+
+      const row = await model.findById(operationId);
+      expect(row?.status).toBe('waiting_for_async_tool');
+      // The reverted claim must be re-claimable by the redelivered completion.
+      expect(await model.tryResumeFromAsyncTool(operationId)).toBe(true);
+    });
+
+    it('does not clobber a row that already reached a terminal status', async () => {
+      const model = new AgentOperationModel(serverDB, userId);
+      const operationId = 'op-revert-terminal';
+      await model.recordStart({ operationId });
+      await model.recordCompletion(operationId, { completionReason: 'done', status: 'done' });
+
+      expect(await model.revertResumeFromAsyncTool(operationId)).toBe(false);
+      expect((await model.findById(operationId))?.status).toBe('done');
+    });
+
+    it('does not revert another user’s running row', async () => {
+      const ownerModel = new AgentOperationModel(serverDB, userId);
+      const attackerModel = new AgentOperationModel(serverDB, otherUserId);
+      const operationId = 'op-revert-cross-user';
+      await ownerModel.recordStart({ operationId });
+
+      expect(await attackerModel.revertResumeFromAsyncTool(operationId)).toBe(false);
+      expect((await ownerModel.findById(operationId))?.status).toBe('running');
+    });
+  });
+
   describe('sumChildUsage', () => {
     const seedChild = async (
       model: AgentOperationModel,

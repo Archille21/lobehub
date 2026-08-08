@@ -161,6 +161,35 @@ describe('runStep handler', () => {
     warnSpy.mockRestore();
   });
 
+  it('falls back to the agent_operations row when Redis metadata has expired', async () => {
+    // Regression: a scheduled delivery (e.g. a sub-agent timeout watchdog) can
+    // outlive the 2h Redis metadata TTL (AgentStateManager.DEFAULT_TTL). The
+    // request is QStash-signature-verified, so ownership must be resolved from
+    // the durable agent_operations row instead of dropping the step with a 401.
+    mockGetOperationMetadata.mockResolvedValue(null);
+    mockGetServerDB.mockResolvedValue(
+      buildOperationDiagnosticDB({ userId: 'user-db', workspaceId: 'ws-db' }),
+    );
+    mockExecuteStep.mockResolvedValue({
+      nextStepScheduled: false,
+      state: { cost: { total: 0 }, status: 'done', stepCount: 1 },
+      success: true,
+    });
+
+    const { ctx } = buildContext({ body: validBody });
+    const res = await runStep(ctx);
+
+    expect(res.status).toBe(200);
+    expect(AiAgentService).toHaveBeenCalledWith(
+      expect.anything(),
+      'user-db',
+      expect.objectContaining({ workspaceId: 'ws-db' }),
+    );
+    expect(mockExecuteStep).toHaveBeenCalledWith(
+      expect.objectContaining({ operationId: 'op-1', stepIndex: 2 }),
+    );
+  });
+
   it('steps through AiAgentService scoped to the operation workspace', async () => {
     // Regression (two invariants in one path):
     // 1. workspaceId — a workspace-scoped binding (e.g. Discord bot active agent)

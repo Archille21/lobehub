@@ -370,6 +370,29 @@ export class AgentOperationModel {
     return rows.length === 1;
   }
 
+  /**
+   * Compensate a won `tryResumeFromAsyncTool` CAS whose follow-up work (queue
+   * publish of the resume step) failed. Flips `running` back to
+   * `waiting_for_async_tool` so a redelivered completion can re-claim the CAS
+   * and re-publish — without this the op row stays `running` while the parked
+   * runtime state still waits, and every retry loses the CAS forever.
+   * Conditional on `running` so it cannot clobber a step that already started.
+   */
+  async revertResumeFromAsyncTool(operationId: string): Promise<boolean> {
+    const rows = await this.db
+      .update(agentOperations)
+      .set({ status: 'waiting_for_async_tool' })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          eq(agentOperations.userId, this.userId),
+          eq(agentOperations.status, 'running'),
+        ),
+      )
+      .returning({ id: agentOperations.id });
+    return rows.length === 1;
+  }
+
   // ============================================
   // Verify (delivery checker)
   // ============================================

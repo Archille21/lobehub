@@ -1779,6 +1779,24 @@ describe('AgentRuntimeService', () => {
       );
     });
 
+    it('reverts the CAS claim and rethrows when the resume publish fails', async () => {
+      // Regression: winning the running-CAS and then failing to publish the
+      // resume step left DB=running while runtime state stayed parked — every
+      // redelivered bridge lost the CAS and the parent stranded forever.
+      stubFulfilled();
+      vi.spyOn(AgentOperationModel.prototype, 'tryResumeFromAsyncTool').mockResolvedValue(true);
+      const revertSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'revertResumeFromAsyncTool')
+        .mockResolvedValue(true);
+      mockQueueService.scheduleMessage.mockRejectedValueOnce(new Error('publish down'));
+
+      await expect(
+        service.tryResumeParentFromAsyncTool({ parentOperationId: parentOpId }),
+      ).rejects.toThrow('publish down');
+
+      expect(revertSpy).toHaveBeenCalledWith(parentOpId);
+    });
+
     it('holds (no CAS, no schedule) when a pending tool is not yet fulfilled', async () => {
       mockCoordinator.loadAgentState.mockResolvedValue({
         pendingToolsCalling: [{ id: 'tc1' }],
