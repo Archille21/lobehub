@@ -2985,10 +2985,12 @@ describe('AgentRuntimeService', () => {
       // bridges have no redelivery). A plain no-op here would leave the parent
       // parked in waiting_for_async_tool past its own deadline — the watchdog
       // must retry the CAS resume, which is a no-op when the parent moved on.
+      // (Round 13 folded this path into the bridge's own stand-down, which
+      // does the retry — the watchdog delegates instead of special-casing.)
       mockCoordinator.loadAgentState.mockResolvedValue({ status: 'done' });
       mockPlaceholder({ fulfilled: true });
+      threadModelFindById.mockResolvedValue({ metadata: {}, status: ThreadStatus.Completed });
       const interruptSpy = vi.spyOn(service, 'interruptOperation');
-      const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge');
       const resumeSpy = vi.spyOn(service, 'tryResumeParentFromAsyncTool').mockResolvedValue(true);
 
       const result = await service.executeStep({
@@ -3000,10 +3002,35 @@ describe('AgentRuntimeService', () => {
       expect(result.success).toBe(true);
       expect(result.nextStepScheduled).toBe(true);
       expect(interruptSpy).not.toHaveBeenCalled();
-      expect(bridgeSpy).not.toHaveBeenCalled();
       expect(resumeSpy).toHaveBeenCalledWith(
         { parentOperationId: 'parent-1' },
         { knownFulfilledMessageId: 'tool-msg-1', scheduleVerifyOnHold: true },
+      );
+    });
+
+    it('repairs a missed isolation-thread terminal write when standing down on a fulfilled placeholder', async () => {
+      // Regression (PR #18046 review round 13): the fulfilled-placeholder
+      // stand-down used to skip the bridge entirely and only retry the parent
+      // resume. The bridge's thread-terminal write is best-effort and
+      // swallowed — when it was the half that failed, this watchdog is the
+      // last scheduled delivery that can repair it; skipping the bridge left
+      // the isolation thread pinned at Processing and getSubAgentTaskStatus
+      // reporting the task as processing forever.
+      mockCoordinator.loadAgentState.mockResolvedValue({ status: 'done' });
+      mockPlaceholder({ fulfilled: true });
+      threadModelUpdate.mockClear();
+      threadModelFindById.mockResolvedValue({ metadata: {}, status: ThreadStatus.Processing });
+      vi.spyOn(service, 'tryResumeParentFromAsyncTool').mockResolvedValue(true);
+
+      await service.executeStep({
+        operationId: 'child-op-1',
+        stepIndex: 0,
+        subAgentTimeout: timeoutParams,
+      } as any);
+
+      expect(threadModelUpdate).toHaveBeenCalledWith(
+        'thread-1',
+        expect.objectContaining({ status: ThreadStatus.Completed }),
       );
     });
 
@@ -3116,8 +3143,7 @@ describe('AgentRuntimeService', () => {
         .mockResolvedValueOnce({ status: 'done' });
       mockPlaceholder({ fulfilled: true });
       const interruptSpy = vi.spyOn(service, 'interruptOperation').mockResolvedValue(false);
-      const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge');
-      const resumeSpy = vi.spyOn(service, 'tryResumeParentFromAsyncTool').mockResolvedValue(false);
+      const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge').mockResolvedValue(false);
 
       const result = await service.executeStep({
         operationId: 'child-op-1',
@@ -3126,10 +3152,11 @@ describe('AgentRuntimeService', () => {
       } as any);
 
       expect(interruptSpy).toHaveBeenCalledWith('child-op-1');
-      expect(bridgeSpy).not.toHaveBeenCalled();
-      // The fulfilled placeholder still gets a resume retry (see the
-      // partial-bridge regression above); a lost CAS reports no reschedule.
-      expect(resumeSpy).toHaveBeenCalled();
+      // The reloaded terminal state must be bridged as the child's real
+      // outcome ('done'), never as 'timeout' — the bridge's own stand-down
+      // then skips the rewrite for the fulfilled placeholder and retries the
+      // resume; a lost CAS reports no reschedule.
+      expect(bridgeSpy).toHaveBeenCalledWith(expect.objectContaining({ reason: 'done' }));
       expect(result.nextStepScheduled).toBe(false);
     });
 

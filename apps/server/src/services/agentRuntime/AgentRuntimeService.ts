@@ -2762,31 +2762,19 @@ export class AgentRuntimeService {
       status = state?.status as string | undefined;
     }
 
-    // Terminal (or expired) child. Stand down from re-bridging only when a
-    // bridge's backfill actually landed — keyed off the terminal plugin
-    // status, NOT message content (see isToolMessagePluginTerminal): the
-    // thread completion hook copies the final answer into the tool message on
-    // the normal completion path, so a content-only placeholder with a lost
-    // bridge still needs the pluginState/usage backfill and thread-terminal
-    // write and must fall through to the re-bridge below. Even with a
-    // terminal plugin, still retry the resume: the backfill half landing does
-    // not prove the resume half ran (in-process hook bridges have no
-    // redelivery). The CAS makes this a no-op when the parent already moved.
-    if (await this.isToolMessagePluginTerminal(params.toolMessageId)) {
-      log(
-        '[%s] sub-agent timeout: child terminal (%s) and placeholder bridged, retrying parent resume',
-        params.subAgentOperationId,
-        status,
-      );
-      const resumed = await this.tryResumeParentFromAsyncTool(
-        { parentOperationId: params.parentOperationId },
-        { knownFulfilledMessageId: params.toolMessageId, scheduleVerifyOnHold: true },
-      );
-      return { nextStepScheduled: resumed, state: {}, success: true };
-    }
-
+    // Terminal (or expired) child. Always delegate to the (idempotent)
+    // completion bridge with the child's real outcome — do NOT special-case a
+    // fulfilled placeholder here. The bridge's own stand-down handles it:
+    // when a prior backfill landed it skips the rewrite but still repairs a
+    // missed isolation-thread terminal write (that write is best-effort and
+    // swallowed, and this watchdog is the last scheduled delivery that can
+    // fix it) and retries the CAS resume (the backfill half landing does not
+    // prove the resume half ran — in-process hook bridges have no
+    // redelivery). An unfulfilled placeholder — lost bridge, or a
+    // content-only write from the thread completion hook (see
+    // isToolMessagePluginTerminal) — gets the full backfill + resume.
     log(
-      '[%s] sub-agent timeout: child terminal (%s) but placeholder unfulfilled, re-bridging to parent %s',
+      '[%s] sub-agent timeout: child terminal (%s), running completion bridge to parent %s',
       params.subAgentOperationId,
       status,
       params.parentOperationId,
