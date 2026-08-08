@@ -2254,8 +2254,9 @@ export class AgentRuntimeService {
     // The parent already consumed the first bridge's content, so a rewrite
     // would swap the visible result for one the parent never saw. Still
     // attempt the CAS resume: this call may equally be a QStash redelivery
-    // whose backfill landed but whose resume half failed.
-    if (await this.isToolMessageFulfilled(toolMessageId)) {
+    // whose backfill landed but whose resume half failed. Keyed off the
+    // plugin's terminal status only — see isToolMessagePluginTerminal.
+    if (await this.isToolMessagePluginTerminal(toolMessageId)) {
       log(
         '[%s] sub-agent bridge: placeholder %s already fulfilled, standing down from rewrite',
         operationId,
@@ -2507,7 +2508,9 @@ export class AgentRuntimeService {
     // The barrier below already counts the existing content, and a rewrite
     // would swap the result the supervisor may have consumed. Still fall
     // through to the barrier + resume so a lost resume half is retried.
-    if (await this.isToolMessageFulfilled(anchorMessageId)) {
+    // Keyed off the plugin's terminal status only — see
+    // isToolMessagePluginTerminal.
+    if (await this.isToolMessagePluginTerminal(anchorMessageId)) {
       log(
         '[%s] group-member bridge: anchor %s already fulfilled, standing down from rewrite',
         operationId,
@@ -2722,6 +2725,19 @@ export class AgentRuntimeService {
   private async isToolMessageFulfilled(messageId: string): Promise<boolean> {
     const message = await this.messageModel.findById(messageId);
     if (message?.content && message.content.length > 0) return true;
+    return this.isToolMessagePluginTerminal(messageId);
+  }
+
+  /**
+   * Whether a placeholder's plugin state already reached a terminal status.
+   * Deliberately narrower than {@link isToolMessageFulfilled}: on the normal
+   * completion path the thread completion hook writes the tool message
+   * CONTENT before the bridge runs, so non-empty content alone does not prove
+   * a bridge already backfilled the pluginState/usage — the bridge stand-down
+   * guards must key off a terminal plugin status only, or a normal completion
+   * would leave the plugin stuck at `pending` with no threadId/usage.
+   */
+  private async isToolMessagePluginTerminal(messageId: string): Promise<boolean> {
     const plugin = await this.serverDB.query.messagePlugins.findFirst({
       where: (mp, { eq }) => eq(mp.id, messageId),
     });

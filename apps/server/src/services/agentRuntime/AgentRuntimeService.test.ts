@@ -2322,9 +2322,11 @@ describe('AgentRuntimeService', () => {
       // watchdog bridges `timeout` first; the member's late `interrupted`
       // onComplete bridge must keep that content and only retry the resume.
       threadModelUpdate.mockClear();
-      (service as any).messageModel.findById = vi
-        .fn()
-        .mockResolvedValue({ content: 'Agent member did not complete (timeout).' });
+      (service as any).serverDB.query = {
+        messagePlugins: {
+          findFirst: vi.fn().mockResolvedValue({ state: { status: 'error' } }),
+        },
+      };
 
       const won = await service.completeGroupActionMember({
         anchorMessageId: 'grp-tool-1',
@@ -2697,6 +2699,31 @@ describe('AgentRuntimeService', () => {
       expect(write.metadata.completedAt).toEqual(expect.any(String));
     });
 
+    it('still backfills when content was pre-written but the plugin state is not terminal', async () => {
+      // Regression (failing serverCallAgent integration test): the thread
+      // completion hook writes the tool message CONTENT before the bridge
+      // runs on the normal completion path. Standing down on non-empty
+      // content alone left the plugin stuck at `pending` with no
+      // threadId/usage — the guard must key off a terminal plugin status.
+      (service as any).messageModel.findById = vi
+        .fn()
+        .mockResolvedValue({ content: 'final answer' });
+      (service as any).serverDB.query = {
+        messagePlugins: {
+          findFirst: vi.fn().mockResolvedValue({ state: { status: 'pending' } }),
+        },
+      };
+
+      await service.completeSubAgentBridge({ ...bridgeParams, finalState: childState as any });
+
+      expect(updateToolMessage).toHaveBeenCalledWith(
+        'tool-msg-1',
+        expect.objectContaining({
+          pluginState: expect.objectContaining({ status: 'completed', threadId: 'thread-1' }),
+        }),
+      );
+    });
+
     it('stands down from rewriting a placeholder another bridge already fulfilled', async () => {
       // Regression (PR #18046 review round 4): the timeout watchdog interrupts
       // a mid-step child, bridges `timeout`, and resumes the parent; the child
@@ -2705,9 +2732,11 @@ describe('AgentRuntimeService', () => {
       // message the parent already consumed. The late bridge must keep the
       // existing content and only retry the CAS resume.
       threadModelUpdate.mockClear();
-      (service as any).messageModel.findById = vi
-        .fn()
-        .mockResolvedValue({ content: 'Sub-agent did not complete (timeout).' });
+      (service as any).serverDB.query = {
+        messagePlugins: {
+          findFirst: vi.fn().mockResolvedValue({ state: { status: 'error' } }),
+        },
+      };
 
       const won = await service.completeSubAgentBridge({
         ...bridgeParams,
