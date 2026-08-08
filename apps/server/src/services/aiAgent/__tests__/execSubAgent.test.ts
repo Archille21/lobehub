@@ -1,3 +1,4 @@
+import { SUB_AGENT_DEFAULT_MAX_STEPS, SUB_AGENT_DEFAULT_TIMEOUT_MS } from '@lobechat/const';
 import { ThreadStatus, ThreadType } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -74,6 +75,8 @@ vi.mock('@/server/services/agent', () => ({
 }));
 
 // Mock AgentRuntimeService
+const mockScheduleSubAgentTimeout = vi.fn();
+
 vi.mock('@/server/services/agentRuntime', () => ({
   AgentRuntimeService: vi.fn().mockImplementation(() => ({
     createOperation: vi.fn().mockResolvedValue({
@@ -82,6 +85,7 @@ vi.mock('@/server/services/agentRuntime', () => ({
       operationId: 'op-123',
       success: true,
     }),
+    scheduleSubAgentTimeout: mockScheduleSubAgentTimeout,
   })),
 }));
 
@@ -230,6 +234,7 @@ describe('AiAgentService.execSubAgent', () => {
           expect.objectContaining({ id: 'thread-metadata-update', type: 'afterStep' }),
           expect.objectContaining({ id: 'thread-completion', type: 'onComplete' }),
         ]),
+        maxSteps: SUB_AGENT_DEFAULT_MAX_STEPS,
         prompt: 'Test instruction',
         userInterventionConfig: {
           approvalMode: 'headless',
@@ -272,10 +277,107 @@ describe('AiAgentService.execSubAgent', () => {
           hooks: expect.arrayContaining([
             expect.objectContaining({ id: 'sub-agent-bridge', type: 'onComplete' }),
           ]),
+          // Regression #17284: child ops must run with a step bound, not NULL.
+          maxSteps: SUB_AGENT_DEFAULT_MAX_STEPS,
           parentOperationId: 'parent-op-1',
           trigger: 'cli',
         }),
       );
+    });
+
+    // Regression #17284: the `timeout` param used to be dropped in
+    // execAgentThreadRun, so no deadline watchdog was ever scheduled — a stuck
+    // child left the parked parent waiting forever.
+    it('schedules the sub-agent timeout watchdog with the default deadline', async () => {
+      vi.spyOn(service, 'execAgent').mockResolvedValue({
+        agentId: 'agent-1',
+        assistantMessageId: 'assistant-msg-1',
+        autoStarted: true,
+        createdAt: new Date().toISOString(),
+        message: 'Agent operation created successfully',
+        messageId: 'queue-msg-1',
+        operationId: 'op-123',
+        status: 'created',
+        success: true,
+        timestamp: new Date().toISOString(),
+        topicId: 'topic-1',
+        userMessageId: 'user-msg-1',
+      });
+
+      await service.execVirtualSubAgent({
+        agentId: 'agent-1',
+        instruction: 'Nested research task',
+        parentMessageId: 'tool-msg-1',
+        parentOperationId: 'parent-op-1',
+        topicId: 'topic-1',
+      });
+
+      expect(mockScheduleSubAgentTimeout).toHaveBeenCalledWith(
+        {
+          parentOperationId: 'parent-op-1',
+          subAgentOperationId: 'op-123',
+          threadId: 'thread-123',
+          toolMessageId: 'tool-msg-1',
+        },
+        SUB_AGENT_DEFAULT_TIMEOUT_MS,
+      );
+    });
+
+    it('schedules the sub-agent timeout watchdog with an explicit timeout', async () => {
+      vi.spyOn(service, 'execAgent').mockResolvedValue({
+        agentId: 'agent-1',
+        assistantMessageId: 'assistant-msg-1',
+        autoStarted: true,
+        createdAt: new Date().toISOString(),
+        message: 'Agent operation created successfully',
+        messageId: 'queue-msg-1',
+        operationId: 'op-123',
+        status: 'created',
+        success: true,
+        timestamp: new Date().toISOString(),
+        topicId: 'topic-1',
+        userMessageId: 'user-msg-1',
+      });
+
+      await service.execVirtualSubAgent({
+        agentId: 'agent-1',
+        instruction: 'Nested research task',
+        parentMessageId: 'tool-msg-1',
+        parentOperationId: 'parent-op-1',
+        timeout: 120_000,
+        topicId: 'topic-1',
+      });
+
+      expect(mockScheduleSubAgentTimeout).toHaveBeenCalledWith(expect.anything(), 120_000);
+    });
+
+    it('does not schedule the sub-agent timeout watchdog for non-bridged execSubAgent runs', async () => {
+      vi.spyOn(service, 'execAgent').mockResolvedValue({
+        agentId: 'agent-1',
+        assistantMessageId: 'assistant-msg-1',
+        autoStarted: true,
+        createdAt: new Date().toISOString(),
+        message: 'Agent operation created successfully',
+        messageId: 'queue-msg-1',
+        operationId: 'op-123',
+        status: 'created',
+        success: true,
+        timestamp: new Date().toISOString(),
+        topicId: 'topic-1',
+        userMessageId: 'user-msg-1',
+      });
+
+      await service.execSubAgent({
+        agentId: 'agent-1',
+        groupId: 'group-1',
+        instruction: 'Test instruction',
+        parentMessageId: 'parent-msg-1',
+        topicId: 'topic-1',
+      });
+
+      // No completion bridge is installed on this path, so a timeout interrupt
+      // would have nothing to resume — the watchdog must not be armed.
+      expect(mockScheduleSubAgentTimeout).not.toHaveBeenCalled();
     });
 
     it('should store operationId and startedAt in Thread metadata', async () => {

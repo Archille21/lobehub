@@ -87,6 +87,7 @@ export async function runStep(c: Context): Promise<Response> {
       resumeAsyncTool,
       finishAfterAsyncTool,
       groupMemberTimeout,
+      subAgentTimeout,
       toolMessageId,
       verifyAsyncToolBarrier,
       asyncToolVerifyAttempt,
@@ -146,6 +147,7 @@ export async function runStep(c: Context): Promise<Response> {
       rejectionReason,
       resumeAsyncTool,
       stepIndex,
+      subAgentTimeout,
       toolMessageId,
       verifyAsyncToolBarrier,
     });

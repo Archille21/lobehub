@@ -165,6 +165,13 @@ export interface AgentExecutionParams {
    */
   resumeAsyncTool?: boolean;
   stepIndex: number;
+  /**
+   * Watchdog payload to enforce a `callSubAgent` child's timeout: when the child
+   * op hasn't reached a terminal state by its deadline, interrupt it and bridge a
+   * `timeout` completion so the parked parent resumes instead of waiting forever.
+   * Scheduled by `scheduleSubAgentTimeout` after the child op is forked.
+   */
+  subAgentTimeout?: SubAgentTimeoutParams;
   /** ID of the pending tool message targeted by the intervention. */
   toolMessageId?: string;
   /**
@@ -248,6 +255,24 @@ export interface GroupActionMemberBridgeParams {
   reason: string;
   /** Isolation thread id (isolated mode only). */
   threadId?: string;
+}
+
+/**
+ * Watchdog payload that enforces a `callSubAgent` child's timeout. Scheduled
+ * after the child op is forked; when it fires, if the child op hasn't reached a
+ * terminal state it is interrupted and a `timeout` completion is bridged so the
+ * parked parent resumes instead of waiting indefinitely. This is also the
+ * parent-side deadline fallback: even when the child's own completion bridge is
+ * lost, the watchdog still wakes the parent.
+ */
+export interface SubAgentTimeoutParams {
+  parentOperationId: string;
+  /** The forked child (sub-agent) operation id whose deadline this enforces. */
+  subAgentOperationId: string;
+  /** Isolation thread id, stamped into the backfilled pluginState. */
+  threadId: string;
+  /** The parent's placeholder `role: 'tool'` message the bridge backfills. */
+  toolMessageId: string;
 }
 
 /**

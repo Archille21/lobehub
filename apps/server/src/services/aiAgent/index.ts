@@ -29,6 +29,8 @@ import {
   isHeterogeneousAgentModelId,
   LOADING_FLAT,
   resolveSubAgentChatConfig,
+  SUB_AGENT_DEFAULT_MAX_STEPS,
+  SUB_AGENT_DEFAULT_TIMEOUT_MS,
 } from '@lobechat/const';
 import {
   type AgentGroupConfig,
@@ -4946,8 +4948,16 @@ export class AiAgentService {
       resumeParentOnComplete?: boolean;
     },
   ): Promise<ExecSubAgentResult> {
-    const { groupId, topicId, parentMessageId, agentId, instruction, title, parentOperationId } =
-      params;
+    const {
+      groupId,
+      topicId,
+      parentMessageId,
+      agentId,
+      instruction,
+      title,
+      parentOperationId,
+      timeout,
+    } = params;
 
     log(
       '%s: agentId=%s, groupId=%s, topicId=%s, instruction=%s',
@@ -5058,6 +5068,10 @@ export class AiAgentService {
       autoStart: true,
       chatConfigOverride: options.chatConfig,
       hooks,
+      // Isolated child runs previously ran with NO step bound (`max_steps` NULL
+      // in agent_operations), letting a single child accumulate unbounded tool
+      // density on the server event loop — see #17284.
+      maxSteps: SUB_AGENT_DEFAULT_MAX_STEPS,
       // Explicit sub-agent model override resolved at the spawn site.
       model: options.model,
       parentOperationId,
@@ -5116,6 +5130,26 @@ export class AiAgentService {
           userId: this.userId,
         })
         .catch(() => {});
+
+      // Enforce the child's timeout (defaulting to the manifest-documented 30
+      // minutes when the tool call passes none — previously the `timeout` param
+      // was dropped here entirely, leaving the child unbounded and the parked
+      // parent with no deadline, see #17284). If the child op is still running
+      // when the deadline passes, the watchdog interrupts it and bridges a
+      // `timeout` completion so the parent resumes even if the child's own
+      // completion bridge is lost. Group members are excluded — their exec site
+      // schedules its own group-member timeout with the K=N barrier bridge.
+      if (options.resumeParentOnComplete && options.orchestrationRole !== 'member') {
+        await this.agentRuntimeService.scheduleSubAgentTimeout(
+          {
+            parentOperationId,
+            subAgentOperationId: result.operationId,
+            threadId: thread.id,
+            toolMessageId: parentMessageId,
+          },
+          timeout && timeout > 0 ? timeout : SUB_AGENT_DEFAULT_TIMEOUT_MS,
+        );
+      }
     }
 
     return {

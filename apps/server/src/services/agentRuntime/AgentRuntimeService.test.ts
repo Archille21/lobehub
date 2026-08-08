@@ -2468,6 +2468,24 @@ describe('AgentRuntimeService', () => {
       );
     });
 
+    it('writes a timeout error note when the watchdog timed the child out', async () => {
+      // Regression #17284: `timeout` must be a failed reason — treating it as
+      // success would backfill the child's partial answer as a completed result.
+      await service.completeSubAgentBridge({
+        ...bridgeParams,
+        finalState: childState as any,
+        reason: 'timeout',
+      });
+
+      expect(updateToolMessage).toHaveBeenCalledWith(
+        'tool-msg-1',
+        expect.objectContaining({
+          content: 'Sub-agent did not complete (timeout).',
+          pluginState: expect.objectContaining({ status: 'error' }),
+        }),
+      );
+    });
+
     it('falls back to the generic note when the failed child has no error detail', async () => {
       await service.completeSubAgentBridge({
         ...bridgeParams,
@@ -2552,6 +2570,56 @@ describe('AgentRuntimeService', () => {
       ]);
 
       expect(result).toBe('resume');
+    });
+  });
+
+  describe('sub-agent timeout watchdog', () => {
+    const timeoutParams = {
+      parentOperationId: 'parent-1',
+      subAgentOperationId: 'child-op-1',
+      threadId: 'thread-1',
+      toolMessageId: 'tool-msg-1',
+    };
+
+    it('no-ops when the child already reached a terminal state', async () => {
+      mockCoordinator.loadAgentState.mockResolvedValue({ status: 'done' });
+      const interruptSpy = vi.spyOn(service, 'interruptOperation');
+      const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge');
+
+      const result = await service.executeStep({
+        operationId: 'child-op-1',
+        stepIndex: 0,
+        subAgentTimeout: timeoutParams,
+      } as any);
+
+      expect(result.success).toBe(true);
+      expect(result.nextStepScheduled).toBe(false);
+      expect(interruptSpy).not.toHaveBeenCalled();
+      expect(bridgeSpy).not.toHaveBeenCalled();
+    });
+
+    it('interrupts the child and bridges a timeout when it is still running', async () => {
+      mockCoordinator.loadAgentState.mockResolvedValue({ status: 'running' });
+      const interruptSpy = vi.spyOn(service, 'interruptOperation').mockResolvedValue(true);
+      const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge').mockResolvedValue(true);
+
+      const result = await service.executeStep({
+        operationId: 'child-op-1',
+        stepIndex: 0,
+        subAgentTimeout: timeoutParams,
+      } as any);
+
+      expect(interruptSpy).toHaveBeenCalledWith('child-op-1');
+      expect(bridgeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operationId: 'child-op-1',
+          parentOperationId: 'parent-1',
+          reason: 'timeout',
+          threadId: 'thread-1',
+          toolMessageId: 'tool-msg-1',
+        }),
+      );
+      expect(result.nextStepScheduled).toBe(true);
     });
   });
 

@@ -91,6 +91,7 @@ import {
   type StartExecutionResult,
   type StepCompletionReason,
   type SubAgentBridgeParams,
+  type SubAgentTimeoutParams,
 } from './types';
 import { stateHasEntityFileEdits } from './workRegistration';
 
@@ -741,6 +742,7 @@ export class AgentRuntimeService {
       resumeAsyncTool,
       finishAfterAsyncTool,
       groupMemberTimeout,
+      subAgentTimeout,
       toolMessageId,
       verifyAsyncToolBarrier,
       asyncToolVerifyAttempt,
@@ -752,6 +754,13 @@ export class AgentRuntimeService {
     // and bridge a `timeout` completion so the parked supervisor resumes/finishes.
     if (groupMemberTimeout) {
       return this.handleGroupMemberTimeout(groupMemberTimeout);
+    }
+
+    // Sub-agent timeout watchdog: same contract as the group-member one, but for
+    // `callSubAgent` children — interrupt the overdue child and bridge a `timeout`
+    // completion so the parked parent resumes instead of waiting forever.
+    if (subAgentTimeout) {
+      return this.handleSubAgentTimeout(subAgentTimeout);
     }
 
     // Watchdog re-check for a parked async-tool wait: re-run the barrier + CAS
@@ -2158,7 +2167,7 @@ export class AgentRuntimeService {
    */
   async completeSubAgentBridge(params: SubAgentBridgeParams): Promise<boolean> {
     const { operationId, parentOperationId, reason, threadId, toolMessageId } = params;
-    const failed = reason === 'error' || reason === 'interrupted';
+    const failed = reason === 'error' || reason === 'interrupted' || reason === 'timeout';
 
     // Infra errors propagate; a null state (expired) degrades to a stub note.
     const finalState =
@@ -2464,6 +2473,84 @@ export class AgentRuntimeService {
 
     // 3. Barrier + CAS + resume/finish the parked supervisor op.
     return this.tryResumeParentFromAsyncTool({ parentOperationId }, { scheduleVerifyOnHold: true });
+  }
+
+  /**
+   * Schedule the sub-agent timeout watchdog. Fired `delayMs` after a
+   * `callSubAgent` child op is forked; if the child hasn't finished by then, the
+   * watchdog interrupts it and bridges a `timeout` completion so the parked
+   * parent doesn't wait forever. Doubles as the parent-side deadline fallback:
+   * it wakes the parent even when the child's own completion bridge is lost.
+   * No-op when the queue is disabled or the timeout is non-positive.
+   */
+  async scheduleSubAgentTimeout(params: SubAgentTimeoutParams, delayMs: number): Promise<void> {
+    if (!this.queueService || !(delayMs > 0)) return;
+    try {
+      await this.queueService.scheduleMessage({
+        context: undefined,
+        delay: delayMs,
+        endpoint: `${this.baseURL}/run`,
+        // Keyed on the child op so the /run worker can resolve userId from its
+        // metadata, same trust chain as every other scheduled step.
+        operationId: params.subAgentOperationId,
+        payload: { subAgentTimeout: params },
+        priority: 'normal',
+        stepIndex: 0,
+      });
+      log(
+        '[%s] scheduled sub-agent timeout in %dms (parent %s)',
+        params.subAgentOperationId,
+        delayMs,
+        params.parentOperationId,
+      );
+    } catch (error) {
+      log(
+        '[%s] failed to schedule sub-agent timeout (non-fatal): %O',
+        params.subAgentOperationId,
+        error,
+      );
+    }
+  }
+
+  /**
+   * Enforce a `callSubAgent` child's timeout. No-op if the child already reached
+   * a terminal state (its own completion bridge handles that). Otherwise
+   * interrupt the child and bridge a `timeout` completion — backfilling the
+   * parent's placeholder tool message and resuming the parked parent. The
+   * child's own interrupt bridge may also fire; both are idempotent (backfill
+   * rewrite + CAS-guarded resume).
+   */
+  private async handleSubAgentTimeout(
+    params: SubAgentTimeoutParams,
+  ): Promise<AgentExecutionResult> {
+    const state = await this.coordinator.loadAgentState(params.subAgentOperationId);
+    const status = state?.status as string | undefined;
+    if (!state || status === 'done' || status === 'error' || status === 'interrupted') {
+      log(
+        '[%s] sub-agent timeout: child already terminal (%s), no-op',
+        params.subAgentOperationId,
+        status,
+      );
+      return { nextStepScheduled: false, state: {}, success: true };
+    }
+
+    log(
+      '[%s] sub-agent timeout fired, interrupting + bridging timeout to parent %s',
+      params.subAgentOperationId,
+      params.parentOperationId,
+    );
+    await this.interruptOperation(params.subAgentOperationId);
+
+    const resumed = await this.completeSubAgentBridge({
+      finalState: state,
+      operationId: params.subAgentOperationId,
+      parentOperationId: params.parentOperationId,
+      reason: 'timeout',
+      threadId: params.threadId,
+      toolMessageId: params.toolMessageId,
+    });
+
+    return { nextStepScheduled: resumed, state: {}, success: true };
   }
 
   /**

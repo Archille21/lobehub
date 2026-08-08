@@ -77,6 +77,27 @@ export const resolveSubAgentChatConfig = <T extends object>(
   return { ...parentChatConfig, ...patch } as T;
 };
 
+/**
+ * Default hard timeout for isolated child runs forked via `lobe-agent.callSubAgent`
+ * / `agent-management.callAgent` when the caller passes no explicit `timeout` —
+ * matches the 30-minute default already documented in the tool manifests.
+ * Enforced by the sub-agent timeout watchdog (`scheduleSubAgentTimeout`), which
+ * interrupts the child and bridges a `timeout` completion so the parked parent
+ * never waits indefinitely.
+ * https://github.com/lobehub/lobehub/issues/17284
+ */
+export const SUB_AGENT_DEFAULT_TIMEOUT_MS = 1_800_000;
+
+/**
+ * Default `maxSteps` for isolated child runs (callSubAgent children, callAgent
+ * targets, isolated group members). Before this cap these ops ran with
+ * `max_steps` NULL — no step bound at all — letting a single child accumulate
+ * unbounded tool density on the server event loop (#17284). Production data
+ * shows sub-agent ops average ~17 tool calls, so 100 steps is generous headroom
+ * while still bounding a runaway loop.
+ */
+export const SUB_AGENT_DEFAULT_MAX_STEPS = 100;
+
 export const DEFAULT_RERANK_MODEL = 'rerank-english-v3.0';
 export const DEFAULT_RERANK_PROVIDER = 'cohere';
 export const DEFAULT_RERANK_QUERY_MODE = 'full_text';
