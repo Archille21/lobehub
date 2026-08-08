@@ -5,9 +5,8 @@ import { UserCircle2 } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHomeSidebarAgentById } from '@/client-data';
 import HeterogeneousTag from '@/features/HeterogeneousTag';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 import { useTaskStore } from '@/store/task';
 import { taskDetailSelectors } from '@/store/task/selectors';
 
@@ -22,9 +21,7 @@ const TaskDetailAssignee = memo(() => {
   const assigneeAgentId = useTaskStore(taskDetailSelectors.activeTaskAgentId);
   const assigneeMeta = useAgentDisplayMeta(assigneeAgentId);
   // Same source as the home list so the runtime tag stays consistent.
-  const assigneeHeterogeneousType = useHomeStore(
-    (s) => homeAgentListSelectors.getAgentById(assigneeAgentId ?? '')(s)?.heterogeneousType,
-  );
+  const assigneeHeterogeneousType = useHomeSidebarAgentById(assigneeAgentId)?.heterogeneousType;
   const { isDarkMode } = useThemeMode();
 
   if (!taskId) return null;

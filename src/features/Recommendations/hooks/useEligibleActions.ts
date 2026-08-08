@@ -2,9 +2,8 @@ import { isDesktop } from '@lobechat/const';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHomeSidebarAllAgents } from '@/client-data';
 import { useCreateHeteroAgent } from '@/hooks/useCreateHeteroAgent';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 
 import { recommendedActionsRegistry } from '../actions/registry';
 import type { ActionContext, RecommendedAction } from '../actions/types';
@@ -17,7 +16,7 @@ interface EligibleActionsResult {
 
 export const useEligibleActions = (): EligibleActionsResult => {
   const { t } = useTranslation('home');
-  const agents = useHomeStore(homeAgentListSelectors.allAgents);
+  const agents = useHomeSidebarAllAgents();
   const heteroDetections = useHeteroDetections();
   const createHeteroAgent = useCreateHeteroAgent();
 

@@ -5,14 +5,13 @@ import { ChevronsUpDownIcon } from 'lucide-react';
 import { memo, Suspense, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHomeSidebarAllAgents, useHomeSidebarBuckets } from '@/client-data';
 import { conversationSelectors, useConversationStore } from '@/features/Conversation';
 import AgentAvatar from '@/features/HomeSidebar/Body/Agent/List/AgentItem/Avatar';
 import { AgentModalProvider } from '@/features/HomeSidebar/Body/Agent/ModalProvider';
 import SkeletonList from '@/features/NavPanel/components/SkeletonList';
 import { useFetchAgentList } from '@/hooks/useFetchAgentList';
 import { useAgentStore } from '@/store/agent';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 
 import AgentItem from './AgentItem';
 
@@ -44,8 +43,8 @@ const AgentSelectorAction = memo<AgentSelectorActionProps>(({ onAgentChange }) =
   const [open, setOpen] = useState(false);
   const agentId = useConversationStore(conversationSelectors.agentId);
 
-  const agents = useHomeStore(homeAgentListSelectors.allAgents);
-  const isAgentListInit = useHomeStore(homeAgentListSelectors.isAgentListInit);
+  const agents = useHomeSidebarAllAgents();
+  const isAgentListInit = useHomeSidebarBuckets().isReady;
   const pageAgentId = useAgentStore((s) => s.builtinAgentIdMap['page-agent']);
   const pageAgentData = useAgentStore((s) => s.agentMap[pageAgentId || '']);
 

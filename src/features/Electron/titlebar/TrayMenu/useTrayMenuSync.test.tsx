@@ -15,12 +15,8 @@ vi.mock('@/services/electron/tray', () => ({
   desktopTrayService: { updateNavigationSnapshot: mocks.updateNavigationSnapshot },
 }));
 
-vi.mock('@/store/home', () => ({
-  useHomeStore: vi.fn(() => mocks.agents),
-}));
-
-vi.mock('@/store/home/slices/agentList/selectors', () => ({
-  homeAgentListSelectors: { allAgents: vi.fn() },
+vi.mock('@/client-data', () => ({
+  useHomeSidebarAllAgents: vi.fn(() => mocks.agents),
 }));
 
 vi.mock('@/store/electron', () => ({

@@ -9,10 +9,9 @@ import { t as translate } from 'i18next';
 import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHomeSidebarAllAgents } from '@/client-data';
 import AgentAvatar from '@/features/HomeSidebar/Body/Agent/List/AgentItem/Avatar';
 import { useFetchAgentList } from '@/hooks/useFetchAgentList';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 
 import { contextSelectors, type ConversationStore, Provider, useConversationStore } from '../store';
 import SelectCircle from './SelectCircle';
@@ -93,7 +92,7 @@ const ForwardModalContent = memo(() => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const currentAgentId = useConversationStore(contextSelectors.agentId);
-  const agents = useHomeStore(homeAgentListSelectors.allAgents);
+  const agents = useHomeSidebarAllAgents();
   const forwardMessages = useForwardMessages();
 
   // What's being forwarded — count + a few role-labelled snippets for the panel.

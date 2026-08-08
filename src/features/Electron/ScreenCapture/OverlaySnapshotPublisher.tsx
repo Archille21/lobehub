@@ -6,15 +6,13 @@ import type {
   ScreenCaptureOverlayTheme,
 } from '@lobechat/electron-client-ipc';
 import { useTheme } from 'antd-style';
-import isEqual from 'fast-deep-equal';
 import { memo, useEffect, useMemo, useRef } from 'react';
 
+import { useHomeSidebarAllAgents } from '@/client-data';
 import { useEnabledChatModels } from '@/hooks/useEnabledChatModels';
 import { useFetchAgentList } from '@/hooks/useFetchAgentList';
 import { useAgentStore } from '@/store/agent';
 import { agentByIdSelectors, agentSelectors, builtinAgentSelectors } from '@/store/agent/selectors';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/slices/agentList/selectors';
 import { ensureElectronIpc } from '@/utils/electron/ipc';
 
 import { resolveOverlayAgentOptions, resolveOverlayDefaultAgentId } from './overlaySnapshot';
@@ -30,7 +28,7 @@ const PANEL_SHADOW_LIGHT = '0 4px 4px color-mix(in srgb, #000 4%, transparent)';
 const OverlaySnapshotPublisher = memo(() => {
   useFetchAgentList();
 
-  const allAgents = useHomeStore(homeAgentListSelectors.allAgents, isEqual);
+  const allAgents = useHomeSidebarAllAgents();
   const theme = useTheme();
   const enabledChatModels = useEnabledChatModels();
   const activeAgentId = useAgentStore((s) => s.activeAgentId);

@@ -6,10 +6,9 @@ import { createStaticStyles, cssVar, cx } from 'antd-style';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHomeSidebarAllAgents } from '@/client-data';
 import AgentAvatar from '@/features/HomeSidebar/Body/Agent/List/AgentItem/Avatar';
 import { useFetchAgentList } from '@/hooks/useFetchAgentList';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 
 import SelectCircle from '../SelectCircle';
 import type { ForwardTarget } from '../useForwardMessages';
@@ -70,7 +69,7 @@ export const TopicForwardContent = ({
   const [keyword, setKeyword] = useState('');
   const [note, setNote] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const agents = useHomeStore(homeAgentListSelectors.allAgents);
+  const agents = useHomeSidebarAllAgents();
   const forwardTopic = useForwardTopic({ agentId: sourceAgentId, topicId });
 
   useFetchAgentList();
