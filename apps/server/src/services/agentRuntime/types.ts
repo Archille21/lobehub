@@ -291,6 +291,11 @@ export interface GroupMemberTimeoutParams {
   mode: GroupActionMemberMode;
   onComplete: GroupActionOnComplete;
   parentOperationId: string;
+  /**
+   * Isolation thread id (isolated mode only) — lets the timeout bridge mark
+   * the member's task thread terminal so polling stops reporting processing.
+   */
+  threadId?: string;
 }
 
 /**

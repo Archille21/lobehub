@@ -2806,6 +2806,7 @@ export class AgentRuntimeService {
       operationId: params.memberOperationId,
       parentOperationId: params.parentOperationId,
       reason: 'timeout',
+      threadId: params.threadId,
     });
 
     return { nextStepScheduled: resumed, state: {}, success: true };

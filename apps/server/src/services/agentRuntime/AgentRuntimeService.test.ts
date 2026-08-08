@@ -2968,6 +2968,7 @@ describe('AgentRuntimeService', () => {
       mode: 'isolated' as const,
       onComplete: 'resume' as const,
       parentOperationId: 'parent-1',
+      threadId: 'member-thread-1',
     };
 
     it('no-ops when the member already reached a terminal state', async () => {
@@ -2999,12 +3000,16 @@ describe('AgentRuntimeService', () => {
       } as any);
 
       expect(interruptSpy).toHaveBeenCalledWith('member-op-1');
+      // threadId must ride the watchdog payload into the bridge (PR #18046
+      // review round 7): without it the bridge skips the terminal-thread
+      // write and a timed-out isolated member polls as processing forever.
       expect(bridgeSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           onComplete: 'resume',
           operationId: 'member-op-1',
           parentOperationId: 'parent-1',
           reason: 'timeout',
+          threadId: 'member-thread-1',
         }),
       );
       expect(result.nextStepScheduled).toBe(true);

@@ -4776,6 +4776,9 @@ export class AiAgentService {
             mode: 'isolated',
             onComplete: params.onComplete,
             parentOperationId: params.parentOperationId,
+            // Without the thread id the timeout bridge cannot mark the member's
+            // isolation thread terminal, and its task card polls forever.
+            threadId: result.threadId,
           },
           params.timeout,
         );
