@@ -1,7 +1,7 @@
 import type { EntitySource, TopicEntityRecord } from '@lobechat/types';
 import { describe, expect, it } from 'vitest';
 
-import { applyClientDataCommit } from './reducer';
+import { applyClientDataCommit, materializeDurableCommit } from './reducer';
 
 const topicFragment = (
   id: string,
@@ -89,5 +89,29 @@ describe('applyClientDataCommit', () => {
       title: 'Recreated',
     });
     expect(revived.entities.topic['topic-1'].fragments.status).toBeUndefined();
+  });
+
+  it('truncates index refs to persistRefLimit for durable writes only', () => {
+    const index = {
+      key: 'chat.sidebarTopics:agent-1',
+      observedAt: 100,
+      persistRefLimit: 2,
+      refs: [
+        { id: 't1', kind: 'topic' },
+        { id: 't2', kind: 'topic' },
+        { id: 't3', kind: 'topic' },
+      ],
+      signature: {},
+      source: 'network',
+      total: 3,
+    } as never;
+
+    const scope = applyClientDataCommit(undefined, { indexes: [index] });
+    const durable = materializeDurableCommit(scope, { indexes: [index] });
+
+    expect(
+      (scope.indexes as Record<string, { refs: unknown[] }>)['chat.sidebarTopics:agent-1'].refs,
+    ).toHaveLength(3);
+    expect((durable.indexes[0] as { refs: unknown[] }).refs).toHaveLength(2);
   });
 });
