@@ -9,7 +9,7 @@ import { hookDispatcher } from '@/server/services/agentRuntime/hooks';
 import type { AgentHook, SerializedHook } from '@/server/services/agentRuntime/hooks/types';
 import * as verifyService from '@/server/services/verify';
 
-import type { HeterogeneousPersistenceHandler } from '..';
+import type { HeterogeneousAgentServiceOptions, HeterogeneousPersistenceHandler } from '..';
 import {
   HeterogeneousAgentService,
   normalizeHeterogeneousFinishError,
@@ -76,14 +76,28 @@ const buildEvent = (
   type,
 });
 
-const createService = (overrides: { streamEventManager?: IStreamEventManager } = {}) => {
+const createService = (
+  overrides: {
+    streamEventManager?: IStreamEventManager;
+    topicModel?: HeterogeneousAgentServiceOptions['topicModel'];
+  } = {},
+) => {
   const { manager, published } = createFakeStreamManager();
   const persistenceHandler = createFakePersistenceHandler();
+  const topicModel =
+    overrides.topicModel ??
+    ({
+      findById: vi.fn(async () => ({ metadata: {} })),
+      settleRunningOperation: vi.fn(async (_topicId: string, operationId: string) => ({
+        runningOperation: { operationId },
+      })),
+    } as unknown as NonNullable<HeterogeneousAgentServiceOptions['topicModel']>);
   const service = new HeterogeneousAgentService({} as any, 'user-test', {
     persistenceHandler,
     streamEventManager: overrides.streamEventManager ?? manager,
+    topicModel,
   });
-  return { manager, persistenceHandler, published, service };
+  return { manager, persistenceHandler, published, service, topicModel };
 };
 
 describe('HeterogeneousAgentService', () => {
@@ -647,9 +661,22 @@ describe('HeterogeneousAgentService', () => {
       dispatchSpy.mockRestore();
     });
 
-    it('does NOT fire hooks on a cancelled run (the real result fires them)', async () => {
-      const { service } = createService();
+    it('persists cancellation as terminal without firing completion hooks', async () => {
+      const metadata = {
+        runningOperation: {
+          assistantMessageId: 'msg-cancelled',
+          operationId: 'op-hook-cancelled',
+        },
+      };
+      const topicModel = {
+        findById: vi.fn().mockResolvedValue({
+          metadata,
+        }),
+        settleRunningOperation: vi.fn().mockResolvedValue(metadata),
+      } as unknown as NonNullable<HeterogeneousAgentServiceOptions['topicModel']>;
+      const { service } = createService({ topicModel });
       const { onComplete, onError } = registerHook('op-hook-cancelled');
+      const dispatchSpy = vi.spyOn(CompletionLifecycle.prototype, 'dispatchHooks');
 
       await service.heteroFinish({
         agentType: 'claude-code',
@@ -660,9 +687,38 @@ describe('HeterogeneousAgentService', () => {
 
       expect(onComplete).not.toHaveBeenCalled();
       expect(onError).not.toHaveBeenCalled();
-      // Still registered — the subsequent success/error call will dispatch them.
-      expect(hookDispatcher.hasHooks('op-hook-cancelled')).toBe(true);
-      hookDispatcher.unregister('op-hook-cancelled');
+      expect(topicModel.settleRunningOperation).toHaveBeenCalledWith(
+        'topic-hook-3',
+        'op-hook-cancelled',
+      );
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        'op-hook-cancelled',
+        expect.anything(),
+        'interrupted',
+        { skipTerminalEffects: true },
+      );
+      expect(hookDispatcher.hasHooks('op-hook-cancelled')).toBe(false);
+    });
+
+    it('ignores a delayed cancellation after the topic starts a newer operation', async () => {
+      const topicModel = {
+        findById: vi.fn().mockResolvedValue({
+          metadata: { runningOperation: { operationId: 'op-new' } },
+        }),
+        settleRunningOperation: vi.fn(),
+      } as unknown as NonNullable<HeterogeneousAgentServiceOptions['topicModel']>;
+      const { manager, persistenceHandler, service } = createService({ topicModel });
+
+      await service.heteroFinish({
+        agentType: 'claude-code',
+        operationId: 'op-old',
+        result: 'cancelled',
+        topicId: 'topic-shared',
+      });
+
+      expect(manager.publishStreamEvent).not.toHaveBeenCalled();
+      expect(persistenceHandler.finish).not.toHaveBeenCalled();
+      expect(topicModel.settleRunningOperation).not.toHaveBeenCalled();
     });
   });
 
@@ -692,14 +748,15 @@ describe('HeterogeneousAgentService', () => {
     };
 
     const makeService = (hooks: SerializedHook[] | undefined) => {
+      const metadata = { runningOperation: { hooks, operationId: 'op-q' } };
       const topicModel = {
         // Mirror what execAgent persisted at dispatch: the serialized hooks live
         // under runningOperation. heteroFinish must read them from here.
         findById: vi.fn(async () => ({
           id: 'topic-q',
-          metadata: { runningOperation: { hooks, operationId: 'op-q' } },
+          metadata,
         })),
-        updateMetadata: vi.fn(async () => {}),
+        settleRunningOperation: vi.fn(async () => metadata),
       } as any;
       const { manager } = createFakeStreamManager();
       const service = new HeterogeneousAgentService({} as any, 'user-test', {
@@ -795,6 +852,12 @@ describe('HeterogeneousAgentService', () => {
       let meta: Record<string, any> = {};
       const topicModel = {
         findById: vi.fn(async () => ({ id: TOPIC, metadata: meta })),
+        settleRunningOperation: vi.fn(async (_id: string, operationId: string) => {
+          if (meta.runningOperation?.operationId !== operationId) return;
+          const settledMetadata = meta;
+          meta = { ...meta, runningOperation: null };
+          return settledMetadata;
+        }),
         updateMetadata: vi.fn(async (_id: string, patch: Record<string, any>, mergeBase?: any) => {
           meta = { ...(mergeBase ?? meta), ...patch };
         }),

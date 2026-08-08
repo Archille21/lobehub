@@ -1,7 +1,10 @@
 import { spawn } from 'node:child_process';
+import { platform } from 'node:os';
 
 import {
   buildHeteroExecStdinPayload,
+  HETERO_EXEC_CANCEL_GRACE_MS,
+  type HeteroExecCancelMessage,
   type HeteroExecImageRef,
 } from '@lobechat/heterogeneous-agents/protocol';
 
@@ -31,8 +34,30 @@ interface SpawnHeteroAgentRunLogger {
   info?: (msg: string) => void;
 }
 
+interface ActiveAgentRun {
+  child: ReturnType<typeof spawn>;
+  forceKillTimer?: ReturnType<typeof setTimeout>;
+}
+
 /** Active `lh hetero exec` wrappers, keyed by the server operation/task id. */
-const activeAgentRuns = new Map<string, ReturnType<typeof spawn>>();
+const activeAgentRuns = new Map<string, ActiveAgentRun>();
+
+const clearForceKillTimer = (run: ActiveAgentRun): void => {
+  if (!run.forceKillTimer) return;
+  clearTimeout(run.forceKillTimer);
+  run.forceKillTimer = undefined;
+};
+
+const scheduleWindowsForceKill = (run: ActiveAgentRun): void => {
+  if (run.forceKillTimer) return;
+  run.forceKillTimer = setTimeout(() => {
+    const killer = spawn('taskkill', ['/pid', String(run.child.pid), '/T', '/F'], {
+      stdio: 'ignore',
+    });
+    killer.once('error', () => {});
+  }, HETERO_EXEC_CANCEL_GRACE_MS);
+  run.forceKillTimer.unref();
+};
 
 /**
  * Cancel a gateway-dispatched local CLI run. The wrapper owns SIGINT/SIGTERM
@@ -43,11 +68,24 @@ export function cancelHeteroAgentRun(
   operationId: string,
   signal: NodeJS.Signals = 'SIGINT',
 ): { pid: number; signal: NodeJS.Signals } | undefined {
-  const child = activeAgentRuns.get(operationId);
+  const run = activeAgentRuns.get(operationId);
+  const child = run?.child;
   if (!child?.pid) return undefined;
 
-  if (process.platform === 'win32') {
-    spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+  if (platform() === 'win32') {
+    const message: HeteroExecCancelMessage = {
+      operationId,
+      signal: signal === 'SIGTERM' ? 'SIGTERM' : 'SIGINT',
+      type: 'lobe:hetero-exec:cancel',
+    };
+    scheduleWindowsForceKill(run);
+    if (child.connected) {
+      try {
+        child.send(message, () => {});
+      } catch {
+        // The bounded force-kill fallback remains armed.
+      }
+    }
   } else {
     child.kill(signal);
   }
@@ -134,11 +172,11 @@ export function spawnHeteroAgentRun(
         LOBEHUB_JWT: jwt,
         LOBEHUB_SERVER: serverUrl,
       },
-      stdio: ['pipe', 'inherit', 'inherit'],
+      stdio: ['pipe', 'inherit', 'inherit', 'ipc'],
     });
 
     child.once('spawn', () => {
-      if (child.pid) activeAgentRuns.set(operationId, child);
+      if (child.pid) activeAgentRuns.set(operationId, { child });
       // Only safe to write stdin once the process actually started.
       try {
         child.stdin?.write(stdinPayload);
@@ -152,13 +190,21 @@ export function spawnHeteroAgentRun(
     });
 
     child.once('error', (err) => {
-      if (activeAgentRuns.get(operationId) === child) activeAgentRuns.delete(operationId);
+      const run = activeAgentRuns.get(operationId);
+      if (run?.child === child) {
+        clearForceKillTimer(run);
+        activeAgentRuns.delete(operationId);
+      }
       logger?.error?.(`hetero exec spawn failed (op=${operationId}): ${err.message}`);
       settle({ reason: err.message, status: 'rejected' });
     });
 
     child.on('exit', (code, signal) => {
-      if (activeAgentRuns.get(operationId) === child) activeAgentRuns.delete(operationId);
+      const run = activeAgentRuns.get(operationId);
+      if (run?.child === child) {
+        clearForceKillTimer(run);
+        activeAgentRuns.delete(operationId);
+      }
       logger?.info?.(`hetero exec exited (op=${operationId}) code=${code} signal=${signal}`);
     });
   });

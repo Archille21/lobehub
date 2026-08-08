@@ -12,6 +12,7 @@ import {
 } from '@lobechat/heterogeneous-agents';
 import type { AskUserBridge } from '@lobechat/heterogeneous-agents/askUser';
 import { LobeBuiltinMcpServer } from '@lobechat/heterogeneous-agents/builtinMcp';
+import { isHeteroExecCancelMessage } from '@lobechat/heterogeneous-agents/protocol';
 import { resolveHeteroSpawnCommand } from '@lobechat/heterogeneous-agents/resolveCliCommand';
 import type {
   AgentContentBlock,
@@ -341,11 +342,33 @@ class RawStreamDump {
 }
 
 const exec = async (options: ExecOptions): Promise<void> => {
+  let activeAgentKill: ((signal: NodeJS.Signals) => void) | undefined;
+  let ipcCancelSignal: NodeJS.Signals | undefined;
+  const onIpcMessage = (message: unknown) => {
+    if (
+      !isHeteroExecCancelMessage(message) ||
+      !options.operationId ||
+      message.operationId !== options.operationId ||
+      ipcCancelSignal
+    ) {
+      return;
+    }
+
+    ipcCancelSignal = message.signal;
+    activeAgentKill?.(message.signal);
+  };
+  process.on('message', onIpcMessage);
+
+  const exitProcess = (code: number): never => {
+    process.off('message', onIpcMessage);
+    process.exit(code);
+  };
+
   if (!isLocalHeterogeneousType(options.type)) {
     log.error(
       `Unsupported --type "${options.type}". Supported: ${[...SUPPORTED_AGENT_TYPES].join(', ')}`,
     );
-    process.exit(2);
+    exitProcess(2);
   }
 
   let resolved: ResolvedPrompt;
@@ -353,14 +376,14 @@ const exec = async (options: ExecOptions): Promise<void> => {
     resolved = await resolvePrompt(options);
   } catch (err) {
     log.error(err instanceof Error ? err.message : String(err));
-    process.exit(2);
+    exitProcess(2);
   }
 
   if (!resolved.describe()) {
     log.error(
       'Empty prompt. Pass --prompt <text>, --image <path>, --input-json <file|->, or pipe content via stdin.',
     );
-    process.exit(2);
+    exitProcess(2);
   }
 
   // Server-ingest mode is active when --topic is provided.
@@ -369,7 +392,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
   const serverIngest = !!options.topic;
   if (serverIngest && !options.operationId) {
     log.error('--operation-id is required when --topic is set (server-ingest mode).');
-    process.exit(2);
+    exitProcess(2);
   }
 
   const operationId = options.operationId || randomUUID();
@@ -612,7 +635,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
           // best-effort; process is exiting anyway
         }
       }
-      process.exit(1);
+      exitProcess(1);
     }
 
     // Always collect stderr — used for resume-error detection AND for
@@ -638,20 +661,24 @@ const exec = async (options: ExecOptions): Promise<void> => {
       return { code: 1, signal: null as NodeJS.Signals | null };
     });
 
+    const killAgent = (signal: NodeJS.Signals) => handle.kill(signal);
+    activeAgentKill = killAgent;
+
     // Ctrl-C → SIGINT to the child's process group.
     // Repeated Ctrl-C escalates to SIGKILL.
-    let interrupted = false;
+    let interrupted = ipcCancelSignal !== undefined;
+    if (ipcCancelSignal) killAgent(ipcCancelSignal);
     const onSigint = () => {
       if (interrupted) {
-        handle.kill('SIGKILL');
+        killAgent('SIGKILL');
         return;
       }
       interrupted = true;
-      handle.kill('SIGINT');
+      killAgent('SIGINT');
     };
     const onSigterm = () => {
       interrupted = true;
-      handle.kill('SIGTERM');
+      killAgent('SIGTERM');
     };
     process.on('SIGINT', onSigint);
     process.on('SIGTERM', onSigterm);
@@ -720,13 +747,14 @@ const exec = async (options: ExecOptions): Promise<void> => {
         }
       }
       await dumpAttempt?.close();
-      process.exit(1);
+      exitProcess(1);
     } finally {
       process.off('SIGINT', onSigint);
       process.off('SIGTERM', onSigterm);
     }
 
     const { code, signal } = await exit;
+    if (activeAgentKill === killAgent) activeAgentKill = undefined;
     await stderrEnded;
     await dumpAttempt?.close();
 
@@ -742,7 +770,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
     }
 
     return {
-      cancelled: interrupted,
+      cancelled: interrupted || ipcCancelSignal !== undefined,
       code,
       ingestError,
       resumeNotFound,
@@ -835,11 +863,16 @@ const exec = async (options: ExecOptions): Promise<void> => {
       result = { ...result, ingestError: true };
     }
 
+    // Cancellation can arrive after the native agent exits while its final
+    // event batch is still draining. Read the live IPC latch here rather than
+    // relying only on runOneAgent's earlier snapshot.
+    const cancelled = result.cancelled || ipcCancelSignal !== undefined;
+
     // CC relays API/rate-limit errors as an in-stream terminal `error` event but
     // still exits 0, so the exit code alone would report `success`. Treat any
     // pushed terminal error as a failed run so the topic/task is marked failed.
     const exitedClean =
-      !result.cancelled &&
+      !cancelled &&
       !result.ingestError &&
       !result.sawTerminalError &&
       (code === 0 || signal === 'SIGTERM');
@@ -858,7 +891,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
     // which would drop `agentType`/`code` and demote the client UI to the
     // generic error card.
     const finishError =
-      result.cancelled || exitedClean
+      cancelled || exitedClean
         ? undefined
         : result.terminalErrorData
           ? {
@@ -873,7 +906,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
     try {
       await sink.finish({
         error: finishError,
-        result: result.cancelled ? 'cancelled' : exitedClean ? 'success' : 'error',
+        result: cancelled ? 'cancelled' : exitedClean ? 'success' : 'error',
         sessionId,
       });
     } catch (err) {
@@ -891,11 +924,11 @@ const exec = async (options: ExecOptions): Promise<void> => {
   }
   if (askMcpConfigPath) await unlink(askMcpConfigPath).catch(() => {});
 
-  if (code !== null) process.exit(result.ingestError ? 1 : code);
-  if (signal === 'SIGINT') process.exit(130);
-  if (signal === 'SIGTERM') process.exit(143);
-  if (signal === 'SIGKILL') process.exit(137);
-  process.exit(1);
+  if (code !== null) exitProcess(result.ingestError ? 1 : code);
+  if (signal === 'SIGINT') exitProcess(130);
+  if (signal === 'SIGTERM') exitProcess(143);
+  if (signal === 'SIGKILL') exitProcess(137);
+  exitProcess(1);
 };
 
 export function registerHeteroCommand(program: Command) {

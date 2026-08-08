@@ -91,6 +91,8 @@ export interface CompleteOperationOptions {
    * dispatch-failure path, which surfaces a device-specific `detail`).
    */
   skipErrorMessageWrite?: boolean;
+  /** Persist the terminal operation row, then skip hooks and user-facing terminal effects. */
+  skipTerminalEffects?: boolean;
 }
 
 const toAgentSignalSnapshotEvents = (
@@ -574,7 +576,7 @@ export class CompletionLifecycle {
    */
   async completeOperation(
     input: OperationCompletionInput,
-    reason: 'done' | 'error',
+    reason: 'done' | 'error' | 'interrupted',
     options?: CompleteOperationOptions,
   ): Promise<void> {
     await this.dispatchHooks(input.operationId, this.buildStateFromInput(input), reason, options);
@@ -614,6 +616,7 @@ export class CompletionLifecycle {
       await this.persistCompletion(operationId, state, reason);
 
       if (isAsyncToolPark) return;
+      if (options?.skipTerminalEffects) return;
 
       // `lastAssistantContent` comes off the Redis-backed `state.messages`,
       // while the assistant message row is persisted through a separate

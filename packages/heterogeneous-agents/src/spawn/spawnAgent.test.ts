@@ -308,6 +308,39 @@ describe('spawnAgent', () => {
     expect(args[0]).toBe('exec');
   });
 
+  it('rejects an oversized Windows Kimi prompt before spawning the process', async () => {
+    platformMock.mockReturnValue('win32');
+    callExecFile('C:\\Tools\\kimi.exe\r\n');
+
+    const { spawnAgent } = await import('./spawnAgent');
+    await expect(
+      spawnAgent({
+        agentType: 'kimi-code',
+        operationId: 'op-1',
+        prompt: 'a'.repeat(33_000),
+      }),
+    ).rejects.toThrow(/Shorten the prompt or conversation context/);
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  it('kills the native agent tree but leaves the wrapper alive on Windows cancellation', async () => {
+    platformMock.mockReturnValue('win32');
+    callExecFile('C:\\Tools\\kimi.exe\r\n');
+    const fake = createFakeProc();
+    nextFakeProc = fake.proc;
+
+    const { spawnAgent } = await import('./spawnAgent');
+    const handle = await spawnAgent({ agentType: 'kimi-code', operationId: 'op-1', prompt: 'hi' });
+    handle.kill('SIGINT');
+
+    expect(spawnCalls[1]).toMatchObject({
+      args: ['/pid', '12345', '/T', '/F'],
+      command: 'taskkill',
+      options: { stdio: 'ignore' },
+    });
+    expect(fake.proc.kill).not.toHaveBeenCalled();
+  });
+
   it('uses codex `exec resume` form with thread id + `-` stdin marker on resume', async () => {
     const codexHome = await mkdtemp(path.join(os.tmpdir(), 'lobe-codex-spawn-empty-'));
     tempDirs.push(codexHome);
