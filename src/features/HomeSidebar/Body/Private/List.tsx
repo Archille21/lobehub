@@ -1,18 +1,16 @@
 'use client';
 
 import { Flexbox } from '@lobehub/ui';
-import isEqual from 'fast-deep-equal';
 import { MoreHorizontal } from 'lucide-react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHomeSidebarBuckets } from '@/client-data';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import SkeletonList from '@/features/NavPanel/components/SkeletonList';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 
 import CreateAgentButton from '../Agent/CreateAgentButton';
 import Group from '../Agent/List/Group';
@@ -30,11 +28,12 @@ interface PrivateListProps {
 // is always the viewer's own.
 const PrivateList = memo<PrivateListProps>(({ hideCreateButton, onMoreClick }) => {
   const { t } = useTranslation('chat');
-  const isInit = useHomeStore(homeAgentListSelectors.isAgentListInit);
-  const rawPrivatePinned = useHomeStore(homeAgentListSelectors.privatePinnedAgents, isEqual);
-  const rawPrivateGroups = useHomeStore(homeAgentListSelectors.privateAgentGroups, isEqual);
+  const buckets = useHomeSidebarBuckets();
+  const isInit = buckets.isReady;
+  const rawPrivatePinned = buckets.privatePinnedAgents;
+  const rawPrivateGroups = buckets.privateAgentGroups;
   const privateAgentPageSize = useGlobalStore(systemStatusSelectors.privateAgentPageSize);
-  const rawPrivateUngrouped = useHomeStore(homeAgentListSelectors.privateUngroupedAgents, isEqual);
+  const rawPrivateUngrouped = buckets.privateUngroupedAgents;
   const navigate = useWorkspaceAwareNavigate();
   const keep = useKeepSidebarListed();
   const keepGroups = useKeepSidebarGroupsListed();

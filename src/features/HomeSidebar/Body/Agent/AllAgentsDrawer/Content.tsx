@@ -1,14 +1,13 @@
 'use client';
 
 import { Flexbox } from '@lobehub/ui';
-import isEqual from 'fast-deep-equal';
 import { memo } from 'react';
 import { VList } from 'virtua';
 
+import { useHomeSidebarBuckets } from '@/client-data';
 import AgentSelectionEmpty from '@/features/AgentSelectionEmpty';
 import SkeletonList from '@/features/NavPanel/components/SkeletonList';
 import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 
 import GroupItem from '../List/AgentGroupItem';
 import AgentItem from '../List/AgentItem';
@@ -33,8 +32,7 @@ const Content = memo<ContentProps>(({ searchKeyword }) => {
     isSearching ? trimmedKeyword : undefined,
   );
 
-  // Get all agents from homeStore (ungrouped agents for default view)
-  const allUngroupedAgents = useHomeStore(homeAgentListSelectors.ungroupedAgents, isEqual);
+  const allUngroupedAgents = useHomeSidebarBuckets().ungroupedAgents;
 
   // The drawer is sidebar overflow, so it honors the caller's "removed from
   // my sidebar" list like every sidebar section — items hidden there are

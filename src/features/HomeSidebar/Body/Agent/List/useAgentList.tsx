@@ -1,12 +1,10 @@
 'use client';
 
-import isEqual from 'fast-deep-equal';
 import { useMemo } from 'react';
 
+import { useHomeSidebarBuckets } from '@/client-data';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 
 import { useSidebarGroupVisibility } from '../useSidebarGroupVisibility';
 import { useSidebarItemVisibility } from '../useSidebarItemVisibility';
@@ -51,14 +49,12 @@ export const useKeepSidebarGroupsListed = () => {
 // on every accordion expand and flash spinners across the sidebar.
 export const useAgentList = (limitDefault = true) => {
   const agentPageSize = useGlobalStore(systemStatusSelectors.agentPageSize);
-  const ungroupedAgents = useHomeStore(homeAgentListSelectors.ungroupedAgents, isEqual);
-  const agentGroups = useHomeStore(homeAgentListSelectors.agentGroups, isEqual);
-  const pinnedAgents = useHomeStore(homeAgentListSelectors.pinnedAgents, isEqual);
-  const privateAgentGroups = useHomeStore(homeAgentListSelectors.privateAgentGroups, isEqual);
-  const privateUngroupedAgents = useHomeStore(
-    homeAgentListSelectors.privateUngroupedAgents,
-    isEqual,
-  );
+  const buckets = useHomeSidebarBuckets();
+  const ungroupedAgents = buckets.ungroupedAgents;
+  const agentGroups = buckets.agentGroups;
+  const pinnedAgents = buckets.pinnedAgents;
+  const privateAgentGroups = buckets.privateAgentGroups;
+  const privateUngroupedAgents = buckets.privateUngroupedAgents;
   const keep = useKeepSidebarListed();
   const keepGroups = useKeepSidebarGroupsListed();
 

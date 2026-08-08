@@ -29,6 +29,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useAgentTransferMenuItem } from '@/business/client/hooks/useAgentTransferMenuItem';
+import { useHomeSidebarBuckets } from '@/client-data';
 import { openEditingPopover } from '@/features/EditingPopover/store';
 import { useOptionalAgentModal } from '@/features/HomeSidebar/Body/Agent/ModalProvider';
 import { useResourceAccess } from '@/features/ResourcePermission/useResourceAccess';
@@ -39,7 +40,7 @@ import { useResourceManageable } from '@/hooks/useResourceManageable';
 import { agentService } from '@/services/agent';
 import { useGlobalStore } from '@/store/global';
 import { useHomeStore } from '@/store/home';
-import { agentLabelSelectors, homeAgentListSelectors } from '@/store/home/selectors';
+import { agentLabelSelectors } from '@/store/home/selectors';
 import { useUserStore } from '@/store/user';
 import { userProfileSelectors } from '@/store/user/selectors';
 import { isForbiddenError, isOwnerOnlyForbiddenError } from '@/utils/forbiddenError';
@@ -95,12 +96,9 @@ export const useAgentDropdownMenu = ({
   // "Move to group" picker only offers same-scope targets — moving a private
   // agent into a public group (or vice versa) would orphan it from the view
   // it currently lives in.
-  const sessionCustomGroups = useHomeStore(
-    visibility === 'private'
-      ? homeAgentListSelectors.privateAgentGroups
-      : homeAgentListSelectors.agentGroups,
-    isEqual,
-  );
+  const buckets = useHomeSidebarBuckets();
+  const sessionCustomGroups =
+    visibility === 'private' ? buckets.privateAgentGroups : buckets.agentGroups;
   const refreshAgentList = useHomeStore((s) => s.refreshAgentList);
   const [pinAgent, duplicateAgent, updateAgentGroup, removeAgent, toggleAgentLabel] = useHomeStore(
     (s) => [s.pinAgent, s.duplicateAgent, s.updateAgentGroup, s.removeAgent, s.toggleAgentLabel],

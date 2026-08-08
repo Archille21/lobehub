@@ -5,11 +5,11 @@ import { type CSSProperties } from 'react';
 import { memo, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHomeSidebarBuckets } from '@/client-data';
 import NavItem from '@/features/NavPanel/components/NavItem';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
 import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 import { SessionDefaultGroup } from '@/types/session';
 
 import CreateAgentButton from '../CreateAgentButton';
@@ -35,7 +35,7 @@ const List = memo<SessionListProps>(
 
     // Check if this is defaultList and if there are more agents
     const isDefaultList = groupId === SessionDefaultGroup.Default;
-    const ungroupedAgents = useHomeStore(homeAgentListSelectors.ungroupedAgents);
+    const ungroupedAgents = useHomeSidebarBuckets().ungroupedAgents;
     const agentPageSize = useGlobalStore(systemStatusSelectors.agentPageSize);
     const openAllAgentsDrawer = useHomeStore((s) => s.openAllAgentsDrawer);
     const keep = useKeepSidebarListed();

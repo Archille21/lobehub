@@ -2,9 +2,8 @@
 
 import { memo, useMemo } from 'react';
 
+import { useHomeSidebarBuckets } from '@/client-data';
 import SkeletonList from '@/features/NavPanel/components/SkeletonList';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 import { useUserStore } from '@/store/user';
 import { authSelectors } from '@/store/user/slices/auth/selectors';
 import { SessionDefaultGroup } from '@/types/index';
@@ -30,7 +29,7 @@ interface AgentListContentProps {
 // re-fetch the list every time the accordion is expanded, animating the
 // spinner on both Public and Private headers for no good reason.
 const AgentListContent = memo<AgentListContentProps>(({ hideInbox, onMoreClick }) => {
-  const isInit = useHomeStore(homeAgentListSelectors.isAgentListInit);
+  const isInit = useHomeSidebarBuckets().isReady;
   const authLoaded = useUserStore(authSelectors.isLoaded);
   const isLogin = useUserStore(authSelectors.isLogin);
   const contentState = resolveAgentListContentState({

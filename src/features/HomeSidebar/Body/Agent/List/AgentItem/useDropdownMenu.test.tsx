@@ -98,13 +98,13 @@ vi.mock('@/store/home', () => ({
   useHomeStore: (selector: (state: typeof mocks.home) => unknown) => selector(mocks.home),
 }));
 
+vi.mock('@/client-data', () => ({
+  useHomeSidebarBuckets: () => ({ agentGroups: [], privateAgentGroups: [] }),
+}));
+
 vi.mock('@/store/home/selectors', () => ({
   agentLabelSelectors: {
     allLabels: () => [],
-  },
-  homeAgentListSelectors: {
-    agentGroups: () => [],
-    privateAgentGroups: () => [],
   },
 }));
 

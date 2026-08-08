@@ -2,15 +2,14 @@ import { type ModalProps, SortableList } from '@lobehub/ui';
 import { Flexbox, Icon } from '@lobehub/ui';
 import { Button } from '@lobehub/ui/base-ui';
 import { createStaticStyles } from 'antd-style';
-import isEqual from 'fast-deep-equal';
 import { Plus } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHomeSidebarBuckets } from '@/client-data';
 import ImperativeModal from '@/components/ImperativeModal';
 import { usePermission } from '@/hooks/usePermission';
 import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 import type { SessionGroupItemBase } from '@/types/session';
 
 import GroupItem from './GroupItem';
@@ -36,18 +35,17 @@ const ConfigGroupModal = memo<ConfigGroupModalProps>(({ open, onCancel, scope = 
   const { t } = useTranslation('chat');
   const { allowed: canEdit } = usePermission('edit_own_content');
   // Map SidebarGroup to SessionGroupItem-like structure for the sortable list
-  const sessionGroupItems = useHomeStore(
-    (s) =>
-      (scope === 'private'
-        ? homeAgentListSelectors.privateAgentGroups(s)
-        : homeAgentListSelectors.agentGroups(s)
-      ).map((g) => ({
+  const buckets = useHomeSidebarBuckets();
+  const agentGroups = scope === 'private' ? buckets.privateAgentGroups : buckets.agentGroups;
+  const sessionGroupItems = useMemo(
+    () =>
+      agentGroups.map((g) => ({
         id: g.id,
         name: g.name,
         sort: g.sort,
-      })),
-    isEqual,
-  ) as SessionGroupItemBase[];
+      })) as SessionGroupItemBase[],
+    [agentGroups],
+  );
   const [addGroup, updateGroupSort] = useHomeStore((s) => [s.addGroup, s.updateGroupSort]);
   const [loading, setLoading] = useState(false);
 
