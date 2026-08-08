@@ -156,4 +156,33 @@ describe('Home entity ingestors', () => {
       },
     ]);
   });
+
+  it('splits preview into preview/ownership/triggerInfo fragments', () => {
+    const commit = ingestHomeInboxTopics(
+      [
+        {
+          agentId: 'agent-1',
+          id: 'topic-1',
+          lastAssistantMessage: 'hello',
+          runStartedAt: null,
+          status: 'active',
+          title: 'T',
+          trigger: 'cron',
+          updatedAt: new Date('2026-01-01'),
+          userId: 'user-1',
+        } as never,
+      ],
+      { observedAt: 100, source: 'network' },
+    );
+
+    const record = commit.entities?.[0];
+    expect(record?.fragments).toMatchObject({
+      ownership: { data: { userId: 'user-1' } },
+      preview: { data: { lastAssistantMessage: 'hello' } },
+      triggerInfo: { data: { trigger: 'cron' } },
+    });
+    expect((record?.fragments as Record<string, unknown>).preview).not.toMatchObject({
+      data: { trigger: 'cron' },
+    });
+  });
 });

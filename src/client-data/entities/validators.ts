@@ -10,13 +10,22 @@ const ENTITY_FRAGMENTS: Record<string, ReadonlySet<string>> = {
   task: new Set(['assignment', 'description', 'display', 'identity', 'lifecycle']),
   topic: new Set([
     'activity',
+    'analytics',
+    'completion',
     'creation',
+    'details',
     'display',
+    'generation',
+    'marking',
     'navigation',
+    'ordering',
+    'ownership',
     'preview',
     'routing',
     'runTiming',
     'status',
+    'summary',
+    'triggerInfo',
   ]),
 };
 
