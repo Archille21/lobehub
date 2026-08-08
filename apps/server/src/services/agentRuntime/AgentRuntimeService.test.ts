@@ -3133,6 +3133,29 @@ describe('AgentRuntimeService', () => {
       expect(result.nextStepScheduled).toBe(true);
     });
 
+    it('finalizes the interrupted child operation row so it does not stay running forever', async () => {
+      // Regression: the terminal `agent_operations` write only runs in the
+      // child's own completion lifecycle — a child hung mid-step (the typical
+      // watchdog case) never reaches it, so after the interrupt nobody would
+      // flip the row and status-based consumers (analytics, high-step
+      // alerting) would see a zombie `running` op forever. The watchdog must
+      // finalize the row itself (conditional on `running`).
+      mockCoordinator.loadAgentState.mockResolvedValue({ status: 'running' });
+      vi.spyOn(service, 'interruptOperation').mockResolvedValue(true);
+      vi.spyOn(service, 'completeSubAgentBridge').mockResolvedValue(true);
+      const markSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'markInterruptedIfRunning')
+        .mockResolvedValue(true);
+
+      await service.executeStep({
+        operationId: 'child-op-1',
+        stepIndex: 0,
+        subAgentTimeout: timeoutParams,
+      } as any);
+
+      expect(markSpy).toHaveBeenCalledWith('child-op-1', 'timeout');
+    });
+
     it('does not overwrite a child that completed between the state load and the interrupt', async () => {
       // Regression (PR #18046 review): `interruptOperation` returns false when
       // the child turned terminal in between. Bridging `timeout` with the stale
@@ -3217,6 +3240,25 @@ describe('AgentRuntimeService', () => {
           reason: 'done',
         }),
       );
+    });
+
+    it('finalizes the interrupted member operation row so it does not stay running forever', async () => {
+      // Regression: group parity of the sub-agent watchdog row finalize — the
+      // member's own completion lifecycle never runs for a hung member.
+      mockCoordinator.loadAgentState.mockResolvedValue({ status: 'running' });
+      vi.spyOn(service, 'interruptOperation').mockResolvedValue(true);
+      vi.spyOn(service, 'completeGroupActionMember').mockResolvedValue(true);
+      const markSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'markInterruptedIfRunning')
+        .mockResolvedValue(true);
+
+      await service.executeStep({
+        groupMemberTimeout: timeoutParams,
+        operationId: 'member-op-1',
+        stepIndex: 0,
+      } as any);
+
+      expect(markSpy).toHaveBeenCalledWith('member-op-1', 'timeout');
     });
 
     it('bridges a timeout for an expired member state (lost bridge, state evicted)', async () => {

@@ -393,6 +393,37 @@ export class AgentOperationModel {
     return rows.length === 1;
   }
 
+  /**
+   * Finalize a watchdog-interrupted operation's row. The terminal
+   * `agent_operations` update normally runs in the operation's own completion
+   * lifecycle — a child hung mid-step (or whose process died) never reaches
+   * it, so without this its row stays `running` forever and status-based
+   * consumers (analytics, dashboards, high-step alerting) see a zombie run.
+   * Conditional on `running` so it never clobbers a terminal status the
+   * operation's own lifecycle wrote; if the child is merely slow, its own
+   * later wholesale-SET `recordCompletion` (with full aggregates) simply
+   * overwrites this sparse one.
+   */
+  async markInterruptedIfRunning(operationId: string, reason: string): Promise<boolean> {
+    const rows = await this.db
+      .update(agentOperations)
+      .set({
+        completedAt: new Date(),
+        completionReason: 'interrupted',
+        interruption: { canResume: false, interruptedAt: new Date().toISOString(), reason },
+        status: 'interrupted',
+      })
+      .where(
+        and(
+          eq(agentOperations.id, operationId),
+          eq(agentOperations.userId, this.userId),
+          eq(agentOperations.status, 'running'),
+        ),
+      )
+      .returning({ id: agentOperations.id });
+    return rows.length === 1;
+  }
+
   // ============================================
   // Verify (delivery checker)
   // ============================================

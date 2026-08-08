@@ -2748,6 +2748,7 @@ export class AgentRuntimeService {
           params.subAgentOperationId,
           params.parentOperationId,
         );
+        await this.finalizeInterruptedOperationRow(params.subAgentOperationId);
         const resumed = await this.completeSubAgentBridge({
           finalState: state,
           operationId: params.subAgentOperationId,
@@ -2796,6 +2797,25 @@ export class AgentRuntimeService {
       toolMessageId: params.toolMessageId,
     });
     return { nextStepScheduled: resumed, state: {}, success: true };
+  }
+
+  /**
+   * Best-effort repair of a watchdog-interrupted child's `agent_operations`
+   * row (see AgentOperationModel.markInterruptedIfRunning). A child the
+   * watchdog had to interrupt is typically hung mid-step or dead, so its own
+   * completion lifecycle — the only other writer of the terminal row — never
+   * runs and the row would stay `running` forever. Swallowed: a failed
+   * repair must not abort the bridge that unblocks the parent.
+   */
+  private async finalizeInterruptedOperationRow(operationId: string): Promise<void> {
+    try {
+      await new AgentOperationModel(this.serverDB, this.userId).markInterruptedIfRunning(
+        operationId,
+        'timeout',
+      );
+    } catch (error) {
+      log('[%s] failed to finalize interrupted op row (non-fatal): %O', operationId, error);
+    }
   }
 
   /**
@@ -2885,6 +2905,7 @@ export class AgentRuntimeService {
         params.parentOperationId,
       );
       await this.interruptOperation(params.memberOperationId);
+      await this.finalizeInterruptedOperationRow(params.memberOperationId);
     } else {
       log(
         '[%s] group-member timeout: member already terminal (%s), re-running bridge as repair',

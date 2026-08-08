@@ -251,6 +251,42 @@ describe('AgentOperationModel', () => {
     });
   });
 
+  describe('markInterruptedIfRunning', () => {
+    it('finalizes a running row as interrupted with the interruption payload', async () => {
+      const model = new AgentOperationModel(serverDB, userId);
+      const operationId = 'op-watchdog-interrupt';
+      await model.recordStart({ operationId });
+
+      expect(await model.markInterruptedIfRunning(operationId, 'timeout')).toBe(true);
+
+      const row = await model.findById(operationId);
+      expect(row?.status).toBe('interrupted');
+      expect(row?.completionReason).toBe('interrupted');
+      expect(row?.completedAt).toBeInstanceOf(Date);
+      expect(row?.interruption).toMatchObject({ canResume: false, reason: 'timeout' });
+    });
+
+    it('does not clobber a row the operation already finalized itself', async () => {
+      const model = new AgentOperationModel(serverDB, userId);
+      const operationId = 'op-watchdog-done';
+      await model.recordStart({ operationId });
+      await model.recordCompletion(operationId, { completionReason: 'done', status: 'done' });
+
+      expect(await model.markInterruptedIfRunning(operationId, 'timeout')).toBe(false);
+      expect((await model.findById(operationId))?.status).toBe('done');
+    });
+
+    it('does not finalize another user’s running row', async () => {
+      const ownerModel = new AgentOperationModel(serverDB, userId);
+      const attackerModel = new AgentOperationModel(serverDB, otherUserId);
+      const operationId = 'op-watchdog-cross-user';
+      await ownerModel.recordStart({ operationId });
+
+      expect(await attackerModel.markInterruptedIfRunning(operationId, 'timeout')).toBe(false);
+      expect((await ownerModel.findById(operationId))?.status).toBe('running');
+    });
+  });
+
   describe('sumChildUsage', () => {
     const seedChild = async (
       model: AgentOperationModel,
