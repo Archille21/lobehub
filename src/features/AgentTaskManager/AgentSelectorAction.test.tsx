@@ -27,7 +27,8 @@ const mocks = vi.hoisted(() => ({
   fetchAgentList: vi.fn(),
   homeState: {
     agentGroups: [] as any[],
-    isAgentListInit: true,
+    hasPrivateAgents: false,
+    isReady: true,
     pinnedAgents: [] as any[],
     privateAgentGroups: [] as any[],
     privatePinnedAgents: [] as any[],
@@ -126,15 +127,15 @@ vi.mock('@/store/agent', () => ({
     selector(mocks.agentState),
 }));
 
-vi.mock('@/store/home', () => ({
-  useHomeStore: (selector: (state: typeof mocks.homeState) => unknown) => selector(mocks.homeState),
+vi.mock('@/client-data', () => ({
+  useHomeSidebarBuckets: () => mocks.homeState,
 }));
 
 describe('AgentSelectorAction', () => {
   beforeEach(() => {
     mocks.fetchAgentList.mockClear();
     mocks.conversationState.context.agentId = 'agt_task';
-    mocks.homeState.isAgentListInit = true;
+    mocks.homeState.isReady = true;
     mocks.homeState.ungroupedAgents = [
       { id: 'agt_custom', title: 'Custom Agent', type: 'agent' },
       { id: 'grp_custom', title: 'Custom Group', type: 'group' },

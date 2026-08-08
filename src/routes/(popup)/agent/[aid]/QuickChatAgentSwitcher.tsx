@@ -9,14 +9,13 @@ import { MoreHorizontalIcon } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
 import { useParams } from 'react-router';
 
+import { useHomeSidebarBuckets } from '@/client-data';
 import { DEFAULT_AVATAR, DEFAULT_INBOX_AVATAR } from '@/const/meta';
 import { type SidebarAgentItem } from '@/database/repositories/home';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useFetchAgentList } from '@/hooks/useFetchAgentList';
 import { useAgentStore } from '@/store/agent';
 import { agentSelectors, builtinAgentSelectors } from '@/store/agent/selectors';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 
 const VISIBLE_LIMIT = 5;
 const AVATAR_SIZE = 30;
@@ -116,8 +115,9 @@ const useSwitchItems = (): SwitchItem[] => {
     (s) => (inboxAgentId ? agentSelectors.getAgentMetaById(inboxAgentId)(s) : undefined),
     isEqual,
   );
-  const pinned = useHomeStore(homeAgentListSelectors.pinnedAgents, isEqual);
-  const recent = useHomeStore(homeAgentListSelectors.ungroupedAgents, isEqual);
+  const buckets = useHomeSidebarBuckets();
+  const pinned = buckets.pinnedAgents;
+  const recent = buckets.ungroupedAgents;
 
   return useMemo(() => {
     const inbox: SwitchItem = {
@@ -187,7 +187,7 @@ const QuickChatAgentSwitcher = memo(() => {
     navigate(`/popup/agent/${item.navId}`, { replace: true });
   };
 
-  const isReady = useHomeStore(homeAgentListSelectors.isAgentListInit);
+  const isReady = useHomeSidebarBuckets().isReady;
   if (!isReady) return null;
 
   return (

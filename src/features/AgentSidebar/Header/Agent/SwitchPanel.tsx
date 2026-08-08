@@ -5,14 +5,13 @@ import { memo, Suspense, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
+import { useHomeSidebarBuckets } from '@/client-data';
 import AgentListContent from '@/features/HomeSidebar/Body/Agent/List/AgentListContent';
 import { AgentModalProvider } from '@/features/HomeSidebar/Body/Agent/ModalProvider';
 import PrivateList from '@/features/HomeSidebar/Body/Private/List';
 import SkeletonList from '@/features/NavPanel/components/SkeletonList';
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import { useFetchAgentList } from '@/hooks/useFetchAgentList';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 
 const styles = createStaticStyles(({ cssVar, css }) => ({
   sectionHeader: css`
@@ -50,7 +49,7 @@ const SwitchPanel = memo<PropsWithChildren>(({ children }) => {
   // Only show the "私人 / 工作区" split when the user actually has private
   // items in this workspace — a lone Private header above an empty section
   // would be noise.
-  const hasPrivateItems = useHomeStore(homeAgentListSelectors.hasPrivateAgents);
+  const hasPrivateItems = useHomeSidebarBuckets().hasPrivateAgents;
   const showPrivateSection = Boolean(activeWorkspaceId) && hasPrivateItems;
 
   const handleMoreClick = useCallback(() => navigate('/'), [navigate]);

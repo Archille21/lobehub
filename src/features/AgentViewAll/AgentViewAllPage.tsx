@@ -14,6 +14,7 @@ import { useSearchParams } from 'react-router';
 
 import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useWorkspaceMembers } from '@/business/client/hooks/useWorkspaceMembers';
+import { useHomeSidebarBuckets } from '@/client-data';
 import { useKeepSidebarGroupsListed } from '@/features/HomeSidebar/Body/Agent/List/useAgentList';
 import { AgentModalProvider } from '@/features/HomeSidebar/Body/Agent/ModalProvider';
 import { useSidebarItemVisibility } from '@/features/HomeSidebar/Body/Agent/useSidebarItemVisibility';
@@ -26,8 +27,6 @@ import { useFetchAgentList } from '@/hooks/useFetchAgentList';
 import { usePermission } from '@/hooks/usePermission';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 import { useUserStore } from '@/store/user';
 
 import AgentCard, { cardStyles } from './AgentCard';
@@ -186,16 +185,14 @@ const AgentViewAllPage = memo(() => {
   const useFetchWorkspaceUserPreference = useUserStore((s) => s.useFetchWorkspaceUserPreference);
   useFetchWorkspaceUserPreference();
 
-  const isInit = useHomeStore(homeAgentListSelectors.isAgentListInit);
-  const pinnedAgents = useHomeStore(homeAgentListSelectors.pinnedAgents, isEqual);
-  const agentGroups = useHomeStore(homeAgentListSelectors.agentGroups, isEqual);
-  const ungroupedAgents = useHomeStore(homeAgentListSelectors.ungroupedAgents, isEqual);
-  const privatePinnedAgents = useHomeStore(homeAgentListSelectors.privatePinnedAgents, isEqual);
-  const privateAgentGroups = useHomeStore(homeAgentListSelectors.privateAgentGroups, isEqual);
-  const privateUngroupedAgents = useHomeStore(
-    homeAgentListSelectors.privateUngroupedAgents,
-    isEqual,
-  );
+  const buckets = useHomeSidebarBuckets();
+  const isInit = buckets.isReady;
+  const pinnedAgents = buckets.pinnedAgents;
+  const agentGroups = buckets.agentGroups;
+  const ungroupedAgents = buckets.ungroupedAgents;
+  const privatePinnedAgents = buckets.privatePinnedAgents;
+  const privateAgentGroups = buckets.privateAgentGroups;
+  const privateUngroupedAgents = buckets.privateUngroupedAgents;
 
   const { isSidebarItemVisible, setSidebarItemVisible } = useSidebarItemVisibility();
   const keepGroups = useKeepSidebarGroupsListed();

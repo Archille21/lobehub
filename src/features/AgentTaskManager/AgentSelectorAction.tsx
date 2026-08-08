@@ -1,11 +1,11 @@
 import { agentDisplayName } from '@lobechat/types';
 import { Center, Flexbox, Popover } from '@lobehub/ui';
 import { createStaticStyles, cx } from 'antd-style';
-import isEqual from 'fast-deep-equal';
 import { ChevronsUpDownIcon } from 'lucide-react';
 import { memo, Suspense, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHomeSidebarBuckets } from '@/client-data';
 import { type SidebarAgentItem } from '@/database/repositories/home';
 import { conversationSelectors, useConversationStore } from '@/features/Conversation';
 import AgentAvatar from '@/features/HomeSidebar/Body/Agent/List/AgentItem/Avatar';
@@ -15,8 +15,6 @@ import AgentItem from '@/features/PageEditor/Copilot/AgentSelector/AgentItem';
 import { useFetchAgentList } from '@/hooks/useFetchAgentList';
 import { useAgentStore } from '@/store/agent';
 import { builtinAgentSelectors } from '@/store/agent/selectors';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 
 const styles = createStaticStyles(({ css, cssVar }) => ({
   chevron: css`
@@ -54,17 +52,15 @@ const AgentSelectorAction = memo<AgentSelectorActionProps>(({ onAgentChange }) =
   const [open, setOpen] = useState(false);
   const agentId = useConversationStore(conversationSelectors.agentId);
 
-  const pinnedAgents = useHomeStore(homeAgentListSelectors.pinnedAgents, isEqual);
-  const agentGroups = useHomeStore(homeAgentListSelectors.agentGroups, isEqual);
-  const ungroupedAgents = useHomeStore(homeAgentListSelectors.ungroupedAgents, isEqual);
-  const privateAgentGroups = useHomeStore(homeAgentListSelectors.privateAgentGroups, isEqual);
-  const privatePinnedAgents = useHomeStore(homeAgentListSelectors.privatePinnedAgents, isEqual);
-  const privateUngroupedAgents = useHomeStore(
-    homeAgentListSelectors.privateUngroupedAgents,
-    isEqual,
-  );
-  const hasPrivateAgents = useHomeStore(homeAgentListSelectors.hasPrivateAgents);
-  const isAgentListInit = useHomeStore(homeAgentListSelectors.isAgentListInit);
+  const buckets = useHomeSidebarBuckets();
+  const pinnedAgents = buckets.pinnedAgents;
+  const agentGroups = buckets.agentGroups;
+  const ungroupedAgents = buckets.ungroupedAgents;
+  const privateAgentGroups = buckets.privateAgentGroups;
+  const privatePinnedAgents = buckets.privatePinnedAgents;
+  const privateUngroupedAgents = buckets.privateUngroupedAgents;
+  const hasPrivateAgents = buckets.hasPrivateAgents;
+  const isAgentListInit = buckets.isReady;
   const taskAgentId = useAgentStore(builtinAgentSelectors.taskAgentId);
   const taskAgentData = useAgentStore((s) => s.agentMap[taskAgentId || '']);
 

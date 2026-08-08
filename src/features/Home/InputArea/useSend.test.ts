@@ -41,19 +41,12 @@ const fileState = vi.hoisted(() => ({
 }));
 
 const homeState = vi.hoisted(() => ({
-  agentGroups: [],
   homeInputLoading: false,
   inputActiveMode: null as any,
-  isAgentListInit: true,
-  pinnedAgents: [],
-  privateAgentGroups: [],
-  privatePinnedAgents: [],
-  privateUngroupedAgents: [],
   sendAsAgent: vi.fn(),
   sendAsGroup: vi.fn(),
   sendAsResearch: vi.fn(),
   sendAsWrite: vi.fn(),
-  ungroupedAgents: [] as any[],
 }));
 
 const agentState = vi.hoisted(() => ({
@@ -195,7 +188,6 @@ describe('Home InputArea useSend', () => {
     fileState.chatContextSelectionsByContext = {};
     fileState.chatUploadFileList = [];
     homeState.inputActiveMode = null;
-    homeState.ungroupedAgents = [];
     globalState.systemStatus.homeSelectedAgentId = undefined;
     delete agentState.agentMap.agt_custom;
     activeWorkspaceSlugMock.value = null;
@@ -205,7 +197,6 @@ describe('Home InputArea useSend', () => {
   it('creates and starts a private workspace task with the selected Agent', async () => {
     activeWorkspaceIdMock.value = 'workspace-1';
     globalState.systemStatus.homeSelectedAgentId = 'agt_custom';
-    homeState.ungroupedAgents = [{ id: 'agt_custom', type: 'agent' }];
     agentState.agentMap.agt_custom = {};
     createTaskMock.mockResolvedValue({
       assigneeAgentId: 'agt_custom',
@@ -380,7 +371,6 @@ describe('Home InputArea useSend', () => {
 
   it('sends chat-mode messages to the Agent selected on Home', async () => {
     globalState.systemStatus.homeSelectedAgentId = 'agt_custom';
-    homeState.ungroupedAgents = [{ id: 'agt_custom', type: 'agent' }];
     agentState.agentMap.agt_custom = {};
 
     const { result } = renderHook(() => useSend('chat'));

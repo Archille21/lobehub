@@ -3,15 +3,13 @@
 import { agentDisplayName } from '@lobechat/types';
 import { Flexbox, SearchBar, Skeleton, Text } from '@lobehub/ui';
 import { createStaticStyles } from 'antd-style';
-import isEqual from 'fast-deep-equal';
 import { type ChangeEvent } from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Virtuoso } from 'react-virtuoso';
 
+import { useHomeSidebarBuckets } from '@/client-data';
 import AgentSelectionEmpty from '@/features/AgentSelectionEmpty';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 
 import { type AgentItemData } from './AgentItem';
 import AgentItem from './AgentItem';
@@ -51,9 +49,10 @@ const AvailableAgentList = memo<AvailableAgentListProps>(({ agents, isLoading })
   // Mirror the CreateGroupModal split: derive private agent ids from the home
   // store so we can bucket the modal's flat list into private/workspace
   // sections without changing the shared `AvailableAgentItem` payload.
-  const privateGroups = useHomeStore(homeAgentListSelectors.privateAgentGroups, isEqual);
-  const privatePinned = useHomeStore(homeAgentListSelectors.privatePinnedAgents, isEqual);
-  const privateUngrouped = useHomeStore(homeAgentListSelectors.privateUngroupedAgents, isEqual);
+  const buckets = useHomeSidebarBuckets();
+  const privateGroups = buckets.privateAgentGroups;
+  const privatePinned = buckets.privatePinnedAgents;
+  const privateUngrouped = buckets.privateUngroupedAgents;
   const privateAgentIds = useMemo(() => {
     const ids = new Set<string>();
     for (const g of privateGroups) for (const a of g.items) ids.add(a.id);

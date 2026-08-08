@@ -2,18 +2,16 @@ import { agentDisplayName } from '@lobechat/types';
 import { Avatar, Flexbox, Icon } from '@lobehub/ui';
 import { SkillsIcon } from '@lobehub/ui/icons';
 import { cssVar } from 'antd-style';
-import isEqual from 'fast-deep-equal';
 import { Bot, Lock, MessageSquareText, Users, Wrench } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useHomeSidebarBuckets } from '@/client-data';
 import type { SidebarAgentItem } from '@/database/repositories/home';
 import { useChatStore } from '@/store/chat';
 import { topicSelectors } from '@/store/chat/selectors';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
-import { useHomeStore } from '@/store/home';
-import { homeAgentListSelectors } from '@/store/home/selectors';
 
 import { useAgentId } from '../hooks/useAgentId';
 import { useChatInputStore } from '../store';
@@ -28,12 +26,13 @@ type MenuOptionWithMetadata = { key: string; metadata?: Record<string, unknown> 
 export const useMentionCategories = (): MentionCategory[] => {
   const { t } = useTranslation('chat');
   const currentAgentId = useAgentId();
-  const pinnedAgents = useHomeStore(homeAgentListSelectors.pinnedAgents, isEqual);
-  const workspaceGroups = useHomeStore(homeAgentListSelectors.agentGroups, isEqual);
-  const workspaceUngrouped = useHomeStore(homeAgentListSelectors.ungroupedAgents, isEqual);
-  const privateGroups = useHomeStore(homeAgentListSelectors.privateAgentGroups, isEqual);
-  const privatePinned = useHomeStore(homeAgentListSelectors.privatePinnedAgents, isEqual);
-  const privateUngrouped = useHomeStore(homeAgentListSelectors.privateUngroupedAgents, isEqual);
+  const buckets = useHomeSidebarBuckets();
+  const pinnedAgents = buckets.pinnedAgents;
+  const workspaceGroups = buckets.agentGroups;
+  const workspaceUngrouped = buckets.ungroupedAgents;
+  const privateGroups = buckets.privateAgentGroups;
+  const privatePinned = buckets.privatePinnedAgents;
+  const privateUngrouped = buckets.privateUngroupedAgents;
 
   const topicPageSize = useGlobalStore(systemStatusSelectors.topicPageSize);
   const topicsSelector = useMemo(
