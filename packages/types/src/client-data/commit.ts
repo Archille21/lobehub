@@ -1,9 +1,10 @@
 import type { EntityTombstone } from '../entity';
 import type { ClientDataEntityKind, ClientDataEntityRecord } from './entities';
+import type { ChatIndexMap } from './modules/chat';
 import type { HomeIndexMap, HomeSnapshotMap } from './modules/home';
 
 /** Application-wide registry. Extend these maps when another data module is migrated. */
-export interface ClientDataIndexMap extends HomeIndexMap {}
+export type ClientDataIndexMap = HomeIndexMap & ChatIndexMap;
 export interface ClientDataSnapshotMap extends HomeSnapshotMap {}
 
 export type ClientDataIndexKey = keyof ClientDataIndexMap;
