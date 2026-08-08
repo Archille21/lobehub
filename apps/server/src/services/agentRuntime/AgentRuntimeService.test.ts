@@ -2581,8 +2581,22 @@ describe('AgentRuntimeService', () => {
       toolMessageId: 'tool-msg-1',
     };
 
-    it('no-ops when the child already reached a terminal state', async () => {
+    const mockPlaceholder = (opts: { fulfilled: boolean }) => {
+      (service as any).messageModel.findById = vi
+        .fn()
+        .mockResolvedValue({ content: opts.fulfilled ? 'answer' : '' });
+      (service as any).serverDB.query = {
+        messagePlugins: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ state: { status: opts.fulfilled ? 'completed' : 'loading' } }),
+        },
+      };
+    };
+
+    it('no-ops when the child is terminal and the placeholder is already fulfilled', async () => {
       mockCoordinator.loadAgentState.mockResolvedValue({ status: 'done' });
+      mockPlaceholder({ fulfilled: true });
       const interruptSpy = vi.spyOn(service, 'interruptOperation');
       const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge');
 
@@ -2596,6 +2610,29 @@ describe('AgentRuntimeService', () => {
       expect(result.nextStepScheduled).toBe(false);
       expect(interruptSpy).not.toHaveBeenCalled();
       expect(bridgeSpy).not.toHaveBeenCalled();
+    });
+
+    it('re-bridges a terminal child when its completion bridge was lost', async () => {
+      // Regression (PR #18046 review): the watchdog is the parent-side fallback
+      // for a lost queue-mode `subagent-callback` delivery. A terminal child
+      // with an unfulfilled placeholder means the parent was never woken — the
+      // watchdog must bridge the child's real outcome, not stand down.
+      mockCoordinator.loadAgentState.mockResolvedValue({ status: 'done' });
+      mockPlaceholder({ fulfilled: false });
+      const interruptSpy = vi.spyOn(service, 'interruptOperation');
+      const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge').mockResolvedValue(true);
+
+      const result = await service.executeStep({
+        operationId: 'child-op-1',
+        stepIndex: 0,
+        subAgentTimeout: timeoutParams,
+      } as any);
+
+      expect(interruptSpy).not.toHaveBeenCalled();
+      expect(bridgeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ operationId: 'child-op-1', reason: 'done' }),
+      );
+      expect(result.nextStepScheduled).toBe(true);
     });
 
     it('interrupts the child and bridges a timeout when it is still running', async () => {
@@ -2618,6 +2655,48 @@ describe('AgentRuntimeService', () => {
           threadId: 'thread-1',
           toolMessageId: 'tool-msg-1',
         }),
+      );
+      expect(result.nextStepScheduled).toBe(true);
+    });
+
+    it('does not overwrite a child that completed between the state load and the interrupt', async () => {
+      // Regression (PR #18046 review): `interruptOperation` returns false when
+      // the child turned terminal in between. Bridging `timeout` with the stale
+      // running snapshot would overwrite a successful result — the watchdog
+      // must reload and defer to the fulfilled placeholder instead.
+      mockCoordinator.loadAgentState
+        .mockResolvedValueOnce({ status: 'running' })
+        .mockResolvedValueOnce({ status: 'done' });
+      mockPlaceholder({ fulfilled: true });
+      const interruptSpy = vi.spyOn(service, 'interruptOperation').mockResolvedValue(false);
+      const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge');
+
+      const result = await service.executeStep({
+        operationId: 'child-op-1',
+        stepIndex: 0,
+        subAgentTimeout: timeoutParams,
+      } as any);
+
+      expect(interruptSpy).toHaveBeenCalledWith('child-op-1');
+      expect(bridgeSpy).not.toHaveBeenCalled();
+      expect(result.nextStepScheduled).toBe(false);
+    });
+
+    it('bridges a timeout for an expired child state with an unfulfilled placeholder', async () => {
+      // State expired from Redis AND the placeholder was never backfilled —
+      // without this bridge the parked parent would wait forever.
+      mockCoordinator.loadAgentState.mockResolvedValue(null);
+      mockPlaceholder({ fulfilled: false });
+      const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge').mockResolvedValue(true);
+
+      const result = await service.executeStep({
+        operationId: 'child-op-1',
+        stepIndex: 0,
+        subAgentTimeout: timeoutParams,
+      } as any);
+
+      expect(bridgeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ finalState: undefined, reason: 'timeout' }),
       );
       expect(result.nextStepScheduled).toBe(true);
     });

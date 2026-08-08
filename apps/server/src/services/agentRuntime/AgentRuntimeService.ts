@@ -2513,21 +2513,58 @@ export class AgentRuntimeService {
   }
 
   /**
-   * Enforce a `callSubAgent` child's timeout. No-op if the child already reached
-   * a terminal state (its own completion bridge handles that). Otherwise
-   * interrupt the child and bridge a `timeout` completion — backfilling the
-   * parent's placeholder tool message and resuming the parked parent. The
-   * child's own interrupt bridge may also fire; both are idempotent (backfill
-   * rewrite + CAS-guarded resume).
+   * Enforce a `callSubAgent` child's timeout. If the child is still running,
+   * interrupt it and bridge a `timeout` completion — backfilling the parent's
+   * placeholder tool message and resuming the parked parent. If the child
+   * already reached a terminal state, its own completion bridge normally
+   * handled the parent — but that bridge can be lost (e.g. a dropped
+   * queue-mode `subagent-callback` delivery), so the watchdog only stands
+   * down when the placeholder is actually fulfilled; otherwise it bridges the
+   * child's real terminal outcome. All paths are idempotent against the
+   * child's own bridge (backfill rewrite + CAS-guarded resume).
    */
   private async handleSubAgentTimeout(
     params: SubAgentTimeoutParams,
   ): Promise<AgentExecutionResult> {
-    const state = await this.coordinator.loadAgentState(params.subAgentOperationId);
-    const status = state?.status as string | undefined;
-    if (!state || status === 'done' || status === 'error' || status === 'interrupted') {
+    const isTerminal = (s?: string): boolean =>
+      s === 'done' || s === 'error' || s === 'interrupted';
+
+    let state = await this.coordinator.loadAgentState(params.subAgentOperationId);
+    let status = state?.status as string | undefined;
+
+    if (state && !isTerminal(status)) {
+      // `interruptOperation` re-checks the status under a fresh load: false
+      // means the child reached a terminal state between the load above and
+      // here. Fall through to the terminal handling with a reloaded state so
+      // a just-completed answer isn't overwritten by a timeout error.
+      const interrupted = await this.interruptOperation(params.subAgentOperationId);
+      if (interrupted) {
+        log(
+          '[%s] sub-agent timeout fired, interrupting + bridging timeout to parent %s',
+          params.subAgentOperationId,
+          params.parentOperationId,
+        );
+        const resumed = await this.completeSubAgentBridge({
+          finalState: state,
+          operationId: params.subAgentOperationId,
+          parentOperationId: params.parentOperationId,
+          reason: 'timeout',
+          threadId: params.threadId,
+          toolMessageId: params.toolMessageId,
+        });
+        return { nextStepScheduled: resumed, state: {}, success: true };
+      }
+      state = await this.coordinator.loadAgentState(params.subAgentOperationId);
+      status = state?.status as string | undefined;
+    }
+
+    // Terminal (or expired) child. Stand down only when the placeholder was
+    // actually backfilled — this watchdog doubles as the parent-side fallback
+    // for a lost completion bridge, so "terminal" alone doesn't prove the
+    // parent was ever woken.
+    if (await this.isToolMessageFulfilled(params.toolMessageId)) {
       log(
-        '[%s] sub-agent timeout: child already terminal (%s), no-op',
+        '[%s] sub-agent timeout: child terminal (%s) and placeholder fulfilled, no-op',
         params.subAgentOperationId,
         status,
       );
@@ -2535,22 +2572,37 @@ export class AgentRuntimeService {
     }
 
     log(
-      '[%s] sub-agent timeout fired, interrupting + bridging timeout to parent %s',
+      '[%s] sub-agent timeout: child terminal (%s) but placeholder unfulfilled, re-bridging to parent %s',
       params.subAgentOperationId,
+      status,
       params.parentOperationId,
     );
-    await this.interruptOperation(params.subAgentOperationId);
-
     const resumed = await this.completeSubAgentBridge({
-      finalState: state,
+      finalState: state ?? undefined,
       operationId: params.subAgentOperationId,
       parentOperationId: params.parentOperationId,
-      reason: 'timeout',
+      // Bridge the child's real outcome when its state is still known; an
+      // expired state degrades to the timeout error note.
+      reason: isTerminal(status) ? (status as string) : 'timeout',
       threadId: params.threadId,
       toolMessageId: params.toolMessageId,
     });
-
     return { nextStepScheduled: resumed, state: {}, success: true };
+  }
+
+  /**
+   * Whether a placeholder `role: 'tool'` message has been fulfilled — same
+   * semantics as {@link allPendingToolsFulfilled}, keyed by message id: content
+   * is non-empty or the plugin state reached a terminal status.
+   */
+  private async isToolMessageFulfilled(messageId: string): Promise<boolean> {
+    const message = await this.messageModel.findById(messageId);
+    if (message?.content && message.content.length > 0) return true;
+    const plugin = await this.serverDB.query.messagePlugins.findFirst({
+      where: (mp, { eq }) => eq(mp.id, messageId),
+    });
+    const pluginState = plugin?.state as { status?: string } | null;
+    return pluginState?.status === 'completed' || pluginState?.status === 'error';
   }
 
   /**
