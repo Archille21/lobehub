@@ -105,6 +105,7 @@ import { TopicModel } from '@/database/models/topic';
 import { UserModel } from '@/database/models/user';
 import { UserPersonaModel } from '@/database/models/userMemory/persona';
 import { WorkspaceUserSettingsModel } from '@/database/models/workspaceUserSettings';
+import { appEnv } from '@/envs/app';
 import { toolsEnv } from '@/envs/tools';
 import {
   type ExecutionPlan,
@@ -5067,6 +5068,10 @@ export class AiAgentService {
       autoStart: true,
       chatConfigOverride: options.chatConfig,
       hooks,
+      // No default step bound — a high step count is not itself a failure
+      // signal, and runaway children are bounded by the timeout watchdog.
+      // Self-hosters can opt into a cap via SUB_AGENT_MAX_STEPS.
+      maxSteps: appEnv.SUB_AGENT_MAX_STEPS,
       // Explicit sub-agent model override resolved at the spawn site.
       model: options.model,
       parentOperationId,
@@ -5142,7 +5147,9 @@ export class AiAgentService {
             threadId: thread.id,
             toolMessageId: parentMessageId,
           },
-          timeout && timeout > 0 ? timeout : SUB_AGENT_DEFAULT_TIMEOUT_MS,
+          timeout && timeout > 0
+            ? timeout
+            : (appEnv.SUB_AGENT_TIMEOUT_MS ?? SUB_AGENT_DEFAULT_TIMEOUT_MS),
         );
       }
     }

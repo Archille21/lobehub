@@ -85,6 +85,17 @@ export const getAppConfig = () => {
        * @default false
        */
       enableQueueAgentRuntime: z.boolean().optional(),
+      /**
+       * Default `maxSteps` for isolated sub-agent runs (`callSubAgent` children,
+       * `callAgent` targets). Unset = no step bound, matching server-side main
+       * agent runs.
+       */
+      SUB_AGENT_MAX_STEPS: z.number().int().positive().optional(),
+      /**
+       * Default hard timeout (in milliseconds) for isolated sub-agent runs when
+       * the tool call passes no explicit `timeout`. Unset = 30 minutes.
+       */
+      SUB_AGENT_TIMEOUT_MS: z.number().int().positive().optional(),
       TELEMETRY_DISABLED: z.boolean().optional(),
     },
     runtimeEnv: {
@@ -125,6 +136,12 @@ export const getAppConfig = () => {
       ENABLE_AGENT_GATEWAY: process.env.ENABLE_AGENT_GATEWAY === '1',
       AGENT_GATEWAY_URL: process.env.AGENT_GATEWAY_URL,
       enableQueueAgentRuntime: process.env.AGENT_RUNTIME_MODE === 'queue',
+      SUB_AGENT_MAX_STEPS: process.env.SUB_AGENT_MAX_STEPS
+        ? Number(process.env.SUB_AGENT_MAX_STEPS)
+        : undefined,
+      SUB_AGENT_TIMEOUT_MS: process.env.SUB_AGENT_TIMEOUT_MS
+        ? Number(process.env.SUB_AGENT_TIMEOUT_MS)
+        : undefined,
       TELEMETRY_DISABLED: process.env.TELEMETRY_DISABLED === '1',
     },
   });

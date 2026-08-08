@@ -4,6 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AiAgentService } from '../index';
 
+// Mutable env mock so tests can toggle the self-host overrides
+// (SUB_AGENT_MAX_STEPS / SUB_AGENT_TIMEOUT_MS).
+const mockAppEnv = vi.hoisted(() => ({}) as Record<string, unknown>);
+
+vi.mock('@/envs/app', () => ({ appEnv: mockAppEnv }));
+
 // Mock trusted client to avoid server-side env access
 vi.mock('@/libs/trusted-client', () => ({
   generateTrustedClientToken: vi.fn().mockReturnValue(undefined),
@@ -114,6 +120,7 @@ describe('AiAgentService.execSubAgent', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    for (const key of Object.keys(mockAppEnv)) delete mockAppEnv[key];
 
     // Reset mock implementations
     mockThreadModel.create.mockResolvedValue({
@@ -346,6 +353,62 @@ describe('AiAgentService.execSubAgent', () => {
       });
 
       expect(mockScheduleSubAgentTimeout).toHaveBeenCalledWith(expect.anything(), 120_000);
+    });
+
+    it('uses the SUB_AGENT_TIMEOUT_MS env override when the tool call passes no timeout', async () => {
+      mockAppEnv.SUB_AGENT_TIMEOUT_MS = 600_000;
+      vi.spyOn(service, 'execAgent').mockResolvedValue({
+        agentId: 'agent-1',
+        assistantMessageId: 'assistant-msg-1',
+        autoStarted: true,
+        createdAt: new Date().toISOString(),
+        message: 'Agent operation created successfully',
+        messageId: 'queue-msg-1',
+        operationId: 'op-123',
+        status: 'created',
+        success: true,
+        timestamp: new Date().toISOString(),
+        topicId: 'topic-1',
+        userMessageId: 'user-msg-1',
+      });
+
+      await service.execVirtualSubAgent({
+        agentId: 'agent-1',
+        instruction: 'Nested research task',
+        parentMessageId: 'tool-msg-1',
+        parentOperationId: 'parent-op-1',
+        topicId: 'topic-1',
+      });
+
+      expect(mockScheduleSubAgentTimeout).toHaveBeenCalledWith(expect.anything(), 600_000);
+    });
+
+    it('applies the SUB_AGENT_MAX_STEPS env override to child runs', async () => {
+      mockAppEnv.SUB_AGENT_MAX_STEPS = 200;
+      const execAgentSpy = vi.spyOn(service, 'execAgent').mockResolvedValue({
+        agentId: 'agent-1',
+        assistantMessageId: 'assistant-msg-1',
+        autoStarted: true,
+        createdAt: new Date().toISOString(),
+        message: 'Agent operation created successfully',
+        messageId: 'queue-msg-1',
+        operationId: 'op-123',
+        status: 'created',
+        success: true,
+        timestamp: new Date().toISOString(),
+        topicId: 'topic-1',
+        userMessageId: 'user-msg-1',
+      });
+
+      await service.execVirtualSubAgent({
+        agentId: 'agent-1',
+        instruction: 'Nested research task',
+        parentMessageId: 'tool-msg-1',
+        parentOperationId: 'parent-op-1',
+        topicId: 'topic-1',
+      });
+
+      expect(execAgentSpy).toHaveBeenCalledWith(expect.objectContaining({ maxSteps: 200 }));
     });
 
     it('does not schedule the sub-agent timeout watchdog for non-bridged execSubAgent runs', async () => {
