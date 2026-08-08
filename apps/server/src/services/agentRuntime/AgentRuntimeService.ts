@@ -2274,12 +2274,14 @@ export class AgentRuntimeService {
     // because bridge redelivery retries it and the parent's own result is
     // already backfilled above.
     try {
-      const threadStatus =
-        reason === 'done'
-          ? ThreadStatus.Completed
-          : reason === 'error'
-            ? ThreadStatus.Failed
-            : ThreadStatus.Cancel; // interrupted / timeout
+      // Keyed off `failed` so the status agrees with the backfill above:
+      // success-like caps (done / max_steps / cost_limit) are Completed, not
+      // Cancel — a capped child still delivered a successful tool result.
+      const threadStatus = failed
+        ? reason === 'error'
+          ? ThreadStatus.Failed
+          : ThreadStatus.Cancel // interrupted / timeout
+        : ThreadStatus.Completed;
       const threadModel = new ThreadModel(this.serverDB, this.userId, this.workspaceId);
       const thread = await threadModel.findById(threadId);
       const threadMetadata: Record<string, any> = {

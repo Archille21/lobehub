@@ -2540,6 +2540,11 @@ describe('AgentRuntimeService', () => {
         ['interrupted', ThreadStatus.Cancel],
         ['error', ThreadStatus.Failed],
         ['done', ThreadStatus.Completed],
+        // Success-like caps (PR #18046 review round 5): a child capped by
+        // SUB_AGENT_MAX_STEPS or a cost limit backfills a successful tool
+        // result, so its thread must read Completed, not Cancel.
+        ['max_steps', ThreadStatus.Completed],
+        ['cost_limit', ThreadStatus.Completed],
       ] as const) {
         threadModelUpdate.mockClear();
         await service.completeSubAgentBridge({
