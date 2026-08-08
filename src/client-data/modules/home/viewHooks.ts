@@ -16,9 +16,9 @@ import isEqual from 'fast-deep-equal';
 import { useMemo } from 'react';
 import { shallow } from 'zustand/shallow';
 
-import { getCacheScope, useCacheScope } from '@/libs/swr/useCacheScope';
+import { useCacheScope } from '@/libs/swr/useCacheScope';
 
-import { getClientDataStoreState, useClientDataStore } from '../../store';
+import { useClientDataStore } from '../../store';
 import {
   compareHomeNeedsYouBriefs,
   type HomeBriefSection,
@@ -306,6 +306,3 @@ export const useHomeSidebarAgentById = (id: string | undefined): SidebarAgentIte
     isEqual,
   );
 };
-
-export const getHomeSidebarAllAgents = (): SidebarAgentItem[] =>
-  selectHomeSidebarAllAgents(getClientDataStoreState().scopes[getCacheScope()]);

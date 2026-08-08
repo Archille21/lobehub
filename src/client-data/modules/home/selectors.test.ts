@@ -2,6 +2,7 @@ import type {
   AgentEntityRecord,
   BriefItem,
   HomeRecentItem,
+  SidebarAgentItem,
   SidebarAgentListResponse,
 } from '@lobechat/types';
 import { describe, expect, it } from 'vitest';
@@ -25,27 +26,43 @@ import {
 
 const networkObservation = { observedAt: 100, source: 'network' as const };
 
+const pinnedAgentOne: SidebarAgentItem = {
+  avatar: 'avatar.png',
+  backgroundColor: '#fff',
+  description: 'Description',
+  heterogeneousType: null,
+  id: 'agent-1',
+  pinned: true,
+  sessionId: 'session-1',
+  slug: 'agent-one',
+  title: 'Agent One',
+  type: 'agent',
+  updatedAt: new Date('2026-07-31T00:00:00.000Z'),
+  userId: 'user-1',
+  visibility: 'public',
+};
+
+const privatePinnedAgentTwo: SidebarAgentItem = {
+  avatar: 'private-avatar.png',
+  backgroundColor: '#000',
+  description: 'Private description',
+  heterogeneousType: null,
+  id: 'agent-2',
+  pinned: true,
+  sessionId: 'session-2',
+  slug: 'agent-two',
+  title: 'Agent Two',
+  type: 'agent',
+  updatedAt: new Date('2026-07-31T00:00:00.000Z'),
+  userId: 'user-1',
+  visibility: 'private',
+};
+
 const sidebarResponse: SidebarAgentListResponse = {
   groups: [],
-  pinned: [
-    {
-      avatar: 'avatar.png',
-      backgroundColor: '#fff',
-      description: 'Description',
-      heterogeneousType: null,
-      id: 'agent-1',
-      pinned: true,
-      sessionId: 'session-1',
-      slug: 'agent-one',
-      title: 'Agent One',
-      type: 'agent',
-      updatedAt: new Date('2026-07-31T00:00:00.000Z'),
-      userId: 'user-1',
-      visibility: 'public',
-    },
-  ],
+  pinned: [pinnedAgentOne],
   privateGroups: [],
-  privatePinned: [],
+  privatePinned: [pinnedAgentOne, privatePinnedAgentTwo],
   privateUngrouped: [],
   ungrouped: [],
 };
@@ -206,6 +223,15 @@ describe('selectHomeSidebarBuckets', () => {
   it('computes hasPrivateAgents from the three private buckets', () => {
     expect(selectHomeSidebarBuckets(undefined).hasPrivateAgents).toBe(false);
   });
+
+  it('is true when the only non-empty private bucket is privatePinnedAgents', () => {
+    const scope = seedSidebarScope();
+    const buckets = selectHomeSidebarBuckets(scope);
+    expect(buckets.privateAgentGroups).toEqual([]);
+    expect(buckets.privateUngroupedAgents).toEqual([]);
+    expect(buckets.privatePinnedAgents).toEqual([pinnedAgentOne, privatePinnedAgentTwo]);
+    expect(buckets.hasPrivateAgents).toBe(true);
+  });
 });
 
 describe('selectHomeSidebarAllAgents', () => {
@@ -213,6 +239,13 @@ describe('selectHomeSidebarAllAgents', () => {
     const scope = seedSidebarScope();
     const all = selectHomeSidebarAllAgents(scope);
     expect(new Set(all.map((item) => `${item.type}:${item.id}`)).size).toBe(all.length);
+    expect(all.filter((item) => item.id === 'agent-1')).toHaveLength(1);
+  });
+
+  it('includes private pinned agents', () => {
+    const scope = seedSidebarScope();
+    const all = selectHomeSidebarAllAgents(scope);
+    expect(all.map((item) => item.id)).toContain('agent-2');
   });
 
   it('finds items by id via selectHomeSidebarAgentById', () => {

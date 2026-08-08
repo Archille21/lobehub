@@ -43,7 +43,7 @@ interface UseClientDataSWRWithSyncOptions<T> extends SWRConfiguration<T> {
  *   {
  *     onData: (data) => {
  *       // Auto sync to store, whether cached or fresh data
- *       set({ ...mapResponseToState(data), isInit: true });
+ *       set({ ...syncProjection(data), isInit: true });
  *     },
  *     skipSync: state.isInit, // Optional: skip after initialized
  *   }

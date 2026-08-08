@@ -119,7 +119,7 @@ const AgentList = memo<AgentListProps>(({ activeAgentId, error, onRetry, onSelec
   );
 
   // Error gated ahead of the skeleton so a failed list fetch shows Retry instead
-  // of a permanent skeleton (`isAgentListInit` only flips on success).
+  // of a permanent skeleton (`isInitialized` only flips once the canonical sidebar view is ready).
   return (
     <AsyncBoundary
       data={isInitialized ? workspaceRows : undefined}
