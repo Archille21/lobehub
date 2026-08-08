@@ -1,5 +1,6 @@
 'use client';
 
+import { AgentRuntimeErrorType } from '@lobechat/model-runtime';
 import {
   ActionIcon,
   Block,
@@ -95,6 +96,23 @@ const toDraftItem = (draft: VerifyCriterionDraft, criterionId?: string): DraftIt
   criterionId,
   id: nextUid(),
 });
+
+export const isInvalidProviderApiKeyError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') return false;
+
+  const errorRecord = error as {
+    data?: { errorData?: { errorType?: unknown }; errorType?: unknown };
+    errorType?: unknown;
+    message?: unknown;
+  };
+
+  return [
+    errorRecord.errorType,
+    errorRecord.message,
+    errorRecord.data?.errorType,
+    errorRecord.data?.errorData?.errorType,
+  ].includes(AgentRuntimeErrorType.InvalidProviderAPIKey);
+};
 
 /** Snapshot task-owned criteria into independent rows before mounting them on a reusable rubric. */
 export const toTemplateCriterionDrafts = (drafts: DraftItem[]): VerifyCriterionDraft[] =>
@@ -359,7 +377,11 @@ const TaskVerifyConfig = memo(() => {
         commit(items, { enabled: true, requirement: goal });
       } catch (error) {
         console.error('[TaskVerifyConfig] generate failed:', error);
-        toast.error(t('verifyConfig.generateFailed'));
+        toast.error(
+          isInvalidProviderApiKeyError(error)
+            ? t('verifyConfig.generateInvalidProviderAPIKey', { model, provider })
+            : t('verifyConfig.generateFailed'),
+        );
       } finally {
         setGenerating(false);
       }
