@@ -11,14 +11,19 @@ import { isDev } from '@/utils/env';
 import { type ClientDataCoreAction, createClientDataCoreAction } from './core/action';
 import { type ClientDataStoreState, initialState } from './core/initialState';
 import { type ClientDataEntityAction, createClientDataEntityAction } from './entities/action';
+import { type ChatClientDataAction, createChatClientDataAction } from './modules/chat/action';
 import { createHomeClientDataAction, type HomeClientDataAction } from './modules/home/action';
 import { clientDataRepository } from './registry';
 
-export type ClientDataAction = ClientDataCoreAction & ClientDataEntityAction & HomeClientDataAction;
+export type ClientDataAction = ChatClientDataAction &
+  ClientDataCoreAction &
+  ClientDataEntityAction &
+  HomeClientDataAction;
 
 export interface ClientDataStore
   extends
     ClientDataStoreState,
+    ChatClientDataAction,
     ClientDataCoreAction,
     ClientDataEntityAction,
     HomeClientDataAction {}
@@ -30,6 +35,7 @@ const createStore: StateCreator<ClientDataStore, [['zustand/devtools', never]]> 
   ...flattenActions<ClientDataAction>([
     createClientDataCoreAction(clientDataRepository, ...parameters),
     createClientDataEntityAction(...parameters),
+    createChatClientDataAction(...parameters),
     createHomeClientDataAction(...parameters),
   ]),
 });
