@@ -2246,9 +2246,13 @@ export class AgentRuntimeService {
     // poller-side reconciliation only recognizes `done`/`error` runtime states
     // while the Redis blob is alive — an interrupted/timed-out child (or a
     // lost queue-mode completion whose hooks never ran) would otherwise pin
-    // the task card at `processing` forever. Best-effort: a failed write is
-    // non-fatal because bridge redelivery retries it and the parent's own
-    // result is already backfilled above.
+    // the task card at `processing` forever. The write must also carry the
+    // same terminal metadata the poller would have reconciled (completedAt /
+    // duration / usage / error): once the thread leaves `processing`, the
+    // status endpoint stops reading Redis, so anything missing here stays
+    // missing on the task card. Best-effort: a failed write is non-fatal
+    // because bridge redelivery retries it and the parent's own result is
+    // already backfilled above.
     try {
       const threadStatus =
         reason === 'done'
@@ -2256,7 +2260,32 @@ export class AgentRuntimeService {
           : reason === 'error'
             ? ThreadStatus.Failed
             : ThreadStatus.Cancel; // interrupted / timeout
-      await new ThreadModel(this.serverDB, this.userId, this.workspaceId).update(threadId, {
+      const threadModel = new ThreadModel(this.serverDB, this.userId, this.workspaceId);
+      const thread = await threadModel.findById(threadId);
+      const threadMetadata: Record<string, any> = {
+        ...thread?.metadata,
+        completedAt: new Date().toISOString(),
+      };
+      if (thread?.metadata?.startedAt) {
+        threadMetadata.duration = Date.now() - new Date(thread.metadata.startedAt).getTime();
+      }
+      if (finalState?.usage) {
+        threadMetadata.totalTokens = finalState.usage.llm?.tokens?.total;
+        threadMetadata.totalToolCalls = finalState.usage.tools?.totalCalls;
+      }
+      if (finalState?.cost?.total !== undefined) {
+        threadMetadata.totalCost = finalState.cost.total;
+      }
+      if (finalState?.stepCount) {
+        threadMetadata.totalSteps = finalState.stepCount;
+      }
+      if (failed) {
+        threadMetadata.error = formatErrorForMetadata(finalState?.error) ?? {
+          message: `Sub-agent did not complete (${reason}).`,
+        };
+      }
+      await threadModel.update(threadId, {
+        metadata: threadMetadata,
         status: threadStatus,
       });
     } catch (error) {

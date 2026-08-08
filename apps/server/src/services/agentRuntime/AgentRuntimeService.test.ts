@@ -57,8 +57,10 @@ vi.mock('@/database/models/plugin', () => ({
 }));
 
 const threadModelUpdate = vi.hoisted(() => vi.fn());
+const threadModelFindById = vi.hoisted(() => vi.fn());
 vi.mock('@/database/models/thread', () => ({
   ThreadModel: vi.fn().mockImplementation(() => ({
+    findById: threadModelFindById,
     update: threadModelUpdate,
   })),
 }));
@@ -2539,8 +2541,64 @@ describe('AgentRuntimeService', () => {
           finalState: childState as any,
           reason,
         });
-        expect(threadModelUpdate).toHaveBeenCalledWith('thread-1', { status });
+        expect(threadModelUpdate).toHaveBeenCalledWith(
+          'thread-1',
+          expect.objectContaining({ status }),
+        );
       }
+    });
+
+    it('carries terminal metadata on the thread write so the stopped poller misses nothing', async () => {
+      // Regression (PR #18046 review round 3): once the thread leaves
+      // `processing`, getSubAgentTaskStatus stops reconciling from Redis — a
+      // status-only write would leave the task card without completedAt,
+      // usage/cost metrics, or failure details forever.
+      threadModelFindById.mockResolvedValue({
+        metadata: {
+          operationId: 'child-op-1',
+          startedAt: new Date(Date.now() - 5000).toISOString(),
+        },
+      });
+
+      await service.completeSubAgentBridge({
+        ...bridgeParams,
+        finalState: {
+          ...childState,
+          cost: { total: 0.5 },
+          error: { message: 'boom' },
+          stepCount: 7,
+        } as any,
+        reason: 'error',
+      });
+
+      expect(threadModelUpdate).toHaveBeenCalledWith('thread-1', {
+        metadata: expect.objectContaining({
+          completedAt: expect.any(String),
+          duration: expect.any(Number),
+          error: expect.objectContaining({ message: 'boom' }),
+          operationId: 'child-op-1',
+          totalCost: 0.5,
+          totalSteps: 7,
+          totalTokens: 42,
+          totalToolCalls: 2,
+        }),
+        status: ThreadStatus.Failed,
+      });
+    });
+
+    it('does not attach an error to the thread metadata on successful completion', async () => {
+      threadModelFindById.mockResolvedValue({ metadata: {} });
+
+      await service.completeSubAgentBridge({
+        ...bridgeParams,
+        finalState: childState as any,
+        reason: 'done',
+      });
+
+      const write = threadModelUpdate.mock.calls.at(-1)?.[1];
+      expect(write.status).toBe(ThreadStatus.Completed);
+      expect(write.metadata.error).toBeUndefined();
+      expect(write.metadata.completedAt).toEqual(expect.any(String));
     });
 
     it('does not touch the thread when the backfill fails (bridge redelivers whole)', async () => {
