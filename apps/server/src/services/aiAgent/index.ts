@@ -26,7 +26,6 @@ import {
 import { TaskIdentifier } from '@lobechat/builtin-tool-task';
 import { builtinTools, manualModeExcludeToolIds } from '@lobechat/builtin-tools';
 import {
-  DEFAULT_AGENT_MAX_STEPS,
   isHeterogeneousAgentModelId,
   LOADING_FLAT,
   resolveSubAgentChatConfig,
@@ -5068,11 +5067,6 @@ export class AiAgentService {
       autoStart: true,
       chatConfigOverride: options.chatConfig,
       hooks,
-      // Isolated child runs previously ran with NO step bound (`max_steps` NULL
-      // in agent_operations), letting a single child accumulate unbounded tool
-      // density on the server event loop — see #17284. Same default cap as a
-      // main-agent run.
-      maxSteps: DEFAULT_AGENT_MAX_STEPS,
       // Explicit sub-agent model override resolved at the spawn site.
       model: options.model,
       parentOperationId,

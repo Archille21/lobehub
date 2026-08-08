@@ -16,7 +16,6 @@ import { createPathScopeAudit } from '@lobechat/builtin-tool-local-system';
 import { PageAgentIdentifier } from '@lobechat/builtin-tool-page-agent';
 import { manualModeExcludeToolIds } from '@lobechat/builtin-tools';
 import {
-  DEFAULT_AGENT_MAX_STEPS,
   getSubAgentChatConfigOverride,
   isDesktop,
   resolveSubAgentChatConfig,
@@ -345,7 +344,7 @@ export class StreamingExecutorActionImpl {
     const baseState =
       initialState ||
       AgentRuntime.createInitialState({
-        maxSteps: DEFAULT_AGENT_MAX_STEPS,
+        maxSteps: 400,
         messages,
         metadata: {
           agentId,

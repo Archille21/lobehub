@@ -88,16 +88,6 @@ export const resolveSubAgentChatConfig = <T extends object>(
  */
 export const SUB_AGENT_DEFAULT_TIMEOUT_MS = 1_800_000;
 
-/**
- * Default `maxSteps` for an agent run when the caller sets none — shared by the
- * client runtime's main-agent executions and server-side isolated child runs
- * (callSubAgent children, callAgent targets, isolated group members). Child
- * runs previously had `max_steps` NULL — no step bound at all — letting a
- * single child accumulate unbounded tool density on the server event loop
- * (#17284); they now get the same cap as a main agent.
- */
-export const DEFAULT_AGENT_MAX_STEPS = 400;
-
 export const DEFAULT_RERANK_MODEL = 'rerank-english-v3.0';
 export const DEFAULT_RERANK_PROVIDER = 'cohere';
 export const DEFAULT_RERANK_QUERY_MODE = 'full_text';

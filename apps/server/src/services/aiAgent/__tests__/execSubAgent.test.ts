@@ -1,4 +1,4 @@
-import { DEFAULT_AGENT_MAX_STEPS, SUB_AGENT_DEFAULT_TIMEOUT_MS } from '@lobechat/const';
+import { SUB_AGENT_DEFAULT_TIMEOUT_MS } from '@lobechat/const';
 import { ThreadStatus, ThreadType } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -234,7 +234,6 @@ describe('AiAgentService.execSubAgent', () => {
           expect.objectContaining({ id: 'thread-metadata-update', type: 'afterStep' }),
           expect.objectContaining({ id: 'thread-completion', type: 'onComplete' }),
         ]),
-        maxSteps: DEFAULT_AGENT_MAX_STEPS,
         prompt: 'Test instruction',
         userInterventionConfig: {
           approvalMode: 'headless',
@@ -277,8 +276,6 @@ describe('AiAgentService.execSubAgent', () => {
           hooks: expect.arrayContaining([
             expect.objectContaining({ id: 'sub-agent-bridge', type: 'onComplete' }),
           ]),
-          // Regression #17284: child ops must run with a step bound, not NULL.
-          maxSteps: DEFAULT_AGENT_MAX_STEPS,
           parentOperationId: 'parent-op-1',
           trigger: 'cli',
         }),
