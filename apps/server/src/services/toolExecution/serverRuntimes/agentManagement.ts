@@ -82,7 +82,10 @@ export const agentManagementRuntime: ServerRuntimeRegistration = {
           agentId,
           description,
           instruction,
-          timeout: timeout || 1_800_000,
+          // Pass through undefined when the model omits `timeout` so the exec
+          // site's env-aware default (SUB_AGENT_TIMEOUT_MS ?? 30 min) applies —
+          // a hardcoded fallback here would shadow the self-host override.
+          timeout,
         });
 
         if (!started) {

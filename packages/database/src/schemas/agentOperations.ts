@@ -157,6 +157,10 @@ export const agentOperations = pgTable(
     index('agent_operations_chat_group_id_idx').on(t.chatGroupId),
     index('agent_operations_parent_operation_id_idx').on(t.parentOperationId),
     index('agent_operations_status_idx').on(t.status),
+    // Serves step-count analytics/monitoring scans (e.g. "operations over N
+    // steps in a window") — without it those queries seq-scan this append-only
+    // table, which is preserved across user deletion and only ever grows.
+    index('agent_operations_step_count_idx').on(t.stepCount),
     index('agent_operations_user_id_created_at_idx').on(t.userId, t.createdAt),
     index('agent_operations_metadata_idx').using('gin', t.metadata),
   ],

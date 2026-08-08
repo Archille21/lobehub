@@ -2,6 +2,7 @@
  * @vitest-environment node
  */
 import { getModelPropertyWithFallback } from '@lobechat/model-runtime';
+import { ThreadStatus } from '@lobechat/types';
 import type * as ModelBankModule from 'model-bank';
 import type { MockInstance } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -52,6 +53,13 @@ vi.mock('@/database/models/agent', () => ({
 vi.mock('@/database/models/plugin', () => ({
   PluginModel: vi.fn().mockImplementation(() => ({
     query: vi.fn().mockResolvedValue([]),
+  })),
+}));
+
+const threadModelUpdate = vi.hoisted(() => vi.fn());
+vi.mock('@/database/models/thread', () => ({
+  ThreadModel: vi.fn().mockImplementation(() => ({
+    update: threadModelUpdate,
   })),
 }));
 
@@ -2512,6 +2520,50 @@ describe('AgentRuntimeService', () => {
 
       const call = updateToolMessage.mock.calls.at(-1)?.[1];
       expect(call.content).toBe(`Sub-agent did not complete (error): ${'x'.repeat(300)}…`);
+    });
+
+    it('marks the isolation thread terminal so task polling stops reporting processing', async () => {
+      // Regression (PR #18046 review): getSubAgentTaskStatus treats the thread
+      // table as the persistent source of truth and its reconciliation only
+      // recognizes done/error runtime states — a timeout-interrupted child
+      // would otherwise leave its task card at `processing` forever.
+      for (const [reason, status] of [
+        ['timeout', ThreadStatus.Cancel],
+        ['interrupted', ThreadStatus.Cancel],
+        ['error', ThreadStatus.Failed],
+        ['done', ThreadStatus.Completed],
+      ] as const) {
+        threadModelUpdate.mockClear();
+        await service.completeSubAgentBridge({
+          ...bridgeParams,
+          finalState: childState as any,
+          reason,
+        });
+        expect(threadModelUpdate).toHaveBeenCalledWith('thread-1', { status });
+      }
+    });
+
+    it('does not touch the thread when the backfill fails (bridge redelivers whole)', async () => {
+      updateToolMessage.mockResolvedValue({ success: false });
+
+      await expect(
+        service.completeSubAgentBridge({ ...bridgeParams, finalState: childState as any }),
+      ).rejects.toThrow(/failed to backfill/);
+      expect(threadModelUpdate).not.toHaveBeenCalled();
+    });
+
+    it('still resumes the parent when the thread status write fails', async () => {
+      // The thread update is observability best-effort — an infra error there
+      // must not block waking the parked parent.
+      threadModelUpdate.mockRejectedValue(new Error('db down'));
+
+      const won = await service.completeSubAgentBridge({
+        ...bridgeParams,
+        finalState: childState as any,
+      });
+
+      expect(won).toBe(true);
+      expect(resumeSpy).toHaveBeenCalled();
     });
 
     it('throws when the backfill reports success: false so the webhook path redelivers', async () => {

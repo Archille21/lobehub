@@ -149,6 +149,32 @@ describe('agentManagementRuntime', () => {
       });
     });
 
+    it('passes an omitted timeout through as undefined so the env-aware default applies', async () => {
+      // Regression (PR #18046 review): a hardcoded `timeout || 1_800_000` here
+      // meant the exec site always received an explicit 30 min, so the
+      // self-host SUB_AGENT_TIMEOUT_MS override never applied to callAgent
+      // runs that omit `timeout`.
+      const run = vi.fn().mockResolvedValue({
+        started: true,
+        subOperationId: 'op-child',
+        threadId: 'thread-child',
+      });
+      const runtime = createRuntime();
+
+      const result = await runtime.callAgent(
+        { agentId: 'agent-target', instruction: 'Do delegated work' },
+        { subAgent: { run }, toolManifestMap: {} },
+      );
+
+      expect(run).toHaveBeenCalledWith({
+        agentId: 'agent-target',
+        description: 'Call agent agent-target',
+        instruction: 'Do delegated work',
+        timeout: undefined,
+      });
+      expect(result).toMatchObject({ deferred: true, success: true });
+    });
+
     it('returns a non-deferred failure when the target agent cannot start', async () => {
       const run = vi.fn().mockResolvedValue({
         started: false,

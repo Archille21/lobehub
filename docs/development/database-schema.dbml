@@ -493,6 +493,7 @@ table agent_operations {
     chat_group_id [name: 'agent_operations_chat_group_id_idx']
     parent_operation_id [name: 'agent_operations_parent_operation_id_idx']
     status [name: 'agent_operations_status_idx']
+    step_count [name: 'agent_operations_step_count_idx']
     (user_id, created_at) [name: 'agent_operations_user_id_created_at_idx']
     metadata [name: 'agent_operations_metadata_idx']
   }

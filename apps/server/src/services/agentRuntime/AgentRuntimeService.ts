@@ -34,6 +34,7 @@ import {
   type ExecSubAgentParams,
   type ExecSubAgentResult,
   type ExecVirtualSubAgentParams,
+  ThreadStatus,
   type UIChatMessage,
 } from '@lobechat/types';
 import debug from 'debug';
@@ -41,6 +42,7 @@ import urlJoin from 'url-join';
 
 import { AgentOperationModel } from '@/database/models/agentOperation';
 import { MessageModel } from '@/database/models/message';
+import { ThreadModel } from '@/database/models/thread';
 import { type LobeChatDatabase } from '@/database/type';
 import { appEnv } from '@/envs/app';
 import { type AgentRuntimeCoordinatorOptions } from '@/server/modules/AgentRuntime';
@@ -2236,6 +2238,32 @@ export class AgentRuntimeService {
     if (!backfill.success) {
       throw new Error(
         `Sub-agent bridge: failed to backfill tool message ${toolMessageId} for parent ${parentOperationId}`,
+      );
+    }
+
+    // Mark the isolation thread terminal alongside the backfill. The thread
+    // table is `getSubAgentTaskStatus`'s persistent source of truth, and its
+    // poller-side reconciliation only recognizes `done`/`error` runtime states
+    // while the Redis blob is alive — an interrupted/timed-out child (or a
+    // lost queue-mode completion whose hooks never ran) would otherwise pin
+    // the task card at `processing` forever. Best-effort: a failed write is
+    // non-fatal because bridge redelivery retries it and the parent's own
+    // result is already backfilled above.
+    try {
+      const threadStatus =
+        reason === 'done'
+          ? ThreadStatus.Completed
+          : reason === 'error'
+            ? ThreadStatus.Failed
+            : ThreadStatus.Cancel; // interrupted / timeout
+      await new ThreadModel(this.serverDB, this.userId, this.workspaceId).update(threadId, {
+        status: threadStatus,
+      });
+    } catch (error) {
+      log(
+        '[%s] sub-agent bridge: failed to update thread status (non-fatal): %O',
+        operationId,
+        error,
       );
     }
 
