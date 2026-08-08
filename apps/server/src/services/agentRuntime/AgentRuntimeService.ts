@@ -47,6 +47,7 @@ import { type LobeChatDatabase } from '@/database/type';
 import { appEnv } from '@/envs/app';
 import { type AgentRuntimeCoordinatorOptions } from '@/server/modules/AgentRuntime';
 import { AgentRuntimeCoordinator, createStreamEventManager } from '@/server/modules/AgentRuntime';
+import { AGENT_STATE_TTL_SECONDS } from '@/server/modules/AgentRuntime/AgentStateManager';
 import { formatErrorForState } from '@/server/modules/AgentRuntime/formatErrorForState';
 import { hasNonPersistedMessage } from '@/server/modules/AgentRuntime/messagePersistence';
 import {
@@ -129,6 +130,18 @@ const ASYNC_TOOL_VERIFY_MAX_DELAY_MS = 240_000;
 
 const STEP_LOCK_TTL_SECONDS = 120;
 const STEP_LOCK_HEARTBEAT_MS = 30_000;
+
+/**
+ * Upper bound for sub-agent / group-member timeout watchdog delays. The parked
+ * parent's Redis state lives {@link AGENT_STATE_TTL_SECONDS} (2h) from its
+ * park-time save and is never refreshed while parked, so a watchdog firing
+ * after that window finds no parent state and `tryResumeParentFromAsyncTool`
+ * can only strand (its bounded verify retries also need the state). The child
+ * forks *before* the parent parks, so a delay ≤ TTL − margin always fires
+ * inside the parent state's lifetime. Timeouts above the cap are clamped — an
+ * interrupted-at-~2h child is strictly better than a forever-stranded parent.
+ */
+const MAX_WATCHDOG_DELAY_MS = (AGENT_STATE_TTL_SECONDS - 600) * 1000;
 
 /**
  * Exponential backoff delay for the Nth (1-based) watchdog re-check:
@@ -2667,10 +2680,19 @@ export class AgentRuntimeService {
    */
   async scheduleSubAgentTimeout(params: SubAgentTimeoutParams, delayMs: number): Promise<void> {
     if (!this.queueService || !(delayMs > 0)) return;
+    const delay = Math.min(delayMs, MAX_WATCHDOG_DELAY_MS);
+    if (delay < delayMs) {
+      log(
+        '[%s] sub-agent timeout %dms exceeds parked-parent state lifetime, clamping to %dms',
+        params.subAgentOperationId,
+        delayMs,
+        delay,
+      );
+    }
     try {
       await this.queueService.scheduleMessage({
         context: undefined,
-        delay: delayMs,
+        delay,
         endpoint: `${this.baseURL}/run`,
         // Keyed on the child op so the /run worker can resolve userId from its
         // metadata, same trust chain as every other scheduled step.
@@ -2682,7 +2704,7 @@ export class AgentRuntimeService {
       log(
         '[%s] scheduled sub-agent timeout in %dms (parent %s)',
         params.subAgentOperationId,
-        delayMs,
+        delay,
         params.parentOperationId,
       );
     } catch (error) {
@@ -2817,10 +2839,19 @@ export class AgentRuntimeService {
     delayMs: number,
   ): Promise<void> {
     if (!this.queueService || !(delayMs > 0)) return;
+    const delay = Math.min(delayMs, MAX_WATCHDOG_DELAY_MS);
+    if (delay < delayMs) {
+      log(
+        '[%s] group-member timeout %dms exceeds parked-parent state lifetime, clamping to %dms',
+        params.memberOperationId,
+        delayMs,
+        delay,
+      );
+    }
     try {
       await this.queueService.scheduleMessage({
         context: undefined,
-        delay: delayMs,
+        delay,
         endpoint: `${this.baseURL}/run`,
         // Keyed on the member op so the /run worker can resolve userId from its
         // metadata, same trust chain as every other scheduled step.
@@ -2832,7 +2863,7 @@ export class AgentRuntimeService {
       log(
         '[%s] scheduled group-member timeout in %dms (parent %s)',
         params.memberOperationId,
-        delayMs,
+        delay,
         params.parentOperationId,
       );
     } catch (error) {

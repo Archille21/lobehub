@@ -2934,6 +2934,51 @@ describe('AgentRuntimeService', () => {
       };
     };
 
+    it('clamps a scheduling delay beyond the parked-parent state lifetime', async () => {
+      // Regression (PR #18046 review round 12): a model-passed timeout above
+      // the 2h Redis state TTL let the parked parent's AgentState expire
+      // before the watchdog fired — tryResumeParentFromAsyncTool cannot
+      // resume without the state, so the parent stranded forever. The delay
+      // must be clamped inside the state lifetime (TTL − 10min margin).
+      mockQueueService.scheduleMessage.mockResolvedValueOnce('msg-1');
+
+      await service.scheduleSubAgentTimeout(timeoutParams, 5 * 3600 * 1000);
+
+      expect(mockQueueService.scheduleMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ delay: (2 * 3600 - 600) * 1000 }),
+      );
+    });
+
+    it('keeps a sub-TTL scheduling delay unchanged', async () => {
+      mockQueueService.scheduleMessage.mockResolvedValueOnce('msg-1');
+
+      await service.scheduleSubAgentTimeout(timeoutParams, 30 * 60 * 1000);
+
+      expect(mockQueueService.scheduleMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ delay: 30 * 60 * 1000 }),
+      );
+    });
+
+    it('clamps the group-member watchdog delay the same way', async () => {
+      mockQueueService.scheduleMessage.mockResolvedValueOnce('msg-1');
+
+      await service.scheduleGroupMemberTimeout(
+        {
+          expectedMembers: 2,
+          groupToolMessageId: 'group-tool-1',
+          memberOperationId: 'member-op-1',
+          parentOperationId: 'parent-1',
+          threadId: 'thread-1',
+          toolMessageId: 'anchor-1',
+        } as any,
+        5 * 3600 * 1000,
+      );
+
+      expect(mockQueueService.scheduleMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ delay: (2 * 3600 - 600) * 1000 }),
+      );
+    });
+
     it('retries the parent resume when the child is terminal and the placeholder fulfilled', async () => {
       // Regression (PR #18046 review round 9): a completion bridge can commit
       // its backfill and then die before the resume half runs (in-process hook

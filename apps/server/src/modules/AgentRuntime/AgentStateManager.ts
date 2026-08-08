@@ -12,6 +12,15 @@ import { stripFinalStateInEventData } from './StreamEventManager';
 
 const log = debug('lobe-server:agent-runtime:agent-state-manager');
 
+/**
+ * Lifetime of all per-operation Redis keys (state, steps, events, metadata),
+ * refreshed on every state save. Exported so schedulers that arm deliveries
+ * against a *parked* operation (e.g. the sub-agent timeout watchdog) can keep
+ * their deadlines inside this window — a parked op never re-saves, so a
+ * delivery landing after this TTL finds no state to resume.
+ */
+export const AGENT_STATE_TTL_SECONDS = 2 * 3600; // 2h
+
 const REFRESH_OWNED_LOCK_SCRIPT =
   "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end";
 const RELEASE_OWNED_LOCK_SCRIPT =
@@ -57,7 +66,7 @@ export class AgentStateManager {
   private readonly STEPS_PREFIX = 'agent_runtime_steps';
   private readonly METADATA_PREFIX = 'agent_runtime_meta';
   private readonly EVENTS_PREFIX = 'agent_runtime_events';
-  private readonly DEFAULT_TTL = 2 * 3600; // 2h
+  private readonly DEFAULT_TTL = AGENT_STATE_TTL_SECONDS;
 
   constructor() {
     const redisClient = getAgentRuntimeRedisClient();
