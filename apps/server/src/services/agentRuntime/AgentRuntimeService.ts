@@ -2164,9 +2164,17 @@ export class AgentRuntimeService {
     finalState?: AgentState;
     operationId: string;
     reason: string;
+    /**
+     * Repair mode for the bridge stand-down paths: write only when the thread
+     * is still non-terminal. A fulfilled placeholder proves the backfill
+     * landed, not that the (best-effort, swallowed) thread write did — a
+     * redelivery must be able to repair a missed thread write without
+     * overwriting a status another bridge already finalized.
+     */
+    skipIfTerminal?: boolean;
     threadId: string;
   }): Promise<void> {
-    const { failed, finalState, operationId, reason, threadId } = params;
+    const { failed, finalState, operationId, reason, skipIfTerminal, threadId } = params;
     try {
       // Keyed off `failed` so the status agrees with the tool-result backfill:
       // success-like caps (done / max_steps / cost_limit) are Completed, not
@@ -2178,6 +2186,14 @@ export class AgentRuntimeService {
         : ThreadStatus.Completed;
       const threadModel = new ThreadModel(this.serverDB, this.userId, this.workspaceId);
       const thread = await threadModel.findById(threadId);
+      if (
+        skipIfTerminal &&
+        (thread?.status === ThreadStatus.Cancel ||
+          thread?.status === ThreadStatus.Completed ||
+          thread?.status === ThreadStatus.Failed)
+      ) {
+        return;
+      }
       const threadMetadata: Record<string, any> = {
         ...thread?.metadata,
         completedAt: new Date().toISOString(),
@@ -2262,6 +2278,19 @@ export class AgentRuntimeService {
         operationId,
         toolMessageId,
       );
+      // Repair a missed thread write: the terminal-thread write below is
+      // best-effort and swallowed, so a redelivery whose earlier backfill
+      // landed but whose thread write failed would otherwise stand down here
+      // and pin the task card at `processing` forever. `skipIfTerminal` keeps
+      // this from overwriting a status another bridge already finalized.
+      await this.markIsolationThreadTerminal({
+        failed,
+        finalState,
+        operationId,
+        reason,
+        skipIfTerminal: true,
+        threadId,
+      });
       return this.tryResumeParentFromAsyncTool(
         { parentOperationId },
         { knownFulfilledMessageId: toolMessageId, scheduleVerifyOnHold: true },
@@ -2516,6 +2545,20 @@ export class AgentRuntimeService {
         operationId,
         anchorMessageId,
       );
+      // Same repair as the sub-agent stand-down: a redelivery whose anchor
+      // backfill landed but whose (best-effort) thread write failed must still
+      // finalize the isolated member's thread, without overwriting a status
+      // another bridge already wrote.
+      if (threadId) {
+        await this.markIsolationThreadTerminal({
+          failed,
+          finalState,
+          operationId,
+          reason,
+          skipIfTerminal: true,
+          threadId,
+        });
+      }
     } else {
       const anchorBackfill = await this.messageModel.updateToolMessage(anchorMessageId, {
         content: anchorContent,
@@ -2822,7 +2865,10 @@ export class AgentRuntimeService {
       operationId: params.memberOperationId,
       parentOperationId: params.parentOperationId,
       reason: 'timeout',
-      threadId: params.threadId,
+      // Fall back to the op state's threadId for watchdog payloads queued
+      // before the payload carried one (deploy-window messages) — without it
+      // the bridge cannot mark the isolated member's thread terminal.
+      threadId: params.threadId ?? state.metadata?.threadId,
     });
 
     return { nextStepScheduled: resumed, state: {}, success: true };

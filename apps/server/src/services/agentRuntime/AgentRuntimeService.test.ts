@@ -2322,6 +2322,7 @@ describe('AgentRuntimeService', () => {
       // watchdog bridges `timeout` first; the member's late `interrupted`
       // onComplete bridge must keep that content and only retry the resume.
       threadModelUpdate.mockClear();
+      threadModelFindById.mockResolvedValue({ metadata: {}, status: ThreadStatus.Cancel });
       (service as any).serverDB.query = {
         messagePlugins: {
           findFirst: vi.fn().mockResolvedValue({ state: { status: 'error' } }),
@@ -2345,6 +2346,39 @@ describe('AgentRuntimeService', () => {
       expect(updateToolMessage).not.toHaveBeenCalled();
       expect(threadModelUpdate).not.toHaveBeenCalled();
       expect(resumeSpy).toHaveBeenCalled();
+    });
+
+    it('repairs a missed thread write when standing down from a fulfilled anchor', async () => {
+      // Redelivery whose anchor backfill landed but whose (best-effort,
+      // swallowed) thread write failed: the stand-down path must still
+      // finalize the isolated member's thread or its task card polls as
+      // processing forever.
+      threadModelUpdate.mockClear();
+      threadModelFindById.mockResolvedValue({ metadata: {}, status: ThreadStatus.Processing });
+      (service as any).serverDB.query = {
+        messagePlugins: {
+          findFirst: vi.fn().mockResolvedValue({ state: { status: 'completed' } }),
+        },
+      };
+
+      await service.completeGroupActionMember({
+        anchorMessageId: 'grp-tool-1',
+        expectedMembers: 1,
+        finalState: memberState as any,
+        groupToolMessageId: 'grp-tool-1',
+        mode: 'isolated',
+        onComplete: 'resume',
+        operationId: 'child-1',
+        parentOperationId: 'parent-1',
+        reason: 'done',
+        threadId: 'member-thread-1',
+      });
+
+      expect(updateToolMessage).not.toHaveBeenCalled();
+      expect(threadModelUpdate).toHaveBeenCalledWith(
+        'member-thread-1',
+        expect.objectContaining({ status: ThreadStatus.Completed }),
+      );
     });
 
     it('throws when the anchor backfill fails so the webhook redelivers', async () => {
@@ -2732,6 +2766,7 @@ describe('AgentRuntimeService', () => {
       // message the parent already consumed. The late bridge must keep the
       // existing content and only retry the CAS resume.
       threadModelUpdate.mockClear();
+      threadModelFindById.mockResolvedValue({ metadata: {}, status: ThreadStatus.Cancel });
       (service as any).serverDB.query = {
         messagePlugins: {
           findFirst: vi.fn().mockResolvedValue({ state: { status: 'error' } }),
@@ -2749,6 +2784,31 @@ describe('AgentRuntimeService', () => {
       expect(resumeSpy).toHaveBeenCalledWith(
         { parentOperationId: 'parent-op-1' },
         { knownFulfilledMessageId: 'tool-msg-1', scheduleVerifyOnHold: true },
+      );
+      expect(won).toBe(true);
+    });
+
+    it('repairs a missed thread write when standing down from a fulfilled placeholder', async () => {
+      // Redelivery whose backfill landed but whose (best-effort, swallowed)
+      // thread write failed: the stand-down path must still finalize the
+      // isolation thread or the task card polls as processing forever.
+      threadModelUpdate.mockClear();
+      threadModelFindById.mockResolvedValue({ metadata: {}, status: ThreadStatus.Processing });
+      (service as any).serverDB.query = {
+        messagePlugins: {
+          findFirst: vi.fn().mockResolvedValue({ state: { status: 'completed' } }),
+        },
+      };
+
+      const won = await service.completeSubAgentBridge({
+        ...bridgeParams,
+        finalState: childState as any,
+      });
+
+      expect(updateToolMessage).not.toHaveBeenCalled();
+      expect(threadModelUpdate).toHaveBeenCalledWith(
+        'thread-1',
+        expect.objectContaining({ status: ThreadStatus.Completed }),
       );
       expect(won).toBe(true);
     });
@@ -3042,6 +3102,29 @@ describe('AgentRuntimeService', () => {
         }),
       );
       expect(result.nextStepScheduled).toBe(true);
+    });
+
+    it('falls back to the op state threadId when the queued payload predates it', async () => {
+      // Deploy-window compatibility: watchdog payloads scheduled before the
+      // payload carried threadId would otherwise skip the terminal-thread
+      // write. Only isolated members schedule this watchdog, so the op
+      // state's metadata.threadId is always their isolation thread.
+      mockCoordinator.loadAgentState.mockResolvedValue({
+        metadata: { threadId: 'member-thread-from-state' },
+        status: 'running',
+      });
+      vi.spyOn(service, 'interruptOperation').mockResolvedValue(true);
+      const bridgeSpy = vi.spyOn(service, 'completeGroupActionMember').mockResolvedValue(true);
+
+      await service.executeStep({
+        groupMemberTimeout: { ...timeoutParams, threadId: undefined },
+        operationId: 'member-op-1',
+        stepIndex: 0,
+      } as any);
+
+      expect(bridgeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: 'member-thread-from-state' }),
+      );
     });
   });
 });
