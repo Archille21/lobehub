@@ -21,7 +21,9 @@ const TaskDetailAssignee = memo(() => {
   const assigneeAgentId = useTaskStore(taskDetailSelectors.activeTaskAgentId);
   const assigneeMeta = useAgentDisplayMeta(assigneeAgentId);
   // Same source as the home list so the runtime tag stays consistent.
-  const assigneeHeterogeneousType = useHomeSidebarAgentById(assigneeAgentId)?.heterogeneousType;
+  const assigneeHeterogeneousType = useHomeSidebarAgentById(
+    assigneeAgentId ?? undefined,
+  )?.heterogeneousType;
   const { isDarkMode } = useThemeMode();
 
   if (!taskId) return null;
