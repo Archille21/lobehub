@@ -2748,7 +2748,6 @@ export class AgentRuntimeService {
           params.subAgentOperationId,
           params.parentOperationId,
         );
-        await this.finalizeInterruptedOperationRow(params.subAgentOperationId);
         const resumed = await this.completeSubAgentBridge({
           finalState: state,
           operationId: params.subAgentOperationId,
@@ -2757,6 +2756,7 @@ export class AgentRuntimeService {
           threadId: params.threadId,
           toolMessageId: params.toolMessageId,
         });
+        await this.finalizeInterruptedOperationRow(params.subAgentOperationId);
         return { nextStepScheduled: resumed, state: {}, success: true };
       }
       state = await this.coordinator.loadAgentState(params.subAgentOperationId);
@@ -2796,26 +2796,32 @@ export class AgentRuntimeService {
       threadId: params.threadId,
       toolMessageId: params.toolMessageId,
     });
+    if (status !== 'done' && status !== 'error') {
+      // Interrupted-or-expired child: its own lifecycle never finalized the
+      // row. Also the retry path for a first delivery whose row repair
+      // failed after a successful bridge — the CAS makes re-runs no-ops.
+      await this.finalizeInterruptedOperationRow(params.subAgentOperationId);
+    }
     return { nextStepScheduled: resumed, state: {}, success: true };
   }
 
   /**
-   * Best-effort repair of a watchdog-interrupted child's `agent_operations`
-   * row (see AgentOperationModel.markInterruptedIfRunning). A child the
-   * watchdog had to interrupt is typically hung mid-step or dead, so its own
-   * completion lifecycle — the only other writer of the terminal row — never
-   * runs and the row would stay `running` forever. Swallowed: a failed
-   * repair must not abort the bridge that unblocks the parent.
+   * Repair a watchdog-interrupted child's `agent_operations` row (see
+   * AgentOperationModel.markInterruptedIfRunning). A child the watchdog had
+   * to interrupt is typically hung mid-step or dead, so its own completion
+   * lifecycle — the only other writer of the terminal row — never runs and
+   * the row would stay `running` forever, a zombie for status-based
+   * consumers (analytics, high-step alerting). Callers must run this AFTER
+   * the bridge that unblocks the parent: a failure here propagates and
+   * fails the watchdog delivery so QStash redelivers it, and the
+   * redelivered terminal path retries this CAS-guarded (idempotent) repair
+   * without re-blocking the already-resumed parent.
    */
   private async finalizeInterruptedOperationRow(operationId: string): Promise<void> {
-    try {
-      await new AgentOperationModel(this.serverDB, this.userId).markInterruptedIfRunning(
-        operationId,
-        'timeout',
-      );
-    } catch (error) {
-      log('[%s] failed to finalize interrupted op row (non-fatal): %O', operationId, error);
-    }
+    await new AgentOperationModel(this.serverDB, this.userId).markInterruptedIfRunning(
+      operationId,
+      'timeout',
+    );
   }
 
   /**
@@ -2905,7 +2911,6 @@ export class AgentRuntimeService {
         params.parentOperationId,
       );
       await this.interruptOperation(params.memberOperationId);
-      await this.finalizeInterruptedOperationRow(params.memberOperationId);
     } else {
       log(
         '[%s] group-member timeout: member already terminal (%s), re-running bridge as repair',
@@ -2941,6 +2946,12 @@ export class AgentRuntimeService {
       threadId: params.threadId ?? state?.metadata?.threadId,
     });
 
+    if (status !== 'done' && status !== 'error') {
+      // Interrupted-or-expired member: its own lifecycle never finalized the
+      // row. Runs after the bridge so a failed repair propagates for a QStash
+      // retry without re-blocking the supervisor; the CAS makes re-runs no-ops.
+      await this.finalizeInterruptedOperationRow(params.memberOperationId);
+    }
     return { nextStepScheduled: resumed, state: {}, success: true };
   }
 

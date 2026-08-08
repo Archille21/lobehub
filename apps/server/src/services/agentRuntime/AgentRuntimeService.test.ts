@@ -2934,6 +2934,13 @@ describe('AgentRuntimeService', () => {
       };
     };
 
+    beforeEach(() => {
+      // Every non-done/error watchdog path now finalizes the op row; default
+      // to a benign success so unrelated tests don't hit the mocked DB. Tests
+      // that assert on the repair re-spy with their own behavior.
+      vi.spyOn(AgentOperationModel.prototype, 'markInterruptedIfRunning').mockResolvedValue(true);
+    });
+
     it('clamps a scheduling delay beyond the parked-parent state lifetime', async () => {
       // Regression (PR #18046 review round 12): a model-passed timeout above
       // the 2h Redis state TTL let the parked parent's AgentState expire
@@ -3156,6 +3163,53 @@ describe('AgentRuntimeService', () => {
       expect(markSpy).toHaveBeenCalledWith('child-op-1', 'timeout');
     });
 
+    it('unblocks the parent before the row finalize and propagates a failed finalize', async () => {
+      // Regression (PR #18046 review round 16): a swallowed row-finalize
+      // failure after an acked bridge left no later delivery to repair the
+      // row — the zombie `running` state the finalize exists to prevent. The
+      // bridge must run first (parent unblocked), and a finalize failure must
+      // fail the delivery so QStash redelivers the watchdog.
+      mockCoordinator.loadAgentState.mockResolvedValue({ status: 'running' });
+      vi.spyOn(service, 'interruptOperation').mockResolvedValue(true);
+      const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge').mockResolvedValue(true);
+      const markSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'markInterruptedIfRunning')
+        .mockRejectedValueOnce(new Error('db down'));
+
+      await expect(
+        service.executeStep({
+          operationId: 'child-op-1',
+          stepIndex: 0,
+          subAgentTimeout: timeoutParams,
+        } as any),
+      ).rejects.toThrow('db down');
+
+      expect(bridgeSpy).toHaveBeenCalled();
+      expect(markSpy.mock.invocationCallOrder[0]).toBeGreaterThan(
+        bridgeSpy.mock.invocationCallOrder[0],
+      );
+    });
+
+    it('retries the row repair on a redelivery that finds the child already interrupted', async () => {
+      // Round 16 follow-up: after a first delivery whose row finalize failed,
+      // the redelivered watchdog takes the terminal path — it must retry the
+      // CAS-guarded repair there, or the row would stay `running` forever.
+      mockCoordinator.loadAgentState.mockResolvedValue({ status: 'interrupted' });
+      mockPlaceholder({ fulfilled: false });
+      vi.spyOn(service, 'completeSubAgentBridge').mockResolvedValue(true);
+      const markSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'markInterruptedIfRunning')
+        .mockResolvedValue(true);
+
+      await service.executeStep({
+        operationId: 'child-op-1',
+        stepIndex: 0,
+        subAgentTimeout: timeoutParams,
+      } as any);
+
+      expect(markSpy).toHaveBeenCalledWith('child-op-1', 'timeout');
+    });
+
     it('does not overwrite a child that completed between the state load and the interrupt', async () => {
       // Regression (PR #18046 review): `interruptOperation` returns false when
       // the child turned terminal in between. Bridging `timeout` with the stale
@@ -3215,6 +3269,12 @@ describe('AgentRuntimeService', () => {
       threadId: 'member-thread-1',
     };
 
+    beforeEach(() => {
+      // Group parity of the sub-agent watchdog default: non-done/error paths
+      // finalize the member op row after the bridge.
+      vi.spyOn(AgentOperationModel.prototype, 'markInterruptedIfRunning').mockResolvedValue(true);
+    });
+
     it('re-runs the bridge with the real outcome for a terminal member instead of no-oping', async () => {
       // Regression (PR #18046 review round 9, group parity): the member's own
       // bridge can die before the anchor backfill or the barrier/resume half.
@@ -3247,6 +3307,24 @@ describe('AgentRuntimeService', () => {
       // member's own completion lifecycle never runs for a hung member.
       mockCoordinator.loadAgentState.mockResolvedValue({ status: 'running' });
       vi.spyOn(service, 'interruptOperation').mockResolvedValue(true);
+      vi.spyOn(service, 'completeGroupActionMember').mockResolvedValue(true);
+      const markSpy = vi
+        .spyOn(AgentOperationModel.prototype, 'markInterruptedIfRunning')
+        .mockResolvedValue(true);
+
+      await service.executeStep({
+        groupMemberTimeout: timeoutParams,
+        operationId: 'member-op-1',
+        stepIndex: 0,
+      } as any);
+
+      expect(markSpy).toHaveBeenCalledWith('member-op-1', 'timeout');
+    });
+
+    it('retries the row repair on a redelivery that finds the member already interrupted', async () => {
+      // Round 16 follow-up (group parity): the redelivered watchdog takes the
+      // terminal branch — it must still retry the CAS-guarded row repair.
+      mockCoordinator.loadAgentState.mockResolvedValue({ status: 'interrupted' });
       vi.spyOn(service, 'completeGroupActionMember').mockResolvedValue(true);
       const markSpy = vi
         .spyOn(AgentOperationModel.prototype, 'markInterruptedIfRunning')
