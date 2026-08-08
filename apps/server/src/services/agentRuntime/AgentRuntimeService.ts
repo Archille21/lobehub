@@ -2183,6 +2183,26 @@ export class AgentRuntimeService {
       finalState ? 'loaded' : 'missing',
     );
 
+    // Stand down from rewriting when another bridge already fulfilled the
+    // placeholder — e.g. the timeout watchdog interrupted a child mid-step,
+    // bridged `timeout`, and resumed the parent; the child then reaches its
+    // step boundary and dispatches this `interrupted` onComplete bridge.
+    // The parent already consumed the first bridge's content, so a rewrite
+    // would swap the visible result for one the parent never saw. Still
+    // attempt the CAS resume: this call may equally be a QStash redelivery
+    // whose backfill landed but whose resume half failed.
+    if (await this.isToolMessageFulfilled(toolMessageId)) {
+      log(
+        '[%s] sub-agent bridge: placeholder %s already fulfilled, standing down from rewrite',
+        operationId,
+        toolMessageId,
+      );
+      return this.tryResumeParentFromAsyncTool(
+        { parentOperationId },
+        { knownFulfilledMessageId: toolMessageId, scheduleVerifyOnHold: true },
+      );
+    }
+
     // 1. Backfill the placeholder tool message with the result.
     // `updateToolMessage` swallows transaction errors into `success: false`,
     // so the flag must be checked — an unfulfilled message would hold the

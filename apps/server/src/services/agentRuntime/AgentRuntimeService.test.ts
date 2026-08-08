@@ -2305,6 +2305,12 @@ describe('AgentRuntimeService', () => {
     beforeEach(() => {
       updateToolMessage = vi.fn().mockResolvedValue({ success: true });
       (service as any).messageModel.updateToolMessage = updateToolMessage;
+      // Default: the placeholder is unfulfilled so the bridge proceeds to
+      // backfill (the stand-down guard reads message content + plugin state).
+      (service as any).messageModel.findById = vi.fn().mockResolvedValue({ content: '' });
+      (service as any).serverDB.query = {
+        messagePlugins: { findFirst: vi.fn().mockResolvedValue(null) },
+      };
       resumeSpy = vi.spyOn(service, 'tryResumeParentFromAsyncTool').mockResolvedValue(true);
     });
 
@@ -2599,6 +2605,33 @@ describe('AgentRuntimeService', () => {
       expect(write.status).toBe(ThreadStatus.Completed);
       expect(write.metadata.error).toBeUndefined();
       expect(write.metadata.completedAt).toEqual(expect.any(String));
+    });
+
+    it('stands down from rewriting a placeholder another bridge already fulfilled', async () => {
+      // Regression (PR #18046 review round 4): the timeout watchdog interrupts
+      // a mid-step child, bridges `timeout`, and resumes the parent; the child
+      // then reaches its step boundary and dispatches an `interrupted`
+      // onComplete bridge. An unconditional backfill would rewrite the tool
+      // message the parent already consumed. The late bridge must keep the
+      // existing content and only retry the CAS resume.
+      threadModelUpdate.mockClear();
+      (service as any).messageModel.findById = vi
+        .fn()
+        .mockResolvedValue({ content: 'Sub-agent did not complete (timeout).' });
+
+      const won = await service.completeSubAgentBridge({
+        ...bridgeParams,
+        finalState: { ...childState, status: 'interrupted' } as any,
+        reason: 'interrupted',
+      });
+
+      expect(updateToolMessage).not.toHaveBeenCalled();
+      expect(threadModelUpdate).not.toHaveBeenCalled();
+      expect(resumeSpy).toHaveBeenCalledWith(
+        { parentOperationId: 'parent-op-1' },
+        { knownFulfilledMessageId: 'tool-msg-1', scheduleVerifyOnHold: true },
+      );
+      expect(won).toBe(true);
     });
 
     it('does not touch the thread when the backfill fails (bridge redelivers whole)', async () => {
