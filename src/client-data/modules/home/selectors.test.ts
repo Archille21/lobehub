@@ -18,6 +18,9 @@ import {
   selectHomeInboxTopics,
   selectHomeRecentTopics,
   selectHomeSidebar,
+  selectHomeSidebarAgentById,
+  selectHomeSidebarAllAgents,
+  selectHomeSidebarBuckets,
 } from './selectors';
 
 const networkObservation = { observedAt: 100, source: 'network' as const };
@@ -46,6 +49,9 @@ const sidebarResponse: SidebarAgentListResponse = {
   privateUngrouped: [],
   ungrouped: [],
 };
+
+const seedSidebarScope = () =>
+  applyClientDataCommit(undefined, ingestHomeSidebar(sidebarResponse, networkObservation));
 
 const brief: BriefItem = {
   actions: null,
@@ -178,5 +184,41 @@ describe('Home EntityView selectors', () => {
     });
 
     expect(selectHomeBriefs(deleted)).toEqual([]);
+  });
+});
+
+describe('selectHomeSidebarBuckets', () => {
+  it('returns stable empty buckets with isReady false before the view assembles', () => {
+    const a = selectHomeSidebarBuckets(undefined);
+    const b = selectHomeSidebarBuckets(undefined);
+    expect(a.isReady).toBe(false);
+    expect(a.pinnedAgents).toBe(b.pinnedAgents);
+  });
+
+  it('maps the assembled sidebar response to projection-shaped buckets', () => {
+    const scope = seedSidebarScope();
+    const buckets = selectHomeSidebarBuckets(scope);
+    expect(buckets.isReady).toBe(true);
+    expect(buckets.pinnedAgents).toEqual(selectHomeSidebar(scope)?.pinned);
+    expect(buckets.agentGroups).toEqual(selectHomeSidebar(scope)?.groups);
+  });
+
+  it('computes hasPrivateAgents from the three private buckets', () => {
+    expect(selectHomeSidebarBuckets(undefined).hasPrivateAgents).toBe(false);
+  });
+});
+
+describe('selectHomeSidebarAllAgents', () => {
+  it('flattens and dedupes all buckets', () => {
+    const scope = seedSidebarScope();
+    const all = selectHomeSidebarAllAgents(scope);
+    expect(new Set(all.map((item) => `${item.type}:${item.id}`)).size).toBe(all.length);
+  });
+
+  it('finds items by id via selectHomeSidebarAgentById', () => {
+    const scope = seedSidebarScope();
+    const first = selectHomeSidebarAllAgents(scope)[0];
+    expect(selectHomeSidebarAgentById(scope, first.id)?.id).toBe(first.id);
+    expect(selectHomeSidebarAgentById(scope, 'missing')).toBeUndefined();
   });
 });

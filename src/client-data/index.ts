@@ -10,6 +10,12 @@ export {
 export * from './modules/chat/viewHooks';
 export * from './modules/home/homeBriefSections';
 export * from './modules/home/hooks';
+export type { HomeSidebarBuckets } from './modules/home/selectors';
+export {
+  selectHomeSidebarAgentById,
+  selectHomeSidebarAllAgents,
+  selectHomeSidebarBuckets,
+} from './modules/home/selectors';
 export * from './modules/home/viewHooks';
 export type { ClientDataStore } from './store';
 export { getClientDataStoreState, useClientDataStore } from './store';

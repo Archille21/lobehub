@@ -16,19 +16,23 @@ import isEqual from 'fast-deep-equal';
 import { useMemo } from 'react';
 import { shallow } from 'zustand/shallow';
 
-import { useCacheScope } from '@/libs/swr/useCacheScope';
+import { getCacheScope, useCacheScope } from '@/libs/swr/useCacheScope';
 
-import { useClientDataStore } from '../../store';
+import { getClientDataStoreState, useClientDataStore } from '../../store';
 import {
   compareHomeNeedsYouBriefs,
   type HomeBriefSection,
   isHomeNewsBrief,
 } from './homeBriefSections';
 import {
+  type HomeSidebarBuckets,
   selectHomeBrief,
   selectHomeInboxTopic,
   selectHomeRecentTopic,
   selectHomeSidebar,
+  selectHomeSidebarAgentById,
+  selectHomeSidebarAllAgents,
+  selectHomeSidebarBuckets,
   selectHomeSidebarItem,
   selectHomeTask,
 } from './selectors';
@@ -284,3 +288,24 @@ export const useHomeBrief = (id: string | undefined) => {
     [agentRecord, record, taskRecord],
   );
 };
+
+export const useHomeSidebarBuckets = (): HomeSidebarBuckets => {
+  const scope = useCacheScope();
+  return useClientDataStore((state) => selectHomeSidebarBuckets(state.scopes[scope]), isEqual);
+};
+
+export const useHomeSidebarAllAgents = (): SidebarAgentItem[] => {
+  const scope = useCacheScope();
+  return useClientDataStore((state) => selectHomeSidebarAllAgents(state.scopes[scope]), isEqual);
+};
+
+export const useHomeSidebarAgentById = (id: string | undefined): SidebarAgentItem | undefined => {
+  const scope = useCacheScope();
+  return useClientDataStore(
+    (state) => selectHomeSidebarAgentById(state.scopes[scope], id),
+    isEqual,
+  );
+};
+
+export const getHomeSidebarAllAgents = (): SidebarAgentItem[] =>
+  selectHomeSidebarAllAgents(getClientDataStoreState().scopes[getCacheScope()]);

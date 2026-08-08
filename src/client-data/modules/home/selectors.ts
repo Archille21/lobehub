@@ -332,3 +332,76 @@ export const selectHomeDailyBrief = (
   const snapshot = scope?.snapshots['home.dailyBrief'];
   return snapshot?.key === 'home.dailyBrief' ? snapshot.data : undefined;
 };
+
+export interface HomeSidebarBuckets {
+  agentGroups: SidebarGroup[];
+  hasPrivateAgents: boolean;
+  isReady: boolean;
+  pinnedAgents: SidebarAgentItem[];
+  privateAgentGroups: SidebarGroup[];
+  privatePinnedAgents: SidebarAgentItem[];
+  privateUngroupedAgents: SidebarAgentItem[];
+  ungroupedAgents: SidebarAgentItem[];
+}
+
+const EMPTY_SIDEBAR_BUCKETS: HomeSidebarBuckets = {
+  agentGroups: [],
+  hasPrivateAgents: false,
+  isReady: false,
+  pinnedAgents: [],
+  privateAgentGroups: [],
+  privatePinnedAgents: [],
+  privateUngroupedAgents: [],
+  ungroupedAgents: [],
+};
+
+export const selectHomeSidebarBuckets = (
+  scope: ClientDataScopeState | undefined,
+): HomeSidebarBuckets => {
+  const view = scope && selectHomeSidebar(scope);
+  if (!view) return EMPTY_SIDEBAR_BUCKETS;
+
+  const privateGroups = view.privateGroups ?? [];
+  const privatePinned = view.privatePinned ?? [];
+  const privateUngrouped = view.privateUngrouped ?? [];
+
+  return {
+    agentGroups: view.groups,
+    hasPrivateAgents:
+      privateGroups.length > 0 || privatePinned.length > 0 || privateUngrouped.length > 0,
+    isReady: true,
+    pinnedAgents: view.pinned,
+    privateAgentGroups: privateGroups,
+    privatePinnedAgents: privatePinned,
+    privateUngroupedAgents: privateUngrouped,
+    ungroupedAgents: view.ungrouped,
+  };
+};
+
+export const selectHomeSidebarAllAgents = (
+  scope: ClientDataScopeState | undefined,
+): SidebarAgentItem[] => {
+  const buckets = selectHomeSidebarBuckets(scope);
+  if (!buckets.isReady) return EMPTY_SIDEBAR_BUCKETS.pinnedAgents;
+
+  const unique = new Map<string, SidebarAgentItem>();
+  for (const item of [
+    ...buckets.pinnedAgents,
+    ...buckets.agentGroups.flatMap((group) => group.items),
+    ...buckets.ungroupedAgents,
+    ...buckets.privatePinnedAgents,
+    ...buckets.privateAgentGroups.flatMap((group) => group.items),
+    ...buckets.privateUngroupedAgents,
+  ]) {
+    unique.set(`${item.type}:${item.id}`, item);
+  }
+  return Array.from(unique.values());
+};
+
+export const selectHomeSidebarAgentById = (
+  scope: ClientDataScopeState | undefined,
+  id: string | undefined,
+): SidebarAgentItem | undefined => {
+  if (!id) return undefined;
+  return selectHomeSidebarAllAgents(scope).find((item) => item.id === id);
+};
