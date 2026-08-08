@@ -2944,6 +2944,34 @@ describe('AgentRuntimeService', () => {
       );
     });
 
+    it('re-bridges a terminal child whose placeholder has content but no bridged plugin state', async () => {
+      // Regression (PR #18046 review round 10): the thread-completion hook
+      // copies the final answer into the tool message on the normal completion
+      // path, so content alone doesn't prove the completion bridge ran. With a
+      // lost bridge the plugin stays `pending` with no threadId/usage and the
+      // isolation thread is never marked terminal — the watchdog must re-run
+      // the (idempotent) bridge, not just retry the parent resume.
+      mockCoordinator.loadAgentState.mockResolvedValue({ status: 'done' });
+      (service as any).messageModel.findById = vi.fn().mockResolvedValue({ content: 'answer' });
+      (service as any).serverDB.query = {
+        messagePlugins: {
+          findFirst: vi.fn().mockResolvedValue({ state: { status: 'pending' } }),
+        },
+      };
+      const bridgeSpy = vi.spyOn(service, 'completeSubAgentBridge').mockResolvedValue(true);
+
+      const result = await service.executeStep({
+        operationId: 'child-op-1',
+        stepIndex: 0,
+        subAgentTimeout: timeoutParams,
+      } as any);
+
+      expect(bridgeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'done', toolMessageId: 'tool-msg-1' }),
+      );
+      expect(result.nextStepScheduled).toBe(true);
+    });
+
     it('re-bridges a terminal child when its completion bridge was lost', async () => {
       // Regression (PR #18046 review): the watchdog is the parent-side fallback
       // for a lost queue-mode `subagent-callback` delivery. A terminal child

@@ -2722,16 +2722,19 @@ export class AgentRuntimeService {
       status = state?.status as string | undefined;
     }
 
-    // Terminal (or expired) child. Stand down from re-bridging only when the
-    // placeholder was actually backfilled — this watchdog doubles as the
-    // parent-side fallback for a lost completion bridge, so "terminal" alone
-    // doesn't prove the parent was ever woken. Even then, still retry the
-    // resume: a fulfilled placeholder proves the bridge's backfill half
-    // landed, not that its resume half ran (in-process hook bridges have no
+    // Terminal (or expired) child. Stand down from re-bridging only when a
+    // bridge's backfill actually landed — keyed off the terminal plugin
+    // status, NOT message content (see isToolMessagePluginTerminal): the
+    // thread completion hook copies the final answer into the tool message on
+    // the normal completion path, so a content-only placeholder with a lost
+    // bridge still needs the pluginState/usage backfill and thread-terminal
+    // write and must fall through to the re-bridge below. Even with a
+    // terminal plugin, still retry the resume: the backfill half landing does
+    // not prove the resume half ran (in-process hook bridges have no
     // redelivery). The CAS makes this a no-op when the parent already moved.
-    if (await this.isToolMessageFulfilled(params.toolMessageId)) {
+    if (await this.isToolMessagePluginTerminal(params.toolMessageId)) {
       log(
-        '[%s] sub-agent timeout: child terminal (%s) and placeholder fulfilled, retrying parent resume',
+        '[%s] sub-agent timeout: child terminal (%s) and placeholder bridged, retrying parent resume',
         params.subAgentOperationId,
         status,
       );
@@ -2768,24 +2771,14 @@ export class AgentRuntimeService {
   }
 
   /**
-   * Whether a placeholder `role: 'tool'` message has been fulfilled — same
-   * semantics as {@link allPendingToolsFulfilled}, keyed by message id: content
-   * is non-empty or the plugin state reached a terminal status.
-   */
-  private async isToolMessageFulfilled(messageId: string): Promise<boolean> {
-    const message = await this.messageModel.findById(messageId);
-    if (message?.content && message.content.length > 0) return true;
-    return this.isToolMessagePluginTerminal(messageId);
-  }
-
-  /**
    * Whether a placeholder's plugin state already reached a terminal status.
-   * Deliberately narrower than {@link isToolMessageFulfilled}: on the normal
-   * completion path the thread completion hook writes the tool message
-   * CONTENT before the bridge runs, so non-empty content alone does not prove
-   * a bridge already backfilled the pluginState/usage — the bridge stand-down
-   * guards must key off a terminal plugin status only, or a normal completion
-   * would leave the plugin stuck at `pending` with no threadId/usage.
+   * Deliberately ignores message content: on the normal completion path the
+   * thread completion hook writes the tool message CONTENT before the bridge
+   * runs, so non-empty content alone does not prove a bridge already
+   * backfilled the pluginState/usage — bridge stand-down guards and watchdog
+   * repair paths must key off a terminal plugin status only, or a completion
+   * whose bridge was lost would leave the plugin stuck at `pending` with no
+   * threadId/usage and the isolation thread never marked terminal.
    */
   private async isToolMessagePluginTerminal(messageId: string): Promise<boolean> {
     const plugin = await this.serverDB.query.messagePlugins.findFirst({
