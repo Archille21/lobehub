@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS "agent_operations_step_count_idx" ON "agent_operations" USING btree ("step_count");
