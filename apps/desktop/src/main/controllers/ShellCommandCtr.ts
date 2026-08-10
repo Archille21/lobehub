@@ -1,5 +1,7 @@
+import type { SandboxCapability } from '@lobechat/device-sandbox';
 import type {
   DesktopShellSettings,
+  DeviceSandboxCapabilityResult,
   GetCommandOutputParams,
   GetCommandOutputResult,
   KillCommandParams,
@@ -77,12 +79,62 @@ export default class ShellCommandCtr extends ControllerModule {
     return settings;
   }
 
+  /**
+   * Capability probe, resolved at most once per app run.
+   *
+   * Imported dynamically on purpose: a static import would pull
+   * `@anthropic-ai/sandbox-runtime` into every desktop launch, including the
+   * Windows hosts it cannot serve. Nothing loads SRT until someone actually
+   * asks for a sandbox.
+   */
+  private sandboxCapability?: Promise<SandboxCapability>;
+
+  private probeSandbox(): Promise<SandboxCapability> {
+    return (this.sandboxCapability ??= (async () => {
+      try {
+        const { probeSandboxCapability } = await import('@lobechat/device-sandbox');
+        return await probeSandboxCapability();
+      } catch (error) {
+        // The probe itself can throw on an unsupported host instead of
+        // reporting unavailability. Any failure means "no sandbox here" — the
+        // picker must never offer the option on the strength of a crashed
+        // probe.
+        logger.warn('Sandbox capability probe failed:', error);
+        return {
+          available: false,
+          backend: 'none' as const,
+          networkIsolation: false,
+          reason: (error as Error).message,
+        };
+      }
+    })());
+  }
+
+  /**
+   * Whether this host can run sandboxed commands at all. The renderer asks
+   * before offering the "Local Sandbox" execution environment, so an
+   * unsupported host shows a disabled row carrying the real reason instead of
+   * an option that fails on first use.
+   */
+  @IpcMethod()
+  async getSandboxCapability(): Promise<DeviceSandboxCapabilityResult> {
+    const capability = await this.probeSandbox();
+    return { available: capability.available, reason: capability.reason };
+  }
+
   @IpcMethod()
   async handleRunCommand(params: RunCommandParams): Promise<RunCommandResult> {
     const prefixMatch = SIMPLE_LH_PREFIX.exec(params.command);
     if (prefixMatch) {
       const cliCtr = this.app.getController(CliCtr);
       if (cliCtr) {
+        // Deliberate carve-out: `lh` keeps its in-app route even for a
+        // sandboxed run. It is LobeHub's own control-plane CLI — it needs the
+        // injected `LOBEHUB_JWT` and the server it talks to, both of which the
+        // sandbox strips (env allowlist) and blocks (no network). Sandboxing it
+        // would not harden anything the model can reach through it; it would
+        // just break agent self-management. The sandbox's promise is about
+        // model-authored shell commands, and this is not one.
         const args = params.command.slice(prefixMatch[0].length).trim();
         logger.debug('Routing lh command to CliCtr.runCliCommand:', args);
         const result = await cliCtr.runCliCommand(args);
@@ -96,7 +148,44 @@ export default class ShellCommandCtr extends ControllerModule {
       }
     }
 
-    return runCommand(params, { logger, processManager });
+    if (!params.sandbox) return runCommand(params, { logger, processManager });
+
+    // Sandboxed run. The policy is scoped to the run's working directory, so
+    // without one there is nothing to scope to — refuse rather than fall back
+    // to `process.cwd()` (the app install directory on a packaged desktop),
+    // which would confine writes to a place the user never chose while still
+    // reporting success.
+    if (!params.cwd) {
+      return {
+        error:
+          'Local Sandbox requires a working directory. Set one for this agent (or topic) and run the command again.',
+        success: false,
+      };
+    }
+
+    // Check the host up front so an unsupported one gets a named, actionable
+    // failure. `createLocalSandboxPolicy` uses `onUnavailable: 'deny'`, so the
+    // command would fail anyway — but the runner reports the raw SRT reason
+    // ("Sandbox Runtime does not support win32"), which reads like a crash
+    // rather than "this environment isn't available on your machine".
+    const capability = await this.probeSandbox();
+    if (!capability.available) {
+      return {
+        error: `Local Sandbox is unavailable on this device: ${capability.reason ?? 'unsupported host'}. Switch the agent's execution environment to run this command.`,
+        success: false,
+      };
+    }
+
+    const { createLocalSandboxPolicy } = await import('@lobechat/device-sandbox');
+
+    // `runCommand` converts sandbox failures (policy conflict, busy runtime)
+    // into `{ success: false, error }` itself. It never falls back to an
+    // unsandboxed spawn, which is the guarantee the user opted into.
+    return runCommand(params, {
+      logger,
+      processManager,
+      sandboxPolicy: createLocalSandboxPolicy(params.cwd),
+    });
   }
 
   @IpcMethod()

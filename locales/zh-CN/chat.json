@@ -630,6 +630,8 @@
   "heteroAgent.executionTarget.loading": "正在加载设备…",
   "heteroAgent.executionTarget.local": "本地设备",
   "heteroAgent.executionTarget.localDesc": "在当前桌面端以本地进程运行",
+  "heteroAgent.executionTarget.localSandbox": "本机沙箱",
+  "heteroAgent.executionTarget.localSandboxDesc": "在本机运行，命令仅能改动工作目录且无法联网",
   "heteroAgent.executionTarget.manage": "管理",
   "heteroAgent.executionTarget.noDevices": "暂无远程设备。在另一台机器上执行 `lh connect` 即可接入。",
   "heteroAgent.executionTarget.noWorkspaceDevices": "暂无工作区设备。在一台机器上执行 `{{cmd}}` 即可注册,供所有成员使用。",

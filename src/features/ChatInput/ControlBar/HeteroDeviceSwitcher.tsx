@@ -12,12 +12,14 @@ import {
   InfoIcon,
   MonitorDownIcon,
   SettingsIcon,
+  ShieldCheckIcon,
 } from 'lucide-react';
 import { memo, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { DOWNLOAD_URL } from '@/const/url';
 import { useChatInputResourceAccess } from '@/features/ChatInput/hooks/useChatInputResourceAccess';
+import { useLocalSandboxCapability } from '@/features/ChatInput/hooks/useLocalSandboxCapability';
 import { useSelectExecutionTarget } from '@/features/ChatInput/hooks/useSelectExecutionTarget';
 import { useDeviceList } from '@/features/DeviceManager/useDeviceList';
 import {
@@ -28,6 +30,7 @@ import {
 import { useWorkspaceAwareNavigate } from '@/features/Workspace/useWorkspaceAwareNavigate';
 import {
   isHeterogeneousSandboxExecutionAvailable,
+  isLocalSandboxEnabled,
   resolveExecutionTarget,
 } from '@/helpers/executionTarget';
 import { useIsGatewayModeEnabled } from '@/helpers/gatewayMode';
@@ -390,11 +393,20 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
     supportsSandbox,
   ]);
 
+  // The sandbox is a modifier on `local`, not a target of its own, so the two
+  // local rows differ only by this flag. Reading it through the same helper the
+  // server and the desktop runner use keeps the checkmark honest: it lights up
+  // exactly when a command would actually be fenced.
+  const localSandboxEnabled = isLocalSandboxEnabled(agencyConfig, executionTarget);
+  const { data: sandboxCapability, isLoading: isSandboxCapabilityLoading } =
+    useLocalSandboxCapability();
+  const canUseLocalSandbox = sandboxCapability?.available === true;
+
   const selectExecutionTarget = useSelectExecutionTarget(agentId);
   const handleSelect = useCallback(
-    async (target: DeviceExecutionTarget, deviceId?: string) => {
+    async (target: DeviceExecutionTarget, deviceId?: string, localSandbox?: boolean) => {
       setOpen(false);
-      await selectExecutionTarget(target, deviceId);
+      await selectExecutionTarget(target, deviceId, { localSandbox });
     },
     [selectExecutionTarget],
   );
@@ -497,6 +509,12 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
         ? 'heteroAgent.executionTarget.local'
         : 'heteroAgent.executionTarget.workspaceGroup',
     );
+    // A fenced run looks identical to an unfenced one until a command fails, so
+    // the chip — the only always-visible surface — has to say which it is.
+    if (canShowExecutionTargetSelector && localSandboxEnabled) {
+      chipIcon = <Icon icon={ShieldCheckIcon} size={14} />;
+      chipLabel = t('heteroAgent.executionTarget.localSandbox');
+    }
   } else if (chipExecutionTarget === 'device') {
     chipIcon = <ExecutionTargetIcon devicePlatform={boundDevice?.platform} target={'device'} />;
     chipLabel = canShowExecutionTargetSelector
@@ -508,6 +526,9 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
 
   const isActive = (target: DeviceExecutionTarget, deviceId?: string) => {
     if (target === 'device') return executionTarget === 'device' && boundDeviceId === deviceId;
+    // The two local rows share one target and are told apart by the sandbox
+    // flag, so neither may claim the checkmark on the other's behalf.
+    if (target === 'local') return executionTarget === 'local' && !localSandboxEnabled;
     return executionTarget === target;
   };
 
@@ -602,7 +623,21 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
           icon={<ExecutionTargetIcon target={'local'} />}
           // 本机统一显示「本地设备」，不再带具体设备名称
           label={t('heteroAgent.executionTarget.local')}
-          onClick={() => void handleSelect('local')}
+          onClick={() => void handleSelect('local', undefined, false)}
+        />
+      ) : null}
+      {/* Same machine as the row above, fenced: writes confined to the working
+          directory, no network. Hidden entirely on hosts whose sandbox backend
+          is unavailable (Windows, or Linux missing its dependencies) — an
+          option that can only fail is worse than no option. It stays hidden
+          while the probe is in flight so it can't flash in and out. */}
+      {isDesktop && !isSandboxCapabilityLoading && canUseLocalSandbox ? (
+        <OptionRow
+          active={executionTarget === 'local' && localSandboxEnabled}
+          desc={t('heteroAgent.executionTarget.localSandboxDesc')}
+          icon={<Icon icon={ShieldCheckIcon} size={14} />}
+          label={t('heteroAgent.executionTarget.localSandbox')}
+          onClick={() => void handleSelect('local', undefined, true)}
         />
       ) : null}
       <OptionRow

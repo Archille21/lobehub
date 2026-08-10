@@ -2,6 +2,7 @@ export { probeSandboxCapability } from './capability';
 export { createSandboxEnv } from './env';
 export { createSandboxLaunchPlan } from './launchPlan';
 export { normalizeSandboxPolicy, normalizeWritableRoots } from './policy';
+export { createLocalSandboxPolicy } from './presets';
 export { SrtSandboxRuntime, srtSandboxRuntime } from './runtime';
 export { createSrtConfig } from './srt';
 export type {

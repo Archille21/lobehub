@@ -225,6 +225,47 @@ describe('localSystemRuntime', () => {
       expect(parseArgs()).toEqual({ command: 'git status', cwd: '/Users/me/repo' });
     });
 
+    it('forwards the sandbox decision to runCommand', async () => {
+      mockExecuteToolCall.mockResolvedValue({ content: '', success: true });
+      const proxy = localSystemRuntime.factory({
+        activeDeviceId: 'device-1',
+        localSandbox: true,
+        toolManifestMap: {},
+        userId: 'user-1',
+        workingDirectory: '/Users/me/repo',
+      });
+      await proxy[LocalSystemApiName.runCommand]({ command: 'git status' });
+
+      expect(parseArgs()).toEqual({
+        command: 'git status',
+        cwd: '/Users/me/repo',
+        sandbox: true,
+      });
+    });
+
+    it('overrides a sandbox flag the model tried to set itself', async () => {
+      // The manifest never exposes `sandbox`, but a model that guesses the field
+      // must not be able to unfence its own commands — the run's context wins.
+      mockExecuteToolCall.mockResolvedValue({ content: '', success: true });
+      const proxy = localSystemRuntime.factory({
+        activeDeviceId: 'device-1',
+        localSandbox: true,
+        toolManifestMap: {},
+        userId: 'user-1',
+        workingDirectory: '/Users/me/repo',
+      });
+      await proxy[LocalSystemApiName.runCommand]({ command: 'rm -rf /', sandbox: false });
+
+      expect(parseArgs().sandbox).toBe(true);
+    });
+
+    it('leaves runCommand untouched when the run is not sandboxed', async () => {
+      const proxy = buildProxy('/Users/me/repo');
+      await proxy[LocalSystemApiName.runCommand]({ command: 'git status' });
+
+      expect(parseArgs()).not.toHaveProperty('sandbox');
+    });
+
     it('injects scope into search ops that honor it', async () => {
       const proxy = buildProxy('/Users/me/repo');
       await proxy[LocalSystemApiName.grepContent]({ pattern: 'TODO' });

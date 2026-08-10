@@ -13,6 +13,16 @@ import { useUserStore } from '@/store/user';
 
 export interface SelectExecutionTargetOptions {
   /**
+   * Confine this agent's shell commands to the device sandbox. Only meaningful
+   * alongside `target: 'local'`; the picker passes `false` for the plain local
+   * row so switching back off is an explicit write rather than a leftover.
+   *
+   * Omitted entirely for the other targets, which leaves any stored value
+   * dormant — flipping to Cloud Sandbox and back must not silently forget that
+   * the user had fenced their machine.
+   */
+  localSandbox?: boolean;
+  /**
    * The call is an automatic default (agent has no target yet), not a user's
    * pick. Persistence failures stay silent — a generic "your change was not
    * applied" toast would be about a change the user never made.
@@ -117,12 +127,20 @@ export const useSelectExecutionTarget = (agentId: string) => {
       //    `resolveExecutionTarget` already coerces a stored `local` +
       //    `boundDeviceId` to `device` when a gateway is available, so the
       //    server-side dispatch path Just Works — no need to pre-coerce here.
+      // `undefined` leaves the stored value untouched; `false` actively clears
+      // it. Only the two local rows have an opinion, so a Cloud Sandbox pick
+      // never rewrites the fence the user set on their own machine.
+      const localSandboxPatch =
+        options?.localSandbox === undefined ? {} : { localSandbox: options.localSandbox };
+
       if (usesWorkspaceMemberSelection) {
         const nextOverrides = {
           ...workspaceUserPreference.agentDeviceOverrides,
           [agentId]: {
+            ...workspaceUserPreference.agentDeviceOverrides?.[agentId],
             executionTarget: target,
             ...(nextBoundDeviceId ? { boundDeviceId: nextBoundDeviceId } : {}),
+            ...localSandboxPatch,
           },
         };
         await updateWorkspaceUserPreference({ agentDeviceOverrides: nextOverrides });
@@ -134,6 +152,7 @@ export const useSelectExecutionTarget = (agentId: string) => {
           ...agencyConfig,
           executionTarget: target,
           ...(nextBoundDeviceId ? { boundDeviceId: nextBoundDeviceId } : {}),
+          ...localSandboxPatch,
         },
       };
 

@@ -319,7 +319,33 @@ export interface RunCommandParams {
   /** Merged into the child process environment (after `process.env`). */
   env?: Record<string, string>;
   run_in_background?: boolean;
+  /**
+   * Run this command inside the device sandbox (writes confined to `cwd` + the
+   * OS temp dir, no network). Set by the caller that knows the agent picked the
+   * "Local Sandbox" execution environment — the server device-proxy for
+   * gateway-routed runs, the client executor for in-process desktop runs. The
+   * model never supplies it: the manifest doesn't expose it, and it is a
+   * user-owned security decision, not a per-call one.
+   *
+   * Absent/false keeps the historical unsandboxed path, so nothing changes for
+   * agents that never opted in. When true the sandbox is mandatory — a host
+   * that cannot provide one fails the command instead of downgrading.
+   */
+  sandbox?: boolean;
   timeout?: number;
+}
+
+/**
+ * Whether this device can actually run sandboxed commands, as reported by the
+ * desktop main process. The renderer needs the real answer (not a platform
+ * guess) before offering the "Local Sandbox" option: SRT supports macOS and
+ * Linux only, and on Linux it additionally depends on host binaries that may be
+ * missing.
+ */
+export interface DeviceSandboxCapabilityResult {
+  available: boolean;
+  /** Human-readable explanation when `available` is false. */
+  reason?: string;
 }
 
 export interface RunCommandResult {

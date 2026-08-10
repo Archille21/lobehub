@@ -519,6 +519,9 @@ export default {
   'heteroAgent.executionTarget.loading': 'Loading devices…',
   'heteroAgent.executionTarget.local': 'Local device',
   'heteroAgent.executionTarget.localDesc': 'Run as a local process on this desktop app',
+  'heteroAgent.executionTarget.localSandbox': 'Local sandbox',
+  'heteroAgent.executionTarget.localSandboxDesc':
+    'Run on this computer, with commands limited to the working directory and no network',
   'heteroAgent.executionTarget.manage': 'Manage',
   'heteroAgent.executionTarget.noDevices':
     'No remote devices yet. Run `lh connect` on another machine to add one.',

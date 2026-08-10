@@ -36,6 +36,21 @@ vi.mock('../CliCtr', () => ({
   default: class CliCtr {},
 }));
 
+const { mockCreateSandboxLaunchPlan, mockProbeSandboxCapability } = vi.hoisted(() => ({
+  mockCreateSandboxLaunchPlan: vi.fn(),
+  mockProbeSandboxCapability: vi.fn(),
+}));
+
+vi.mock('@lobechat/device-sandbox', () => ({
+  createLocalSandboxPolicy: (cwd: string) => ({
+    allowNetwork: false,
+    onUnavailable: 'deny',
+    writableRoots: [cwd],
+  }),
+  createSandboxLaunchPlan: (...args: unknown[]) => mockCreateSandboxLaunchPlan(...args),
+  probeSandboxCapability: () => mockProbeSandboxCapability(),
+}));
+
 const mockCliCtr = {
   runCliCommand: vi.fn().mockResolvedValue({ exitCode: 0, stderr: '', stdout: 'cli output\n' }),
 };
@@ -178,6 +193,115 @@ describe('ShellCommandCtr (thin wrapper)', () => {
 
     expect(mockCliCtr.runCliCommand).toHaveBeenCalledWith('search test');
     expect(result.success).toBe(true);
+  });
+
+  describe('local sandbox', () => {
+    beforeEach(() => {
+      mockProbeSandboxCapability.mockResolvedValue({
+        available: true,
+        backend: 'srt',
+        networkIsolation: true,
+      });
+      mockCreateSandboxLaunchPlan.mockResolvedValue({
+        args: ['-c', 'echo test'],
+        capability: { available: true, backend: 'srt', networkIsolation: true },
+        cmd: '/usr/bin/sandbox-exec',
+        env: {},
+        release: vi.fn(),
+        sandboxed: true,
+      });
+    });
+
+    it('never touches the sandbox for an ordinary command', async () => {
+      // The historical path must stay byte-identical for agents that never
+      // opted in — including not loading the sandbox runtime at all.
+      mockProcessOutput = 'output\n';
+      setTimeout(() => {
+        mockChildProcess.exitCode = 0;
+        emitChildProcess('exit', 0);
+        emitChildProcess('close', 0);
+      }, 10);
+
+      await ctr.handleRunCommand({ command: 'echo test', cwd: '/repo' });
+
+      expect(mockProbeSandboxCapability).not.toHaveBeenCalled();
+      expect(mockCreateSandboxLaunchPlan).not.toHaveBeenCalled();
+    });
+
+    it('spawns the sandbox-wrapped command when the run is sandboxed', async () => {
+      mockProcessOutput = 'output\n';
+      setTimeout(() => {
+        mockChildProcess.exitCode = 0;
+        emitChildProcess('exit', 0);
+        emitChildProcess('close', 0);
+      }, 10);
+
+      await ctr.handleRunCommand({ command: 'echo test', cwd: '/repo', sandbox: true });
+
+      expect(mockCreateSandboxLaunchPlan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cwd: '/repo',
+          policy: expect.objectContaining({ allowNetwork: false, writableRoots: ['/repo'] }),
+        }),
+      );
+      expect(mockSpawn).toHaveBeenCalledWith(
+        '/usr/bin/sandbox-exec',
+        ['-c', 'echo test'],
+        expect.anything(),
+      );
+    });
+
+    it('refuses a sandboxed run with no working directory to confine', async () => {
+      // Falling back to process.cwd() would fence the app install directory and
+      // still report success — a guarantee about the wrong place.
+      const result = await ctr.handleRunCommand({ command: 'echo test', sandbox: true });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('working directory');
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('fails the command instead of running it unsandboxed on an unsupported host', async () => {
+      mockProbeSandboxCapability.mockResolvedValue({
+        available: false,
+        backend: 'none',
+        networkIsolation: false,
+        reason: 'Sandbox Runtime does not support win32',
+      });
+
+      const result = await ctr.handleRunCommand({
+        command: 'echo test',
+        cwd: '/repo',
+        sandbox: true,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Sandbox Runtime does not support win32');
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('reports the host verdict to the renderer', async () => {
+      mockProbeSandboxCapability.mockResolvedValue({
+        available: false,
+        backend: 'none',
+        networkIsolation: false,
+        reason: 'bubblewrap is not installed',
+      });
+
+      expect(await ctr.getSandboxCapability()).toEqual({
+        available: false,
+        reason: 'bubblewrap is not installed',
+      });
+    });
+
+    it('treats a crashing probe as no sandbox', async () => {
+      mockProbeSandboxCapability.mockRejectedValue(new Error('module not found'));
+
+      expect(await ctr.getSandboxCapability()).toEqual({
+        available: false,
+        reason: 'module not found',
+      });
+    });
   });
 
   it('should return error for non-existent shell_id', async () => {
