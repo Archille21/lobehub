@@ -38,7 +38,11 @@ export const installDeviceSandbox = async (): Promise<SandboxSetupResult> => {
       // probe's own reason says more than a generic instruction would).
       instructions:
         process.platform === 'linux'
-          ? 'Install the sandbox dependency with your package manager, e.g. `sudo apt install bubblewrap`, then retry.'
+          ? // Both are hard requirements: the backend errors out without
+            // bubblewrap, and separately without ripgrep, which it uses to
+            // expand deny-path globs for bwrap. Naming only one would send the
+            // user round the loop twice.
+            'Install the sandbox dependencies with your package manager, e.g. `sudo apt install bubblewrap ripgrep`, then retry.'
           : windowsInstallInstructions(undefined),
       status: 'not-installable',
     };
@@ -46,12 +50,13 @@ export const installDeviceSandbox = async (): Promise<SandboxSetupResult> => {
 
   const { getSrtWinPath, installWindowsSandbox, resolveSrtWin } =
     await import('@anthropic-ai/sandbox-runtime');
-  const { ensureStagedSrtWin } = await import('./srtWinStaging');
+  const { ensureStagedSrtWin, resolveSrtWinSource } = await import('./srtWinStaging');
 
   // Stage the helper as part of setup, not lazily at first use: this is the
   // moment the user asked us to make the machine ready, and a first run that
   // failed on file permissions would look like the setup itself hadn't worked.
-  const staged = ensureStagedSrtWin(getSrtWinPath());
+  const source = resolveSrtWinSource(getSrtWinPath);
+  const staged = source ? ensureStagedSrtWin(source) : undefined;
   const srtWin = staged ? resolveSrtWin({ path: staged }) : undefined;
 
   const result = installWindowsSandbox(srtWin ? { srtWin } : {});

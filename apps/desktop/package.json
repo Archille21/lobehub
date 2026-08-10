@@ -46,7 +46,6 @@
     "update-server": "sh scripts/update-test/run-test.sh"
   },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.66",
     "@lobehub/fluent-emoji": "^4.1.0",
     "@lydell/node-pty": "1.2.0-beta.12",
     "electron-log": "^5.4.4",
@@ -55,6 +54,7 @@
     "node-screenshots": "^0.2.8"
   },
   "devDependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.66",
     "@base-ui/react": "^1.6.0",
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",

@@ -8,6 +8,47 @@ import path from 'node:path';
 const stagingRoot = (): string =>
   path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'LobeHub', 'sandbox');
 
+const ARCH_DIR: Partial<Record<string, string>> = { arm64: 'arm64', x64: 'x64' };
+
+/**
+ * Locate the helper binary shipped with this app.
+ *
+ * The backend's own `getSrtWinPath()` resolves relative to its package
+ * directory, which stops being true the moment its JavaScript is bundled into
+ * the main process — the computed path then points inside the bundle rather
+ * than at any real file. A packaged app therefore has to be told where its own
+ * resources are, and the desktop ships the binaries under
+ * `resources/sandbox-runtime/vendor`.
+ *
+ * Ordered most- to least-explicit; `process.resourcesPath` is undefined outside
+ * a packaged Electron app, so development and tests fall through to the
+ * backend's own lookup.
+ */
+export const resolveSrtWinSource = (packagedFallback?: () => string): string | undefined => {
+  const fromEnv = process.env.LOBE_SRT_WIN_PATH;
+  if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
+
+  const resourcesPath = (process as { resourcesPath?: string }).resourcesPath;
+  const arch = ARCH_DIR[process.arch];
+  if (resourcesPath && arch) {
+    const packaged = path.join(
+      resourcesPath,
+      'sandbox-runtime',
+      'vendor',
+      'srt-win',
+      arch,
+      'srt-win.exe',
+    );
+    if (fs.existsSync(packaged)) return packaged;
+  }
+
+  try {
+    return packagedFallback?.();
+  } catch {
+    return undefined;
+  }
+};
+
 /**
  * Version the staged copy so an app update cannot leave a stale helper behind:
  * a newer runtime gets a new directory rather than silently reusing the old

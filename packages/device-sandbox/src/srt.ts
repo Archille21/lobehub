@@ -2,7 +2,7 @@ import type { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 import { getSrtWinPath } from '@anthropic-ai/sandbox-runtime';
 
 import { normalizeSandboxPolicy } from './policy';
-import { ensureStagedSrtWin } from './srtWinStaging';
+import { ensureStagedSrtWin, resolveSrtWinSource } from './srtWinStaging';
 import type { SandboxPolicy } from './types';
 
 /**
@@ -17,7 +17,8 @@ import type { SandboxPolicy } from './types';
 const resolveWindowsConfig = (): SandboxRuntimeConfig['windows'] => {
   if (process.platform !== 'win32') return undefined;
   try {
-    const staged = ensureStagedSrtWin(getSrtWinPath());
+    const source = resolveSrtWinSource(getSrtWinPath);
+    const staged = source ? ensureStagedSrtWin(source) : undefined;
     return staged ? { srtWin: { path: staged } } : undefined;
   } catch {
     return undefined;
