@@ -819,6 +819,13 @@ export const sharedMainAreaChildren: RouteObject[] = [
         ),
         path: 'acceptance',
       },
+      {
+        element: dynamicElement(
+          () => import('@/routes/(main)/project/[projectId]'),
+          'Desktop > Project Conversation',
+        ),
+        path: 'conversation/:topicId',
+      },
     ],
     element: dynamicLayout(
       () => import('@/routes/(main)/project/_layout'),
