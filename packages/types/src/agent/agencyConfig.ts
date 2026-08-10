@@ -773,6 +773,20 @@ export interface LobeAgentAgencyConfig {
    */
   localSandbox?: boolean;
   /**
+   * Let the sandboxed commands reach the package-registry allowlist. Only
+   * meaningful with {@link localSandbox}; defaults to off.
+   *
+   * A separate field rather than a tri-state on `localSandbox` because the two
+   * answer different questions ("fence this?" vs "may the fence let installs
+   * through?"), and because the network choice must survive toggling the
+   * sandbox off and back on.
+   *
+   * Never means "the network is open" — the sandbox backend rejects a catch-all
+   * allowlist outright, so this opens a fixed set of registries and forges.
+   * User-facing copy must not promise more than that.
+   */
+  localSandboxNetwork?: boolean;
+  /**
    * Workspace model-selection policy. `fixed` keeps the shared agent model
    * authoritative; `member` enables a per-user model override stored in
    * `workspace_user_settings.preference`. Missing values on public Workspace
@@ -872,7 +886,10 @@ export const DEFAULT_WORKSPACE_AGENT_SELECTION_POLICIES = {
 export const resolveAgencyConfig = (
   agencyConfig: LobeAgentAgencyConfig | null | undefined,
   override:
-    | Pick<LobeAgentAgencyConfig, 'boundDeviceId' | 'executionTarget' | 'localSandbox'>
+    | Pick<
+        LobeAgentAgencyConfig,
+        'boundDeviceId' | 'executionTarget' | 'localSandbox' | 'localSandboxNetwork'
+      >
     | null
     | undefined,
 ): LobeAgentAgencyConfig | undefined => {
@@ -881,15 +898,18 @@ export const resolveAgencyConfig = (
   if (!override) return base;
   const hasTarget = override.executionTarget !== undefined;
   const hasDevice = override.boundDeviceId !== undefined;
-  // `false` is a real value here — a member turning the sandbox back off must
-  // override a shared `true`, so test for presence, not truthiness.
+  // `false` is a real value here — a member turning the sandbox (or its network
+  // allowance) back off must override a shared `true`, so test for presence,
+  // not truthiness.
   const hasLocalSandbox = override.localSandbox !== undefined;
-  if (!hasTarget && !hasDevice && !hasLocalSandbox) return base;
+  const hasLocalSandboxNetwork = override.localSandboxNetwork !== undefined;
+  if (!hasTarget && !hasDevice && !hasLocalSandbox && !hasLocalSandboxNetwork) return base;
   return {
     ...base,
     ...(hasTarget ? { executionTarget: override.executionTarget } : {}),
     ...(hasDevice ? { boundDeviceId: override.boundDeviceId } : {}),
     ...(hasLocalSandbox ? { localSandbox: override.localSandbox } : {}),
+    ...(hasLocalSandboxNetwork ? { localSandboxNetwork: override.localSandboxNetwork } : {}),
   };
 };
 
@@ -911,7 +931,10 @@ export interface AgentAgencyConfigContext {
 export const resolveAgentAgencyConfig = (
   agencyConfig: LobeAgentAgencyConfig | null | undefined,
   override:
-    | Pick<LobeAgentAgencyConfig, 'boundDeviceId' | 'executionTarget' | 'localSandbox'>
+    | Pick<
+        LobeAgentAgencyConfig,
+        'boundDeviceId' | 'executionTarget' | 'localSandbox' | 'localSandboxNetwork'
+      >
     | null
     | undefined,
   context: AgentAgencyConfigContext,

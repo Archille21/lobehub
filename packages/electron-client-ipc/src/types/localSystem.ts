@@ -332,6 +332,13 @@ export interface RunCommandParams {
    * that cannot provide one fails the command instead of downgrading.
    */
   sandbox?: boolean;
+  /**
+   * Let a sandboxed command reach the package-registry allowlist. Ignored
+   * unless `sandbox` is true. Never means "the network is open" — the backend
+   * refuses a catch-all allowlist, so this opens a fixed, named set of
+   * registries and forges and nothing else.
+   */
+  sandboxNetwork?: boolean;
   timeout?: number;
 }
 

@@ -230,6 +230,12 @@ export interface ToolExecutionContext {
    */
   localSandbox?: boolean;
   /**
+   * The sandboxed run may reach the package-registry allowlist
+   * (`agencyConfig.localSandboxNetwork`). Meaningless without
+   * {@link localSandbox}.
+   */
+  localSandboxNetwork?: boolean;
+  /**
    * Optional server-owned embedding runtime for memory search.
    *
    * Use when the acting user is synthetic and should not read user key vaults.

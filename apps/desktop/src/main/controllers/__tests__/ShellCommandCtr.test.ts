@@ -42,10 +42,11 @@ const { mockCreateSandboxLaunchPlan, mockProbeSandboxCapability } = vi.hoisted((
 }));
 
 vi.mock('@lobechat/device-sandbox', () => ({
-  createLocalSandboxPolicy: (cwd: string) => ({
-    allowNetwork: false,
+  createLocalSandboxPolicy: (cwd: string, options?: { allowNetwork?: boolean }) => ({
+    allowNetwork: options?.allowNetwork === true,
     onUnavailable: 'deny',
     writableRoots: [cwd],
+    ...(options?.allowNetwork ? { allowedNetworkDomains: ['*.npmjs.org'] } : {}),
   }),
   createSandboxLaunchPlan: (...args: unknown[]) => mockCreateSandboxLaunchPlan(...args),
   probeSandboxCapability: () => mockProbeSandboxCapability(),
@@ -278,6 +279,85 @@ describe('ShellCommandCtr (thin wrapper)', () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain('Sandbox Runtime does not support win32');
       expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('keeps the network shut unless the run opted in', async () => {
+      mockProcessOutput = 'output\n';
+      setTimeout(() => {
+        mockChildProcess.exitCode = 0;
+        emitChildProcess('exit', 0);
+        emitChildProcess('close', 0);
+      }, 10);
+
+      await ctr.handleRunCommand({ command: 'echo test', cwd: '/repo', sandbox: true });
+
+      expect(mockCreateSandboxLaunchPlan).toHaveBeenCalledWith(
+        expect.objectContaining({ policy: expect.objectContaining({ allowNetwork: false }) }),
+      );
+    });
+
+    it('opens the registry allowlist when the run opted in', async () => {
+      mockProcessOutput = 'output\n';
+      setTimeout(() => {
+        mockChildProcess.exitCode = 0;
+        emitChildProcess('exit', 0);
+        emitChildProcess('close', 0);
+      }, 10);
+
+      await ctr.handleRunCommand({
+        command: 'npm install',
+        cwd: '/repo',
+        sandbox: true,
+        sandboxNetwork: true,
+      });
+
+      expect(mockCreateSandboxLaunchPlan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          policy: expect.objectContaining({
+            allowNetwork: true,
+            allowedNetworkDomains: ['*.npmjs.org'],
+          }),
+        }),
+      );
+    });
+
+    it('downgrades the advertised capability once a fence fails to establish', async () => {
+      // Observed on a real Windows host: dependencies check out, then the first
+      // spawn is denied. Without the downgrade the picker keeps offering an
+      // environment where every command fails.
+      mockCreateSandboxLaunchPlan.mockRejectedValue(
+        new Error('WFP egress fence could not be verified'),
+      );
+
+      expect(await ctr.getSandboxCapability()).toEqual({ available: true, reason: undefined });
+
+      const result = await ctr.handleRunCommand({
+        command: 'echo test',
+        cwd: '/repo',
+        sandbox: true,
+      });
+
+      expect(result.success).toBe(false);
+      expect(mockSpawn).not.toHaveBeenCalled();
+      expect(await ctr.getSandboxCapability()).toEqual({
+        available: false,
+        reason: 'WFP egress fence could not be verified',
+      });
+    });
+
+    it('does not downgrade because a sandboxed command exited non-zero', async () => {
+      // Only a failure to BUILD the fence says anything about the host. A
+      // command failing inside a working sandbox is the command's problem.
+      mockProcessOutput = 'boom\n';
+      setTimeout(() => {
+        mockChildProcess.exitCode = 1;
+        emitChildProcess('exit', 1);
+        emitChildProcess('close', 1);
+      }, 10);
+
+      await ctr.handleRunCommand({ command: 'exit 1', cwd: '/repo', sandbox: true });
+
+      expect(await ctr.getSandboxCapability()).toEqual({ available: true, reason: undefined });
     });
 
     it('reports the host verdict to the renderer', async () => {

@@ -240,7 +240,41 @@ describe('localSystemRuntime', () => {
         command: 'git status',
         cwd: '/Users/me/repo',
         sandbox: true,
+        sandboxNetwork: false,
       });
+    });
+
+    it('forwards the network allowance for a fenced run', async () => {
+      mockExecuteToolCall.mockResolvedValue({ content: '', success: true });
+      const proxy = localSystemRuntime.factory({
+        activeDeviceId: 'device-1',
+        localSandbox: true,
+        localSandboxNetwork: true,
+        toolManifestMap: {},
+        userId: 'user-1',
+        workingDirectory: '/Users/me/repo',
+      });
+      await proxy[LocalSystemApiName.runCommand]({ command: 'npm install' });
+
+      expect(parseArgs().sandboxNetwork).toBe(true);
+    });
+
+    it('omits the network flag when the run is not fenced', async () => {
+      // `sandboxNetwork` is meaningless without a sandbox — don't add noise to
+      // an unfenced command's args.
+      mockExecuteToolCall.mockResolvedValue({ content: '', success: true });
+      const proxy = localSystemRuntime.factory({
+        activeDeviceId: 'device-1',
+        localSandbox: false,
+        localSandboxNetwork: true,
+        toolManifestMap: {},
+        userId: 'user-1',
+        workingDirectory: '/Users/me/repo',
+      });
+      await proxy[LocalSystemApiName.runCommand]({ command: 'git status' });
+
+      expect(parseArgs()).not.toHaveProperty('sandboxNetwork');
+      expect(parseArgs().sandbox).toBe(false);
     });
 
     it('overrides a sandbox flag the model tried to set itself', async () => {

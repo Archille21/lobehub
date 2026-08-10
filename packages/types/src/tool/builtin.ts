@@ -624,6 +624,13 @@ export interface BuiltinToolContext {
   localSandbox?: boolean;
 
   /**
+   * The fenced run may reach the package-registry allowlist
+   * (`agencyConfig.localSandboxNetwork`). Meaningless without
+   * {@link localSandbox}.
+   */
+  localSandboxNetwork?: boolean;
+
+  /**
    * Tool execution context key. It is the tool message ID for locally persisted
    * tool messages, but gateway execution can temporarily use the toolCallId
    * before the server-side tool result message exists.

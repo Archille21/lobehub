@@ -23,8 +23,15 @@ import { useUserStore } from '@/store/user';
  * missing agentId means no config to consult — default to unsandboxed, matching
  * every pre-existing call site.
  */
-export const resolveClientLocalSandbox = (agentId?: string): boolean => {
-  if (!isDesktop || !agentId) return false;
+export interface ClientLocalSandboxDecision {
+  /** Confine this command (writes scoped to the working directory). */
+  localSandbox: boolean;
+  /** …and let it reach the package-registry allowlist. */
+  localSandboxNetwork: boolean;
+}
+
+export const resolveClientLocalSandbox = (agentId?: string): ClientLocalSandboxDecision => {
+  if (!isDesktop || !agentId) return { localSandbox: false, localSandboxNetwork: false };
 
   const sharedAgencyConfig = agentByIdSelectors.getAgencyConfigById(agentId)(
     useAgentStore.getState(),
@@ -37,5 +44,8 @@ export const resolveClientLocalSandbox = (agentId?: string): boolean => {
     isHetero: !!agencyConfig?.heterogeneousProvider?.type,
   });
 
-  return isLocalSandboxEnabled(agencyConfig, target);
+  return {
+    localSandbox: isLocalSandboxEnabled(agencyConfig, target),
+    localSandboxNetwork: agencyConfig?.localSandboxNetwork === true,
+  };
 };

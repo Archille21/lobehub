@@ -522,6 +522,11 @@ export default {
   'heteroAgent.executionTarget.localSandbox': 'Local sandbox',
   'heteroAgent.executionTarget.localSandboxDesc':
     'Run on this computer, with commands limited to the working directory and no network',
+  'heteroAgent.executionTarget.localSandboxDescNetwork':
+    'Run on this computer, with commands limited to the working directory and to common developer domains',
+  'heteroAgent.executionTarget.localSandboxNetworkTip':
+    'Let sandboxed commands reach package registries and source forges — npm, PyPI, crates.io, RubyGems, Go, GitHub, GitLab. Every other domain stays blocked; the sandbox cannot open the network entirely.',
+  'heteroAgent.executionTarget.localSandboxUnavailable': 'Not available on this device: {{reason}}',
   'heteroAgent.executionTarget.manage': 'Manage',
   'heteroAgent.executionTarget.noDevices':
     'No remote devices yet. Run `lh connect` on another machine to add one.',

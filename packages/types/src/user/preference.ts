@@ -20,8 +20,8 @@ import type { NotificationSettings } from './settings/notification';
  * `packages/types/src/agent/agencyConfig.ts` for the merge implementation.
  *
  * Routing fields only, deliberately: `executionTarget`, `boundDeviceId`, and
- * `localSandbox` (which qualifies *this member's* local execution — how hard
- * their own machine is fenced is theirs to decide).
+ * the two `localSandbox*` fields (which qualify *this member's* local execution
+ * — how hard their own machine is fenced is theirs to decide).
  * `heterogeneousProvider`, `verifyRubricId`, and `workingDirByDevice` remain
  * agent-shared because they describe *what the agent is*, not *how this user
  * routes it*.
@@ -30,6 +30,7 @@ export interface AgentDeviceOverride {
   boundDeviceId?: string;
   executionTarget?: DeviceExecutionTarget;
   localSandbox?: boolean;
+  localSandboxNetwork?: boolean;
 }
 
 /**

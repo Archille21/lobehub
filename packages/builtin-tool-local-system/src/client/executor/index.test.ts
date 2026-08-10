@@ -240,7 +240,28 @@ describe('LocalSystemExecutor.runCommand', () => {
     );
 
     expect(runCommandMock).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'git status', cwd: '/repo', sandbox: true }),
+      expect.objectContaining({
+        command: 'git status',
+        cwd: '/repo',
+        sandbox: true,
+        sandboxNetwork: false,
+      }),
+    );
+  });
+
+  it('forwards the network allowance for a fenced run', async () => {
+    await localSystemExecutor.runCommand(
+      { command: 'npm install' },
+      {
+        localSandbox: true,
+        localSandboxNetwork: true,
+        messageId: 'm-1',
+        workingDirectory: '/repo',
+      },
+    );
+
+    expect(runCommandMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sandbox: true, sandboxNetwork: true }),
     );
   });
 

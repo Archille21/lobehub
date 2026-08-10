@@ -80,12 +80,11 @@ export default class ShellCommandCtr extends ControllerModule {
   }
 
   /**
-   * Capability probe, resolved at most once per app run.
+   * Capability verdict, resolved at most once per app run and downgradable.
    *
    * Imported dynamically on purpose: a static import would pull
-   * `@anthropic-ai/sandbox-runtime` into every desktop launch, including the
-   * Windows hosts it cannot serve. Nothing loads SRT until someone actually
-   * asks for a sandbox.
+   * `@anthropic-ai/sandbox-runtime` into every desktop launch. Nothing loads
+   * SRT until someone actually asks for a sandbox.
    */
   private sandboxCapability?: Promise<SandboxCapability>;
 
@@ -108,6 +107,31 @@ export default class ShellCommandCtr extends ControllerModule {
         };
       }
     })());
+  }
+
+  /**
+   * Record that the sandbox could not actually be established, so the picker
+   * stops offering it.
+   *
+   * The cheap probe only checks that the backend is installed and its
+   * dependencies resolve; parts of the fence (on Windows, the egress filter and
+   * the secondary-logon spawn) are exercised only when the first real process
+   * starts. A host can therefore pass the probe and still fail every command —
+   * observed on a Windows machine where `CreateProcessWithLogonW` is denied.
+   * Without this the user re-picks a permanently broken environment forever.
+   *
+   * Downgrade only, never an upgrade: a host that failed once stays failed for
+   * this app run. Recovering usually means installing something, which means
+   * restarting anyway.
+   */
+  private downgradeSandboxCapability(error: Error) {
+    logger.warn('Sandbox unavailable at launch, downgrading capability:', error);
+    this.sandboxCapability = Promise.resolve({
+      available: false,
+      backend: 'none' as const,
+      networkIsolation: false,
+      reason: error.message,
+    });
   }
 
   /**
@@ -165,9 +189,9 @@ export default class ShellCommandCtr extends ControllerModule {
 
     // Check the host up front so an unsupported one gets a named, actionable
     // failure. `createLocalSandboxPolicy` uses `onUnavailable: 'deny'`, so the
-    // command would fail anyway — but the runner reports the raw SRT reason
-    // ("Sandbox Runtime does not support win32"), which reads like a crash
-    // rather than "this environment isn't available on your machine".
+    // command would fail anyway — but the runner reports the raw backend reason
+    // ("Sandbox Runtime dependencies are unavailable: …"), which reads like a
+    // crash rather than "this environment isn't available on your machine".
     const capability = await this.probeSandbox();
     if (!capability.available) {
       return {
@@ -178,13 +202,17 @@ export default class ShellCommandCtr extends ControllerModule {
 
     const { createLocalSandboxPolicy } = await import('@lobechat/device-sandbox');
 
-    // `runCommand` converts sandbox failures (policy conflict, busy runtime)
-    // into `{ success: false, error }` itself. It never falls back to an
-    // unsandboxed spawn, which is the guarantee the user opted into.
+    // `runCommand` converts sandbox failures (policy conflict, busy runtime,
+    // a fence that cannot be established) into `{ success: false, error }`
+    // itself. It never falls back to an unsandboxed spawn, which is the
+    // guarantee the user opted into.
     return runCommand(params, {
       logger,
+      onSandboxUnavailable: (error) => this.downgradeSandboxCapability(error),
       processManager,
-      sandboxPolicy: createLocalSandboxPolicy(params.cwd),
+      sandboxPolicy: createLocalSandboxPolicy(params.cwd, {
+        allowNetwork: params.sandboxNetwork === true,
+      }),
     });
   }
 

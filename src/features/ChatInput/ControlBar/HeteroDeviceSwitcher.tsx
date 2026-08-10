@@ -17,6 +17,7 @@ import {
 import { memo, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import InstantSwitch from '@/components/InstantSwitch';
 import { DOWNLOAD_URL } from '@/const/url';
 import { useChatInputResourceAccess } from '@/features/ChatInput/hooks/useChatInputResourceAccess';
 import { useLocalSandboxCapability } from '@/features/ChatInput/hooks/useLocalSandboxCapability';
@@ -90,6 +91,28 @@ const styles = createStaticStyles(({ css }) => ({
 
     font-size: 11px;
     color: ${cssVar.colorTextDescription};
+  `,
+  extra: css`
+    display: flex;
+    flex: none;
+    gap: 4px;
+    align-items: center;
+
+    margin-inline-start: auto;
+  `,
+  extraInfo: css`
+    cursor: help;
+
+    display: flex;
+    align-items: center;
+
+    color: ${cssVar.colorTextQuaternary};
+
+    transition: color 0.2s;
+
+    &:hover {
+      color: ${cssVar.colorTextSecondary};
+    }
   `,
   deviceList: css`
     overflow-y: auto;
@@ -280,36 +303,54 @@ interface OptionRowProps {
   active: boolean;
   desc?: ReactNode;
   disabled?: boolean;
+  /**
+   * Trailing controls that belong to the row but are not the row's selection —
+   * rendered before the checkmark, with clicks kept from selecting the row so a
+   * setting can be adjusted without switching environment.
+   */
+  extra?: ReactNode;
   icon: ReactNode;
   label: string;
   onClick: () => void;
   tag?: ReactNode;
 }
 
-const OptionRow = memo<OptionRowProps>(({ active, desc, disabled, icon, label, onClick, tag }) => {
-  return (
-    <div
-      className={cx(
-        styles.option,
-        active && styles.optionActive,
-        disabled && styles.optionDisabled,
-      )}
-      onClick={() => {
-        if (!disabled) onClick();
-      }}
-    >
-      <div className={styles.optionIcon}>{icon}</div>
-      <div className={styles.optionMeta}>
-        <Flexbox horizontal align={'center'} gap={6}>
-          <span className={styles.optionTitle}>{label}</span>
-          {tag ? <span className={styles.tag}>{tag}</span> : null}
-        </Flexbox>
-        {desc ? <div className={styles.desc}>{desc}</div> : null}
+const OptionRow = memo<OptionRowProps>(
+  ({ active, desc, disabled, extra, icon, label, onClick, tag }) => {
+    return (
+      <div
+        className={cx(
+          styles.option,
+          active && styles.optionActive,
+          disabled && styles.optionDisabled,
+        )}
+        onClick={() => {
+          if (!disabled) onClick();
+        }}
+      >
+        <div className={styles.optionIcon}>{icon}</div>
+        <div className={styles.optionMeta}>
+          <Flexbox horizontal align={'center'} gap={6}>
+            <span className={styles.optionTitle}>{label}</span>
+            {tag ? <span className={styles.tag}>{tag}</span> : null}
+          </Flexbox>
+          {desc ? <div className={styles.desc}>{desc}</div> : null}
+        </div>
+        {extra ? (
+          <div
+            className={styles.extra}
+            onClick={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            {extra}
+          </div>
+        ) : null}
+        {active ? <Icon className={styles.check} icon={CheckIcon} size={14} /> : null}
       </div>
-      {active ? <Icon className={styles.check} icon={CheckIcon} size={14} /> : null}
-    </div>
-  );
-});
+    );
+  },
+);
 
 OptionRow.displayName = 'HeteroDeviceSwitcher.OptionRow';
 
@@ -398,9 +439,18 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
   // server and the desktop runner use keeps the checkmark honest: it lights up
   // exactly when a command would actually be fenced.
   const localSandboxEnabled = isLocalSandboxEnabled(agencyConfig, executionTarget);
-  const { data: sandboxCapability, isLoading: isSandboxCapabilityLoading } =
+  const localSandboxNetwork = agencyConfig?.localSandboxNetwork === true;
+  const { data: sandboxCapability, mutate: revalidateSandboxCapability } =
     useLocalSandboxCapability();
   const canUseLocalSandbox = sandboxCapability?.available === true;
+
+  // The desktop downgrades its own verdict when a fence fails to establish (the
+  // cheap probe can't see that far), so re-ask each time the picker opens
+  // instead of showing a stale "available" for the rest of the session.
+  useEffect(() => {
+    if (!isDesktop || !open) return;
+    void revalidateSandboxCapability();
+  }, [open, revalidateSandboxCapability]);
 
   const selectExecutionTarget = useSelectExecutionTarget(agentId);
   const handleSelect = useCallback(
@@ -409,6 +459,19 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
       await selectExecutionTarget(target, deviceId, { localSandbox });
     },
     [selectExecutionTarget],
+  );
+
+  // Toggling the network does NOT change which environment is selected — same
+  // dormant semantics the sandbox flag itself has when another environment is
+  // active, so the popover stays open and nothing is switched behind the user.
+  const handleToggleSandboxNetwork = useCallback(
+    async (enabled: boolean) => {
+      await selectExecutionTarget(executionTarget, boundDeviceId, {
+        localSandbox: localSandboxEnabled,
+        localSandboxNetwork: enabled,
+      });
+    },
+    [selectExecutionTarget, executionTarget, boundDeviceId, localSandboxEnabled],
   );
 
   // Auto-default to THIS desktop's local execution on first open, for both
@@ -627,16 +690,44 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
         />
       ) : null}
       {/* Same machine as the row above, fenced: writes confined to the working
-          directory, no network. Hidden entirely on hosts whose sandbox backend
-          is unavailable (Windows, or Linux missing its dependencies) — an
-          option that can only fail is worse than no option. It stays hidden
-          while the probe is in flight so it can't flash in and out. */}
-      {isDesktop && !isSandboxCapabilityLoading && canUseLocalSandbox ? (
+          directory, network denied unless the switch opens the registry
+          allowlist. Shown even when the host can't provide a sandbox — disabled,
+          carrying the real reason, because "unavailable" here usually means
+          "not installed yet" and silently hiding the feature would strand the
+          user with no way to find out why. */}
+      {isDesktop ? (
         <OptionRow
           active={executionTarget === 'local' && localSandboxEnabled}
-          desc={t('heteroAgent.executionTarget.localSandboxDesc')}
+          disabled={!canUseLocalSandbox}
           icon={<Icon icon={ShieldCheckIcon} size={14} />}
           label={t('heteroAgent.executionTarget.localSandbox')}
+          desc={
+            canUseLocalSandbox
+              ? t(
+                  localSandboxNetwork
+                    ? 'heteroAgent.executionTarget.localSandboxDescNetwork'
+                    : 'heteroAgent.executionTarget.localSandboxDesc',
+                )
+              : t('heteroAgent.executionTarget.localSandboxUnavailable', {
+                  reason: sandboxCapability?.reason ?? '',
+                })
+          }
+          extra={
+            canUseLocalSandbox ? (
+              <>
+                <InstantSwitch
+                  enabled={localSandboxNetwork}
+                  size={'small'}
+                  onChange={handleToggleSandboxNetwork}
+                />
+                <Tooltip title={t('heteroAgent.executionTarget.localSandboxNetworkTip')}>
+                  <span className={styles.extraInfo}>
+                    <Icon icon={InfoIcon} size={12} />
+                  </span>
+                </Tooltip>
+              </>
+            ) : undefined
+          }
           onClick={() => void handleSelect('local', undefined, true)}
         />
       ) : null}

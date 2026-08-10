@@ -221,6 +221,8 @@ export class ServerToolTransport implements ToolTransport {
                     context.state.metadata.executionPlan.target,
                   )
                 : undefined,
+              localSandboxNetwork:
+                context.state.metadata?.agentConfig?.agencyConfig?.localSandboxNetwork === true,
               memoryToolPermission:
                 context.state.metadata?.agentConfig?.chatConfig?.memory?.toolPermission,
               messageId: context.state.metadata?.sourceMessageId,

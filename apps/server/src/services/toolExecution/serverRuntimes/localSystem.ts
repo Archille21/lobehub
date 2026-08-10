@@ -121,7 +121,15 @@ export const localSystemRuntime: ServerRuntimeRegistration = {
           // the field, but a model that guessed it must not be able to switch
           // its own fence off — or on).
           if (context.localSandbox !== undefined) {
-            finalArgs = { ...finalArgs, sandbox: context.localSandbox };
+            finalArgs = {
+              ...finalArgs,
+              sandbox: context.localSandbox,
+              // Only meaningful for a fenced run, so don't add noise to the
+              // args of an unfenced one.
+              ...(context.localSandbox
+                ? { sandboxNetwork: context.localSandboxNetwork === true }
+                : {}),
+            };
           }
         }
 
