@@ -10,6 +10,7 @@ export {
 export { SrtSandboxRuntime, srtSandboxRuntime } from './runtime';
 export { canInstallSandbox, installDeviceSandbox } from './setup';
 export { createSrtConfig } from './srt';
+export { ensureStagedSrtWin } from './srtWinStaging';
 export type {
   CreateSandboxLaunchPlanOptions,
   SandboxBackend,
