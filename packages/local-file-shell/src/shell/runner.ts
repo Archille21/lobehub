@@ -61,6 +61,9 @@ export async function runCommand(
   const shellConfig = await getShellConfig(effectiveCommand);
   let outputFiles: ShellOutputFiles | undefined;
   let releaseSandbox: (() => void) | undefined;
+  // What actually happened, reported back so nothing downstream has to infer a
+  // security property from the request that asked for it.
+  let sandboxed: boolean | undefined;
 
   try {
     let launchCommand = shellConfig;
@@ -89,6 +92,7 @@ export async function runCommand(
       launchCommand = launchPlan;
       launchEnv = launchPlan.env as NodeJS.ProcessEnv;
       releaseSandbox = launchPlan.release;
+      sandboxed = launchPlan.sandboxed;
     }
     const shellId = processManager.createShellId();
     const shellOutputFiles = processManager.createOutputFiles(shellId);
@@ -139,6 +143,7 @@ export async function runCommand(
       return {
         output: '',
         output_files: processManager.getOutputFilesInfo(shellOutputFiles),
+        sandboxed,
         shell_id: shellId,
         success: true,
       };
@@ -151,6 +156,7 @@ export async function runCommand(
 
     return {
       ...observation,
+      sandboxed,
       shell_id: shellId,
     };
   } catch (error) {

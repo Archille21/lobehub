@@ -385,6 +385,11 @@ export interface RunCommandResult {
     stderr: { path: string; size: number; truncated: boolean };
     stdout: { path: string; size: number; truncated: boolean };
   };
+  /**
+   * Whether the command was actually confined by the device sandbox — what
+   * happened, not what was requested. Absent when no sandbox was asked for.
+   */
+  sandboxed?: boolean;
   shell_id?: string;
   stderr?: string;
   stdout?: string;
