@@ -61,6 +61,16 @@ const getPublishConfig = () => {
     ];
   }
 
+  // A distribution with no update feed of its own must NOT inherit the GitHub
+  // fallback below: the shipped app would poll github.com/lobehub/lobehub and
+  // offer upstream releases as updates to a differently-branded build. That is
+  // both a phone-home an air-gapped install cannot make and an upgrade path
+  // straight off the distribution.
+  if (process.env.DESKTOP_DISABLE_UPDATES === '1') {
+    console.info(`📦 ${channelPath} channel: updates disabled (DESKTOP_DISABLE_UPDATES=1)`);
+    return null;
+  }
+
   // 本地开发无 S3 时回退到 GitHub
   console.info(`📦 ${channelPath} channel: No UPDATE_SERVER_URL, falling back to GitHub provider`);
   return [
@@ -79,8 +89,25 @@ if (!hasAppleCertificate) {
   console.info('⚠️ Apple certificate link not found, macOS artifacts will be unsigned.');
 }
 
+/**
+ * Distribution identity. A downstream build (private deployment, white-label)
+ * has to be able to set these without forking this file.
+ *
+ * `appId` in particular is not cosmetic: Windows and macOS key the per-user
+ * data directory off it, and the updater uses it to decide what an installed
+ * app *is*. Changing it after a release orphans existing users' data, so a
+ * distribution should pick one before shipping and never touch it again.
+ */
+const appId = process.env.DESKTOP_APP_ID || 'com.lobehub.lobehub-desktop';
+const productName = process.env.DESKTOP_PRODUCT_NAME || 'LobeHub';
+const executableName = process.env.DESKTOP_EXECUTABLE_NAME || 'LobeHub';
+
 // 根据版本类型确定协议 scheme
 const getProtocolScheme = () => {
+  // A custom scheme has to be distinct per distribution too: schemes are
+  // registered OS-wide, so two builds claiming `lobehub://` on one machine race
+  // for the handler and the loser's deep links silently open the other app.
+  if (process.env.DESKTOP_PROTOCOL_SCHEME) return process.env.DESKTOP_PROTOCOL_SCHEME;
   if (isCanary) return 'lobehub-canary';
   if (isNightly) return 'lobehub-nightly';
   return 'lobehub';
@@ -167,7 +194,7 @@ const config = {
     }
   },
   afterSign: verifyFontListSignature,
-  appId: 'com.lobehub.lobehub-desktop',
+  appId,
   appImage: {
     artifactName: '${productName}-${version}.${ext}',
   },
@@ -236,7 +263,7 @@ const config = {
       CFBundleIconName: 'AppIcon',
       CFBundleURLTypes: [
         {
-          CFBundleURLName: 'LobeHub Protocol',
+          CFBundleURLName: `${productName} Protocol`,
           CFBundleURLSchemes: [protocolScheme],
         },
       ],
@@ -272,9 +299,12 @@ const config = {
     uninstallDisplayName: '${productName}',
     uninstallerSidebar: './build/nsis-sidebar.bmp',
   },
+  // Drives ${productName} in every artifactName/shortcutName template above, and
+  // is the name the installer and the OS show the user.
+  productName,
   protocols: [
     {
-      name: 'LobeHub Protocol',
+      name: `${productName} Protocol`,
       schemes: [protocolScheme],
     },
   ],
@@ -293,7 +323,7 @@ const config = {
   ],
 
   win: {
-    executableName: 'LobeHub',
+    executableName,
   },
 };
 

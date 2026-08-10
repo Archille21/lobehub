@@ -109,6 +109,11 @@ export default defineConfig(async (env) => {
     define: {
       ...processEnvDefine,
       'process.env.DESKTOP_EXTERNAL_NAVIGATION_HOSTS': JSON.stringify(externalNavigationHosts),
+      // `env.ts` reads this and falls back to OFFICIAL_URL, but nothing baked it
+      // in — and a packaged app has no shell to inherit it from, so a build
+      // configured for another deployment still shipped pointing at the official
+      // cloud. Left undefined the define is a no-op and the fallback stands.
+      'process.env.OFFICIAL_CLOUD_SERVER': JSON.stringify(process.env.OFFICIAL_CLOUD_SERVER),
       'process.env.UPDATE_CHANNEL': JSON.stringify(process.env.UPDATE_CHANNEL),
       'process.env.UPDATE_SERVER_URL': JSON.stringify(process.env.UPDATE_SERVER_URL),
     },

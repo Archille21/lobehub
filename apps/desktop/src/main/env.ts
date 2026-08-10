@@ -51,10 +51,15 @@ const envNumber = (defaultValue: number) =>
     }, z.number().optional())
     .default(defaultValue);
 
+// The spread stays live at runtime; the explicit entries below are the ones
+// `vite.main.config.ts` statically replaces at build time. A packaged app has no
+// shell to inherit env from, so anything that must survive packaging has to be
+// listed here AND defined there — the spread alone silently yields undefined.
 const getRuntimeEnv = () => ({
   ...process.env,
   DESKTOP_BACKEND_PROXY_RETHROW_ERRORS: process.env.DESKTOP_BACKEND_PROXY_RETHROW_ERRORS,
   DESKTOP_EXTERNAL_NAVIGATION_HOSTS: process.env.DESKTOP_EXTERNAL_NAVIGATION_HOSTS,
+  OFFICIAL_CLOUD_SERVER: process.env.OFFICIAL_CLOUD_SERVER,
   UPDATE_CHANNEL: process.env.UPDATE_CHANNEL,
   UPDATE_SERVER_URL: process.env.UPDATE_SERVER_URL,
 });
