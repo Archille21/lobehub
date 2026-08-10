@@ -2,6 +2,7 @@ import type { SandboxCapability } from '@lobechat/device-sandbox';
 import type {
   DesktopShellSettings,
   DeviceSandboxCapabilityResult,
+  DeviceSandboxInstallResult,
   GetCommandOutputParams,
   GetCommandOutputResult,
   KillCommandParams,
@@ -137,13 +138,59 @@ export default class ShellCommandCtr extends ControllerModule {
   /**
    * Whether this host can run sandboxed commands at all. The renderer asks
    * before offering the "Local Sandbox" execution environment, so an
-   * unsupported host shows a disabled row carrying the real reason instead of
-   * an option that fails on first use.
+   * unsupported host shows a disabled row carrying the real reason — and, when
+   * the app can fix it, a button — instead of an option that fails on first
+   * use.
    */
   @IpcMethod()
   async getSandboxCapability(): Promise<DeviceSandboxCapabilityResult> {
     const capability = await this.probeSandbox();
-    return { available: capability.available, reason: capability.reason };
+    const { canInstallSandbox } = await import('@lobechat/device-sandbox');
+    return {
+      available: capability.available,
+      // Only worth advertising while something is actually missing.
+      canInstall: !capability.available && canInstallSandbox(),
+      reason: capability.reason,
+    };
+  }
+
+  /**
+   * Provision the sandbox backend on this machine, then re-read the capability.
+   *
+   * Users install the desktop app expecting its features to work; making them
+   * run a CLI first would be a broken promise. This is that setup, behind an
+   * explicit click — it raises a UAC prompt and creates a dedicated Windows
+   * account, which must never happen implicitly.
+   *
+   * Always clears the cached verdict first: the whole point is to re-evaluate a
+   * host that previously said no, including one downgraded by a failed launch.
+   */
+  @IpcMethod()
+  async installSandbox(): Promise<DeviceSandboxInstallResult> {
+    const { installDeviceSandbox } = await import('@lobechat/device-sandbox');
+
+    let status: DeviceSandboxInstallResult['status'] = 'failed';
+    let error: string | undefined;
+    let instructions: string | undefined;
+
+    try {
+      const result = await installDeviceSandbox();
+      status = result.status;
+      instructions = result.instructions;
+      logger.info('Sandbox setup finished with status:', status);
+    } catch (caught) {
+      error = (caught as Error).message;
+      logger.error('Sandbox setup failed:', caught);
+    }
+
+    // Re-probe unconditionally. A cancelled or failed attempt can still have
+    // changed the host (the installer is idempotent and partially completes),
+    // and a stale "unavailable" would keep the option switched off after a
+    // setup that actually worked.
+    this.sandboxCapability = undefined;
+    const capability = await this.getSandboxCapability();
+
+    return { capability: { ...capability, instructions }, error, status };
   }
 
   @IpcMethod()

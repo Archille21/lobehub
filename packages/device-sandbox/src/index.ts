@@ -8,6 +8,7 @@ export {
   type LocalSandboxPolicyOptions,
 } from './presets';
 export { SrtSandboxRuntime, srtSandboxRuntime } from './runtime';
+export { canInstallSandbox, installDeviceSandbox } from './setup';
 export { createSrtConfig } from './srt';
 export type {
   CreateSandboxLaunchPlanOptions,
@@ -18,6 +19,8 @@ export type {
   SandboxErrorCode,
   SandboxLaunchPlan,
   SandboxPolicy,
+  SandboxSetupResult,
+  SandboxSetupStatus,
   SandboxUnavailableBehavior,
 } from './types';
 export { SandboxError } from './types';

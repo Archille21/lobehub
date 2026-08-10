@@ -524,6 +524,7 @@ export default {
     'Run on this computer, with commands limited to the working directory and no network',
   'heteroAgent.executionTarget.localSandboxDescNetwork':
     'Run on this computer, with commands limited to the working directory and to common developer domains',
+  'heteroAgent.executionTarget.localSandboxSetUp': 'Set up',
   'heteroAgent.executionTarget.localSandboxNetworkTip':
     'Let sandboxed commands reach package registries and source forges — npm, PyPI, crates.io, RubyGems, Go, GitHub, GitLab. Every other domain stays blocked; the sandbox cannot open the network entirely.',
   'heteroAgent.executionTarget.localSandboxUnavailable': 'Not available on this device: {{reason}}',

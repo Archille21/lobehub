@@ -634,6 +634,7 @@
   "heteroAgent.executionTarget.localSandboxDesc": "在本机运行，命令仅能改动工作目录且无法联网",
   "heteroAgent.executionTarget.localSandboxDescNetwork": "在本机运行，命令仅能改动工作目录，且仅可访问常用开发域名",
   "heteroAgent.executionTarget.localSandboxNetworkTip": "允许沙箱内的命令访问包管理器与代码托管域名：npm、PyPI、crates.io、RubyGems、Go、GitHub、GitLab。其余域名仍会被拦截——沙箱无法完全放开网络。",
+  "heteroAgent.executionTarget.localSandboxSetUp": "启用",
   "heteroAgent.executionTarget.localSandboxUnavailable": "此设备上不可用：{{reason}}",
   "heteroAgent.executionTarget.manage": "管理",
   "heteroAgent.executionTarget.noDevices": "暂无远程设备。在另一台机器上执行 `lh connect` 即可接入。",

@@ -68,6 +68,9 @@ export function getNativeModulesFilesConfig() {
  */
 export function getAsarUnpackPatterns() {
   return [
+    // The sandbox helpers are executables the broker spawns by path; a file
+    // inside app.asar has no real path to spawn, so they must sit on disk.
+    'node_modules/@anthropic-ai/sandbox-runtime/vendor/**/*',
     'node_modules/@lydell/node-pty-*/prebuilds/**/*.node',
     'node_modules/@lydell/node-pty-*/prebuilds/*/spawn-helper',
     'node_modules/font-list/libs/darwin/fontlist',

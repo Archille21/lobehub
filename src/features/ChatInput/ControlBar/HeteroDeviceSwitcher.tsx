@@ -4,6 +4,7 @@ import { isDesktop } from '@lobechat/const';
 import { HETEROGENEOUS_TYPE_LABELS } from '@lobechat/heterogeneous-agents';
 import type { DeviceExecutionTarget } from '@lobechat/types';
 import { Flexbox, Icon, Popover, Tooltip } from '@lobehub/ui';
+import { Button } from '@lobehub/ui/base-ui';
 import { createStaticStyles, cssVar, cx } from 'antd-style';
 import {
   CheckIcon,
@@ -36,6 +37,7 @@ import {
 } from '@/helpers/executionTarget';
 import { useIsGatewayModeEnabled } from '@/helpers/gatewayMode';
 import { useEffectiveAgencyConfig } from '@/hooks/useEffectiveAgencyConfig';
+import { localFileService } from '@/services/electron/localFileService';
 import { useAgentStore } from '@/store/agent';
 import { useElectronStore } from '@/store/electron';
 
@@ -99,6 +101,10 @@ const styles = createStaticStyles(({ css }) => ({
     align-items: center;
 
     margin-inline-start: auto;
+
+    /* A disabled row dims itself, but its trailing action is the way OUT of
+       that state — dimming the setup button would read as "also unavailable". */
+    opacity: 1;
   `,
   extraInfo: css`
     cursor: help;
@@ -461,6 +467,24 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
     [selectExecutionTarget],
   );
 
+  // Setting up the backend raises an elevation prompt and creates a dedicated
+  // OS account, so it only ever happens on this explicit click. The popover
+  // stays open throughout — the user came here to pick an environment, and the
+  // row turning usable is the answer to what they clicked.
+  const [isInstallingSandbox, setIsInstallingSandbox] = useState(false);
+  const handleInstallSandbox = useCallback(async () => {
+    setIsInstallingSandbox(true);
+    try {
+      const result = await localFileService.installSandbox();
+      // The IPC already re-probed, so trust its verdict rather than firing
+      // another round-trip. A cancelled prompt lands here too, with the
+      // unchanged capability — nothing to report, the user just said no.
+      await revalidateSandboxCapability(result.capability, { revalidate: false });
+    } finally {
+      setIsInstallingSandbox(false);
+    }
+  }, [revalidateSandboxCapability]);
+
   // Toggling the network does NOT change which environment is selected — same
   // dormant semantics the sandbox flag itself has when another environment is
   // active, so the popover stays open and nothing is switched behind the user.
@@ -708,9 +732,12 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
                     ? 'heteroAgent.executionTarget.localSandboxDescNetwork'
                     : 'heteroAgent.executionTarget.localSandboxDesc',
                 )
-              : t('heteroAgent.executionTarget.localSandboxUnavailable', {
+              : // Prefer the actionable instruction (Linux's "install this
+                // package") over the backend's raw diagnostic when we have one.
+                (sandboxCapability?.instructions ??
+                t('heteroAgent.executionTarget.localSandboxUnavailable', {
                   reason: sandboxCapability?.reason ?? '',
-                })
+                }))
           }
           extra={
             canUseLocalSandbox ? (
@@ -726,6 +753,12 @@ const HeteroDeviceSwitcher = memo<HeteroDeviceSwitcherProps>(({ agentId }) => {
                   </span>
                 </Tooltip>
               </>
+            ) : sandboxCapability?.canInstall ? (
+              // The backend is missing but we can provision it — a dead-end row
+              // would leave the user to discover a CLI incantation on their own.
+              <Button loading={isInstallingSandbox} size={'small'} onClick={handleInstallSandbox}>
+                {t('heteroAgent.executionTarget.localSandboxSetUp')}
+              </Button>
             ) : undefined
           }
           onClick={() => void handleSelect('local', undefined, true)}

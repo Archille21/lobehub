@@ -36,12 +36,21 @@ vi.mock('../CliCtr', () => ({
   default: class CliCtr {},
 }));
 
-const { mockCreateSandboxLaunchPlan, mockProbeSandboxCapability } = vi.hoisted(() => ({
+const {
+  mockCanInstallSandbox,
+  mockCreateSandboxLaunchPlan,
+  mockInstallDeviceSandbox,
+  mockProbeSandboxCapability,
+} = vi.hoisted(() => ({
+  mockCanInstallSandbox: vi.fn(),
   mockCreateSandboxLaunchPlan: vi.fn(),
+  mockInstallDeviceSandbox: vi.fn(),
   mockProbeSandboxCapability: vi.fn(),
 }));
 
 vi.mock('@lobechat/device-sandbox', () => ({
+  canInstallSandbox: () => mockCanInstallSandbox(),
+  installDeviceSandbox: () => mockInstallDeviceSandbox(),
   createLocalSandboxPolicy: (cwd: string, options?: { allowNetwork?: boolean }) => ({
     allowNetwork: options?.allowNetwork === true,
     onUnavailable: 'deny',
@@ -198,6 +207,9 @@ describe('ShellCommandCtr (thin wrapper)', () => {
 
   describe('local sandbox', () => {
     beforeEach(() => {
+      // Default to a host with a one-click setup (Windows); the cases that care
+      // about the other platforms override it.
+      mockCanInstallSandbox.mockReturnValue(true);
       mockProbeSandboxCapability.mockResolvedValue({
         available: true,
         backend: 'srt',
@@ -329,7 +341,11 @@ describe('ShellCommandCtr (thin wrapper)', () => {
         new Error('WFP egress fence could not be verified'),
       );
 
-      expect(await ctr.getSandboxCapability()).toEqual({ available: true, reason: undefined });
+      expect(await ctr.getSandboxCapability()).toEqual({
+        available: true,
+        canInstall: false,
+        reason: undefined,
+      });
 
       const result = await ctr.handleRunCommand({
         command: 'echo test',
@@ -341,6 +357,7 @@ describe('ShellCommandCtr (thin wrapper)', () => {
       expect(mockSpawn).not.toHaveBeenCalled();
       expect(await ctr.getSandboxCapability()).toEqual({
         available: false,
+        canInstall: true,
         reason: 'WFP egress fence could not be verified',
       });
     });
@@ -357,7 +374,11 @@ describe('ShellCommandCtr (thin wrapper)', () => {
 
       await ctr.handleRunCommand({ command: 'exit 1', cwd: '/repo', sandbox: true });
 
-      expect(await ctr.getSandboxCapability()).toEqual({ available: true, reason: undefined });
+      expect(await ctr.getSandboxCapability()).toEqual({
+        available: true,
+        canInstall: false,
+        reason: undefined,
+      });
     });
 
     it('reports the host verdict to the renderer', async () => {
@@ -370,7 +391,122 @@ describe('ShellCommandCtr (thin wrapper)', () => {
 
       expect(await ctr.getSandboxCapability()).toEqual({
         available: false,
+        canInstall: true,
         reason: 'bubblewrap is not installed',
+      });
+    });
+
+    describe('setup', () => {
+      it('re-reads the capability after a successful install', async () => {
+        // Installing the desktop app is supposed to be enough: the row goes
+        // from unavailable to usable without the user touching a terminal.
+        mockCanInstallSandbox.mockReturnValue(true);
+        mockProbeSandboxCapability.mockResolvedValue({
+          available: false,
+          backend: 'none',
+          networkIsolation: false,
+          reason: 'Sandbox user is not provisioned',
+        });
+        expect(await ctr.getSandboxCapability()).toEqual({
+          available: false,
+          canInstall: true,
+          reason: 'Sandbox user is not provisioned',
+        });
+
+        mockInstallDeviceSandbox.mockResolvedValue({ status: 'installed' });
+        mockProbeSandboxCapability.mockResolvedValue({
+          available: true,
+          backend: 'srt',
+          networkIsolation: true,
+        });
+
+        const result = await ctr.installSandbox();
+
+        expect(result.status).toBe('installed');
+        expect(result.capability.available).toBe(true);
+      });
+
+      it('clears a downgraded verdict so a fixed host can recover', async () => {
+        // The downgrade is sticky for the app run; setup is the one thing that
+        // must be able to lift it, or the button could never work.
+        mockCanInstallSandbox.mockReturnValue(true);
+        mockCreateSandboxLaunchPlan.mockRejectedValue(new Error('egress fence unverified'));
+        await ctr.handleRunCommand({ command: 'echo test', cwd: '/repo', sandbox: true });
+        expect((await ctr.getSandboxCapability()).available).toBe(false);
+
+        mockInstallDeviceSandbox.mockResolvedValue({ status: 'installed' });
+        mockProbeSandboxCapability.mockResolvedValue({
+          available: true,
+          backend: 'srt',
+          networkIsolation: true,
+        });
+
+        expect((await ctr.installSandbox()).capability.available).toBe(true);
+      });
+
+      it('reports a dismissed elevation prompt as cancelled, not a failure', async () => {
+        mockCanInstallSandbox.mockReturnValue(true);
+        mockInstallDeviceSandbox.mockResolvedValue({ status: 'cancelled' });
+        mockProbeSandboxCapability.mockResolvedValue({
+          available: false,
+          backend: 'none',
+          networkIsolation: false,
+          reason: 'Sandbox user is not provisioned',
+        });
+
+        const result = await ctr.installSandbox();
+
+        expect(result.status).toBe('cancelled');
+        expect(result.error).toBeUndefined();
+        expect(result.capability.available).toBe(false);
+      });
+
+      it('surfaces an install failure without leaving the capability stale', async () => {
+        mockCanInstallSandbox.mockReturnValue(true);
+        mockInstallDeviceSandbox.mockRejectedValue(new Error('WFP filter install failed'));
+        mockProbeSandboxCapability.mockResolvedValue({
+          available: false,
+          backend: 'none',
+          networkIsolation: false,
+          reason: 'Sandbox user is not provisioned',
+        });
+
+        const result = await ctr.installSandbox();
+
+        expect(result.status).toBe('failed');
+        expect(result.error).toBe('WFP filter install failed');
+        expect(result.capability.available).toBe(false);
+      });
+
+      it('carries manual instructions when the app cannot install it', async () => {
+        mockCanInstallSandbox.mockReturnValue(false);
+        mockInstallDeviceSandbox.mockResolvedValue({
+          instructions: 'sudo apt install bubblewrap',
+          status: 'not-installable',
+        });
+        mockProbeSandboxCapability.mockResolvedValue({
+          available: false,
+          backend: 'none',
+          networkIsolation: false,
+          reason: 'bubblewrap is not installed',
+        });
+
+        const result = await ctr.installSandbox();
+
+        expect(result.status).toBe('not-installable');
+        expect(result.capability.canInstall).toBe(false);
+        expect(result.capability.instructions).toBe('sudo apt install bubblewrap');
+      });
+
+      it('does not offer setup on a host that already has a sandbox', async () => {
+        mockCanInstallSandbox.mockReturnValue(true);
+        mockProbeSandboxCapability.mockResolvedValue({
+          available: true,
+          backend: 'srt',
+          networkIsolation: true,
+        });
+
+        expect((await ctr.getSandboxCapability()).canInstall).toBe(false);
       });
     });
 
@@ -379,6 +515,7 @@ describe('ShellCommandCtr (thin wrapper)', () => {
 
       expect(await ctr.getSandboxCapability()).toEqual({
         available: false,
+        canInstall: true,
         reason: 'module not found',
       });
     });

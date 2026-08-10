@@ -351,8 +351,29 @@ export interface RunCommandParams {
  */
 export interface DeviceSandboxCapabilityResult {
   available: boolean;
+  /**
+   * The app can provision the backend itself on this host (one UAC prompt on
+   * Windows). Lets the UI offer a setup button instead of a dead end — a user
+   * who installed the desktop app should not have to run anything by hand
+   * before the sandbox works.
+   */
+  canInstall: boolean;
+  /** What to do by hand when the app cannot install it (e.g. Linux packages). */
+  instructions?: string;
   /** Human-readable explanation when `available` is false. */
   reason?: string;
+}
+
+/**
+ * Result of a user-initiated sandbox setup, plus the capability re-read
+ * afterwards so the caller never has to guess whether it took.
+ */
+export interface DeviceSandboxInstallResult {
+  capability: DeviceSandboxCapabilityResult;
+  /** Failure detail when `status` is `failed`. */
+  error?: string;
+  /** `cancelled` means the user dismissed the elevation prompt — not a failure. */
+  status: 'cancelled' | 'failed' | 'installed' | 'not-installable';
 }
 
 export interface RunCommandResult {
