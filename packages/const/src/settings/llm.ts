@@ -80,13 +80,26 @@ export const resolveSubAgentChatConfig = <T extends object>(
 /**
  * Default hard timeout for isolated child runs forked via `lobe-agent.callSubAgent`
  * / `agent-management.callAgent` when the caller passes no explicit `timeout` —
- * matches the 30-minute default already documented in the tool manifests.
- * Enforced by the sub-agent timeout watchdog (`scheduleSubAgentTimeout`), which
- * interrupts the child and bridges a `timeout` completion so the parked parent
- * never waits indefinitely.
+ * matches the 2-hour default documented in the tool manifests. Sized from
+ * production data: legitimate long sub-agent runs (whole-document translation,
+ * remote deployment debugging) span 2–3.5h, so a shorter default would cut
+ * real work; the parked parent's Redis state TTL is sized to outlive this
+ * deadline. Enforced by the sub-agent timeout watchdog
+ * (`scheduleSubAgentTimeout`), which interrupts the child and bridges a
+ * `timeout` completion so the parked parent never waits indefinitely.
  * https://github.com/lobehub/lobehub/issues/17284
  */
-export const SUB_AGENT_DEFAULT_TIMEOUT_MS = 1_800_000;
+export const SUB_AGENT_DEFAULT_TIMEOUT_MS = 7_200_000;
+
+/**
+ * Default `maxSteps` for isolated child runs forked via
+ * `lobe-agent.callSubAgent` / `agent-management.callAgent`. Reaching the cap
+ * triggers the runtime's graceful `forceFinish` (tools are stripped and the
+ * child is asked to summarize), not a hard kill. Sized from production data:
+ * the highest observed legitimate run is ~550 steps, so 1000 only stops true
+ * runaways. Main-agent runs stay unbounded by design.
+ */
+export const SUB_AGENT_DEFAULT_MAX_STEPS = 1000;
 
 export const DEFAULT_RERANK_MODEL = 'rerank-english-v3.0';
 export const DEFAULT_RERANK_PROVIDER = 'cohere';

@@ -29,6 +29,7 @@ import {
   isHeterogeneousAgentModelId,
   LOADING_FLAT,
   resolveSubAgentChatConfig,
+  SUB_AGENT_DEFAULT_MAX_STEPS,
   SUB_AGENT_DEFAULT_TIMEOUT_MS,
 } from '@lobechat/const';
 import {
@@ -5071,10 +5072,10 @@ export class AiAgentService {
       autoStart: true,
       chatConfigOverride: options.chatConfig,
       hooks,
-      // No default step bound — a high step count is not itself a failure
-      // signal, and runaway children are bounded by the timeout watchdog.
-      // Self-hosters can opt into a cap via SUB_AGENT_MAX_STEPS.
-      maxSteps: appEnv.SUB_AGENT_MAX_STEPS,
+      // Default step cap (graceful forceFinish, not a hard kill) so a looping
+      // child winds down with a summary instead of grinding until the timeout
+      // watchdog interrupts it. Self-hosters can tune via SUB_AGENT_MAX_STEPS.
+      maxSteps: appEnv.SUB_AGENT_MAX_STEPS ?? SUB_AGENT_DEFAULT_MAX_STEPS,
       // Explicit sub-agent model override resolved at the spawn site.
       model: options.model,
       parentOperationId,

@@ -17,9 +17,11 @@ const log = debug('lobe-server:agent-runtime:agent-state-manager');
  * refreshed on every state save. Exported so schedulers that arm deliveries
  * against a *parked* operation (e.g. the sub-agent timeout watchdog) can keep
  * their deadlines inside this window — a parked op never re-saves, so a
- * delivery landing after this TTL finds no state to resume.
+ * delivery landing after this TTL finds no state to resume. Must stay above
+ * `SUB_AGENT_DEFAULT_TIMEOUT_MS` (2h) plus the watchdog margin, so a parent
+ * parked on a default-timeout child is still resumable when the deadline fires.
  */
-export const AGENT_STATE_TTL_SECONDS = 2 * 3600; // 2h
+export const AGENT_STATE_TTL_SECONDS = 2.5 * 3600; // 2.5h
 
 const REFRESH_OWNED_LOCK_SCRIPT =
   "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end";

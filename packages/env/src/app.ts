@@ -87,13 +87,13 @@ export const getAppConfig = () => {
       enableQueueAgentRuntime: z.boolean().optional(),
       /**
        * Default `maxSteps` for isolated sub-agent runs (`callSubAgent` children,
-       * `callAgent` targets). Unset = no step bound, matching server-side main
-       * agent runs.
+       * `callAgent` targets). Unset = 1000 (graceful forceFinish cap). Main
+       * agent runs stay unbounded.
        */
       SUB_AGENT_MAX_STEPS: z.number().int().positive().optional(),
       /**
        * Default hard timeout (in milliseconds) for isolated sub-agent runs when
-       * the tool call passes no explicit `timeout`. Unset = 30 minutes.
+       * the tool call passes no explicit `timeout`. Unset = 2 hours.
        */
       SUB_AGENT_TIMEOUT_MS: z.number().int().positive().optional(),
       TELEMETRY_DISABLED: z.boolean().optional(),

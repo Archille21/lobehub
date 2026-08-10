@@ -2943,7 +2943,7 @@ describe('AgentRuntimeService', () => {
 
     it('clamps a scheduling delay beyond the parked-parent state lifetime', async () => {
       // Regression (PR #18046 review round 12): a model-passed timeout above
-      // the 2h Redis state TTL let the parked parent's AgentState expire
+      // the Redis state TTL let the parked parent's AgentState expire
       // before the watchdog fired — tryResumeParentFromAsyncTool cannot
       // resume without the state, so the parent stranded forever. The delay
       // must be clamped inside the state lifetime (TTL − 10min margin).
@@ -2952,7 +2952,7 @@ describe('AgentRuntimeService', () => {
       await service.scheduleSubAgentTimeout(timeoutParams, 5 * 3600 * 1000);
 
       expect(mockQueueService.scheduleMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ delay: (2 * 3600 - 600) * 1000 }),
+        expect.objectContaining({ delay: (2.5 * 3600 - 600) * 1000 }),
       );
     });
 
@@ -2982,7 +2982,7 @@ describe('AgentRuntimeService', () => {
       );
 
       expect(mockQueueService.scheduleMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ delay: (2 * 3600 - 600) * 1000 }),
+        expect.objectContaining({ delay: (2.5 * 3600 - 600) * 1000 }),
       );
     });
 

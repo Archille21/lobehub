@@ -1,4 +1,4 @@
-import { SUB_AGENT_DEFAULT_TIMEOUT_MS } from '@lobechat/const';
+import { SUB_AGENT_DEFAULT_MAX_STEPS, SUB_AGENT_DEFAULT_TIMEOUT_MS } from '@lobechat/const';
 import { ThreadStatus, ThreadType } from '@lobechat/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -241,6 +241,7 @@ describe('AiAgentService.execSubAgent', () => {
           expect.objectContaining({ id: 'thread-metadata-update', type: 'afterStep' }),
           expect.objectContaining({ id: 'thread-completion', type: 'onComplete' }),
         ]),
+        maxSteps: SUB_AGENT_DEFAULT_MAX_STEPS,
         prompt: 'Test instruction',
         userInterventionConfig: {
           approvalMode: 'headless',
@@ -409,6 +410,35 @@ describe('AiAgentService.execSubAgent', () => {
       });
 
       expect(execAgentSpy).toHaveBeenCalledWith(expect.objectContaining({ maxSteps: 200 }));
+    });
+
+    it('defaults maxSteps to SUB_AGENT_DEFAULT_MAX_STEPS when the env override is unset', async () => {
+      const execAgentSpy = vi.spyOn(service, 'execAgent').mockResolvedValue({
+        agentId: 'agent-1',
+        assistantMessageId: 'assistant-msg-1',
+        autoStarted: true,
+        createdAt: new Date().toISOString(),
+        message: 'Agent operation created successfully',
+        messageId: 'queue-msg-1',
+        operationId: 'op-123',
+        status: 'created',
+        success: true,
+        timestamp: new Date().toISOString(),
+        topicId: 'topic-1',
+        userMessageId: 'user-msg-1',
+      });
+
+      await service.execVirtualSubAgent({
+        agentId: 'agent-1',
+        instruction: 'Nested research task',
+        parentMessageId: 'tool-msg-1',
+        parentOperationId: 'parent-op-1',
+        topicId: 'topic-1',
+      });
+
+      expect(execAgentSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ maxSteps: SUB_AGENT_DEFAULT_MAX_STEPS }),
+      );
     });
 
     it('does not schedule the sub-agent timeout watchdog for non-bridged execSubAgent runs', async () => {

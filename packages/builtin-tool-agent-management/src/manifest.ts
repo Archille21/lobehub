@@ -305,9 +305,9 @@ export const AgentManagementManifest: BuiltinToolManifest = {
             type: 'string',
           },
           timeout: {
-            default: 1_800_000,
+            default: 7_200_000,
             description:
-              'Maximum time in milliseconds to wait for task completion (default: 1800000 = 30 minutes). Only applies when runAsTask is true.',
+              'Maximum time in milliseconds to wait for task completion (default: 7200000 = 2 hours). Only applies when runAsTask is true.',
             type: 'number',
           },
           skipCallSupervisor: {

@@ -253,7 +253,7 @@ export const LobeAgentManifest: BuiltinToolManifest = {
             },
           }),
           timeout: {
-            description: 'Optional timeout in milliseconds. Default is 30 minutes.',
+            description: 'Optional timeout in milliseconds. Default is 2 hours.',
             type: 'number',
           },
         },
