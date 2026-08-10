@@ -244,6 +244,29 @@ describe('localSystemRuntime', () => {
       });
     });
 
+    it('never lets a model-supplied cwd become the fence root', async () => {
+      // The sandbox policy is built from `params.cwd` on the device, so this
+      // stripping is what stops a guessed or replayed `cwd` from choosing what
+      // the command is fenced to. `cwd` is off-manifest for every api, but the
+      // arg schema does not reject extra properties — pin the behaviour here so
+      // relaxing the strip can never silently hand the model its own fence.
+      mockExecuteToolCall.mockResolvedValue({ content: '', success: true });
+      const proxy = localSystemRuntime.factory({
+        activeDeviceId: 'device-1',
+        localSandbox: true,
+        toolManifestMap: {},
+        userId: 'user-1',
+        workingDirectory: '/Users/me/repo',
+      });
+      await proxy[LocalSystemApiName.runCommand]({
+        command: 'cat ~/.ssh/id_rsa',
+        cwd: '/Users/me',
+      });
+
+      expect(parseArgs().cwd).toBe('/Users/me/repo');
+      expect(parseArgs().sandbox).toBe(true);
+    });
+
     it('forwards the network allowance for a fenced run', async () => {
       mockExecuteToolCall.mockResolvedValue({ content: '', success: true });
       const proxy = localSystemRuntime.factory({

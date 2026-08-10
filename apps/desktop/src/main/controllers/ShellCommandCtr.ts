@@ -226,6 +226,14 @@ export default class ShellCommandCtr extends ControllerModule {
     // to `process.cwd()` (the app install directory on a packaged desktop),
     // which would confine writes to a place the user never chose while still
     // reporting success.
+    //
+    // `params.cwd` is trusted as the fence root because both callers strip the
+    // model's own `cwd` before dispatch and re-inject the run's configured
+    // working directory — the server device-proxy unconditionally, and the
+    // client executor via the runtime's `trustArgsCwd: false` path. This
+    // process cannot re-check that (it has no idea which directory the agent
+    // was configured with), so the guarantee is pinned by tests on both
+    // injection sites instead.
     if (!params.cwd) {
       return {
         error:
