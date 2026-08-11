@@ -57,7 +57,7 @@ describe('TerminalPanelToggle', () => {
   });
 
   it('toggles the panel and reflects its active state', () => {
-    const { rerender } = render(<TerminalPanelToggle />);
+    const { unmount } = render(<TerminalPanelToggle />);
 
     expect(screen.getByTestId('terminal-panel-toggle')).toHaveAttribute('data-active', 'false');
 
@@ -66,7 +66,8 @@ describe('TerminalPanelToggle', () => {
     expect(mocks.toggleTerminalPanel).toHaveBeenCalledWith();
 
     mocks.showTerminalPanel = true;
-    rerender(<TerminalPanelToggle />);
+    unmount();
+    render(<TerminalPanelToggle />);
 
     expect(screen.getByTestId('terminal-panel-toggle')).toHaveAttribute('data-active', 'true');
   });
