@@ -1,5 +1,7 @@
 import { mutate, useClientDataSWR } from '@/libs/swr';
 import { taskKeys } from '@/libs/swr/keys';
+import { getCacheScope } from '@/libs/swr/useCacheScope';
+import { getProjectionStoreState, nextProjectionObservedAt } from '@/projection';
 import { taskService } from '@/services/task';
 import type { StoreSetter } from '@/store/types';
 
@@ -34,28 +36,19 @@ export type GoalStore = GoalState & GoalAction;
 type Setter = StoreSetter<GoalStore>;
 
 export class GoalActionImpl {
-  readonly #get: () => GoalStore;
   readonly #set: Setter;
 
   constructor(set: Setter, get: () => GoalStore, _api?: unknown) {
     void _api;
-    this.#get = get;
+    void get;
     this.#set = set;
   }
 
   deleteGoal = async (agentId: string, goalId: string): Promise<void> => {
+    const scope = getCacheScope();
+    const observedAt = nextProjectionObservedAt();
     await taskService.deleteGoal(goalId);
-    const current = this.#get().goalListByAgentId[agentId] ?? [];
-    this.#set(
-      ({ goalListByAgentId }) => ({
-        goalListByAgentId: {
-          ...goalListByAgentId,
-          [agentId]: current.filter(({ id, identifier }) => id !== goalId && identifier !== goalId),
-        },
-      }),
-      false,
-      'deleteGoal/success',
-    );
+    getProjectionStoreState().deleteTaskProjection(scope, goalId, observedAt);
     await this.refreshGoals(agentId);
   };
 
@@ -86,31 +79,24 @@ export class GoalActionImpl {
   useFetchGoals = (agentId?: string) =>
     useClientDataSWR(
       agentId ? taskKeys.sidebarGroups(`${agentId}:goals-page`) : null,
-      () =>
-        taskService.groupList({
+      async () => {
+        const scope = getCacheScope();
+        const observedAt = nextProjectionObservedAt();
+        const result = await taskService.groupList({
           assigneeAgentId: agentId,
           groups: [{ key: 'goals', limit: 100, statuses: GOAL_STATUSES }],
           hasGoal: true,
           parentTaskId: null,
-        }),
-      {
-        onSuccess: ({ data }) => {
-          this.#set(
-            ({ goalListByAgentId, goalListInitializedAgentIds }) => ({
-              goalListByAgentId: {
-                ...goalListByAgentId,
-                [agentId!]: data[0]?.tasks ?? [],
-              },
-              goalListInitializedAgentIds: goalListInitializedAgentIds.includes(agentId!)
-                ? goalListInitializedAgentIds
-                : [...goalListInitializedAgentIds, agentId!],
-            }),
-            false,
-            'useFetchGoals/success',
-          );
-        },
-        revalidateOnFocus: true,
+        });
+        getProjectionStoreState().commitTaskGroupList(
+          scope,
+          result.data,
+          { agentKey: `${agentId}:goals-page`, visibility: 'all' },
+          observedAt,
+        );
+        return result;
       },
+      { revalidateOnFocus: true },
     );
 
   /**

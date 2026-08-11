@@ -1,6 +1,16 @@
 import { mutate, useClientDataSWR } from '@/libs/swr';
 import { projectionKeys, taskKeys } from '@/libs/swr/keys';
 import { getCacheScope } from '@/libs/swr/useCacheScope';
+import {
+  getProjectionStoreState,
+  nextProjectionObservedAt,
+  selectTaskGroupListIndex,
+  selectTaskListIndex,
+  selectTaskListItem,
+  taskGroupListViewContract,
+  taskListViewContract,
+  useProjectionViewHydration,
+} from '@/projection';
 import { taskService } from '@/services/task';
 import type { StoreSetter } from '@/store/types';
 
@@ -140,20 +150,52 @@ export class TaskListSliceActionImpl {
     }
     const listVisibility = this.#get().listVisibility;
 
+    useProjectionViewHydration(
+      taskGroupListViewContract,
+      { agentKey: effectiveKey ?? '', visibility: listVisibility },
+      enabled && Boolean(effectiveKey),
+    );
+
     return useClientDataSWR(
       enabled && effectiveKey ? taskKeys.groupList(effectiveKey, listVisibility) : null,
       async () => {
-        return taskService.groupList({
+        const scope = getCacheScope();
+        const observedAt = nextProjectionObservedAt();
+        const result = await taskService.groupList({
           assigneeAgentId: allAgents ? undefined : agentId,
           groups: DEFAULT_KANBAN_GROUPS,
           hasGoal: false,
           visibility: filterToServerVisibility(listVisibility),
         });
+        getProjectionStoreState().commitTaskGroupList(
+          scope,
+          result.data,
+          { agentKey: effectiveKey, visibility: listVisibility },
+          observedAt,
+        );
+        return result;
       },
       {
-        onSuccess: (data: { data: TaskGroupItem[] }) => {
+        onSuccess: () => {
+          const scope = getCacheScope();
+          const projectionScope = getProjectionStoreState().scopes[scope];
+          const index = selectTaskGroupListIndex(projectionScope, {
+            agentKey: effectiveKey,
+            visibility: listVisibility,
+          });
+          if (!index) return;
+          const taskGroups = index.groups.map(({ refs, ...group }) => ({
+            ...group,
+            tasks: refs.flatMap((ref) => {
+              const item = selectTaskListItem(
+                projectionScope,
+                projectionScope?.records.task[ref.id],
+              );
+              return item ? [item] : [];
+            }),
+          }));
           this.#set(
-            { isTaskGroupListInit: true, taskGroups: data.data },
+            { isTaskGroupListInit: true, taskGroups },
             false,
             'useFetchTaskGroupList/onSuccess',
           );
@@ -216,6 +258,12 @@ export class TaskListSliceActionImpl {
     const listVisibility = visibility ?? this.#get().listVisibility;
     const { listAgentId, listQueryVisibility } = this.#get();
 
+    useProjectionViewHydration(
+      taskListViewContract,
+      { agentKey: effectiveKey ?? '', visibility: listVisibility },
+      enabled && Boolean(effectiveKey),
+    );
+
     // `tasks` is shared by the full Tasks page and embedded overviews. Reset it
     // when either part of the effective query changes so an `all` override does
     // not temporarily inherit a previously initialized private/workspace list.
@@ -234,20 +282,41 @@ export class TaskListSliceActionImpl {
     return useClientDataSWR(
       enabled && effectiveKey ? taskKeys.list(effectiveKey, listVisibility, orderBy) : null,
       async ([, id]: [string, string]) => {
-        return this.fetchTaskList({
+        const scope = getCacheScope();
+        const observedAt = nextProjectionObservedAt();
+        const result = await this.fetchTaskList({
           ...(allAgents ? {} : { assigneeAgentId: id }),
           hasGoal: false,
           orderBy,
           visibility: filterToServerVisibility(listVisibility),
         });
+        getProjectionStoreState().commitTaskList(
+          scope,
+          result.data,
+          result.total,
+          { agentKey: effectiveKey, visibility: listVisibility },
+          observedAt,
+        );
+        return result;
       },
       {
-        onSuccess: (data: { data: TaskListItem[]; total: number }) => {
+        onSuccess: () => {
+          const scope = getCacheScope();
+          const projectionScope = getProjectionStoreState().scopes[scope];
+          const index = selectTaskListIndex(projectionScope, {
+            agentKey: effectiveKey,
+            visibility: listVisibility,
+          });
+          if (!index) return;
+          const tasks = index.refs.flatMap((ref) => {
+            const item = selectTaskListItem(projectionScope, projectionScope?.records.task[ref.id]);
+            return item ? [item] : [];
+          });
           this.#set(
             {
               isTaskListInit: true,
-              tasks: data.data,
-              tasksTotal: data.total,
+              tasks,
+              tasksTotal: index.total,
             },
             false,
             'useFetchTaskList/onSuccess',
