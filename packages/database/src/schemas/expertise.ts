@@ -1,4 +1,6 @@
 import type {
+  ExpertiseAnchorCandidate,
+  ExpertiseCanonEntry,
   ExpertiseEvidenceSpecItem,
   ExpertiseInsightEvidenceRef,
   ExpertiseLayerDefinition,
@@ -59,12 +61,30 @@ export const EXPERTISE_LESSON_STATUSES = ['active', 'rejected', 'retired'] as co
 export const EXPERTISE_COMPILABILITIES = ['compiled', 'compilable', 'not-compilable'] as const;
 export const EXPERTISE_ACTOR_TYPES = ['agent', 'user', 'system'] as const;
 export const EXPERTISE_SUBJECT_TYPES = ['topic', 'task', 'document'] as const;
-export const EXPERTISE_HIT_OUTCOMES = ['pass', 'violation', 'false_positive'] as const;
+/**
+ * 只有两值。早期有第三值 false_positive，实测被系统性误用：模型把「这条规则在
+ * 这个 topic 不适用」记成了 fp（消息回复 fp 29 > pass 19）。但 fp 的本意是
+ * 「被用上了但用错了」，是喂给用进废退的降级信号 —— 照那样记，每条规则只要在
+ * 不相关的 topic 出现一次就被扣分。**不适用根本不该产生 hit**；真正的误报由
+ * userDecision = 'reject' 承担。
+ */
+export const EXPERTISE_HIT_OUTCOMES = ['pass', 'violation'] as const;
 export const EXPERTISE_HIT_SEVERITIES = ['high', 'mid', 'low'] as const;
 export const EXPERTISE_HIT_USER_DECISIONS = ['agree', 'reject'] as const;
 export const EXPERTISE_FIT_CONFIDENCES = ['insufficient', 'low', 'ok'] as const;
 export const EXPERTISE_INSIGHT_STATUSES = ['active', 'dismissed', 'acted'] as const;
 export const EXPERTISE_REVISION_ACTORS = ['user', 'agent', 'system'] as const;
+/** 改写的两种来源：人把边界说清楚了 vs 合并时被泛化以覆盖新实例。 */
+export const EXPERTISE_REVISION_KINDS = ['user-feedback', 'generalize'] as const;
+/**
+ * 零命中有两种病，处置不同：
+ *   over-specific  触发条件写死成某个角色/平台 → 该并回母规则
+ *   one-off        真的罕见 → 保留或退休
+ * 实测：找人专家的零命中 90% 带「当…时」条件从句，设计工程师的 0% 带 —— 同一档两种病。
+ */
+export const EXPERTISE_SPECIFICITIES = ['general', 'over-specific', 'one-off'] as const;
+/** 曲线形态。区分「真饱和」与「从没起来过」是旧版最大的漏洞。 */
+export const EXPERTISE_PLATEAU_KINDS = ['saturated', 'growing', 'stalled', 'noisy'] as const;
 
 // ============================================
 // 1. expertise_domains — 专长本体 + SCLPT 的非 P 部分
@@ -118,8 +138,18 @@ export const expertiseDomains = pgTable(
       .notNull()
       .default('invented'),
 
-    /** Canon —— 外部基准。先用文本 + 可选文档，canon 条目化留到后续。 */
-    canon: text('canon'),
+    /**
+     * Canon —— 外部基准，**条目化**。
+     *
+     * 早期这里是一句话文本，结果 lesson 的 canonAnchor 100% 是 null ——
+     * 锚点不可引用就锚不上；改成条目后锚定率跳到 100%。
+     *
+     * 与 layers 同样用 jsonb 而不抽表：每个领域 7-8 条且固定，读取永远是全量
+     * （喂 prompt、算覆盖率），9 个真实领域之间零复用。lesson.canonAnchor 用
+     * key 引用它，与 lesson.layer 引用 layers[].key 是同一个取舍。
+     */
+    canonEntries: jsonb('canon_entries').$type<ExpertiseCanonEntry[]>().notNull().default([]),
+    /** 整本经典的全文或引用材料 —— 条目是索引，文档是原文。 */
     canonDocumentId: varchar255('canon_document_id').references(() => documents.id, {
       onDelete: 'set null',
     }),
@@ -136,6 +166,21 @@ export const expertiseDomains = pgTable(
 
     /** 心得库的 markdown 投影，挂 agent_documents 做确定性注入。 */
     lessonBaseDocumentId: varchar255('lesson_base_document_id').references(() => documents.id, {
+      onDelete: 'set null',
+    }),
+
+    /**
+     * 锚定阶段给出的候选全集。领域是**选择**不是发现 —— 同一个 agent 锚两次
+     * 可能得到两个都成立的身份（技术情报分析 / 论文解读），各带不同的 canon
+     * 与分层。没选的那条路也留着，后面才能回答「当时选另一个会怎样」。
+     */
+    anchorCandidates: jsonb('anchor_candidates').$type<ExpertiseAnchorCandidate[]>(),
+    /**
+     * 人在什么时候定下了锚点。null = 还没定 —— 此时**禁止开始长规则**，
+     * 因为下游的分层、canon、过滤器全部依赖这个选择。
+     */
+    anchorChosenAt: timestamptz('anchor_chosen_at'),
+    anchorChosenByUserId: text('anchor_chosen_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
 
@@ -307,6 +352,16 @@ export const expertiseLessons = pgTable(
     lastHitAt: timestamptz('last_hit_at'),
     lastHitRunId: varchar255('last_hit_run_id'),
 
+    /**
+     * 合并时指向被泛化掉的母规则，用于追溯「这条是从哪几条并出来的」。
+     * 写入路径的三分支（instance / refine / new）里，refine 会填它。
+     */
+    generalizedFromIds: jsonb('generalized_from_ids').$type<string[]>(),
+    /** 零命中的病因分类，决定该并回母规则还是保留（见 EXPERTISE_SPECIFICITIES）。 */
+    specificity: text('specificity', { enum: EXPERTISE_SPECIFICITIES }),
+    /** instance 判定挂上来的具体情形数 —— 就是 ✅❌ 例子的来源。 */
+    exampleCount: integer('example_count').notNull().default(0),
+
     currentRevision: integer('current_revision').notNull().default(1),
 
     ...timestamps,
@@ -347,6 +402,10 @@ export const expertiseLessonRevisions = pgTable(
     feedback: text('feedback'),
 
     changedBy: text('changed_by', { enum: EXPERTISE_REVISION_ACTORS }).notNull(),
+    /** 人说清楚了，还是合并时被泛化 —— 两者的价值和可信度不同。 */
+    kind: text('kind', { enum: EXPERTISE_REVISION_KINDS }).notNull().default('user-feedback'),
+    /** 改写前的标题，方便直接看出泛化了什么。 */
+    prevTitle: text('prev_title'),
     changedByUserId: text('changed_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -413,6 +472,14 @@ export const expertiseRuns = pgTable(
     userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
     workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'cascade' }),
 
+    /**
+     * 写入路径三分支的计数。三者的比例是**枚举健康度的直接读数**：
+     * instance 占绝大多数才是健康的规则库；new 居高不下说明在把案例当规则记。
+     */
+    instanceCount: integer('instance_count').notNull().default(0),
+    refineCount: integer('refine_count').notNull().default(0),
+    newCount: integer('new_count').notNull().default(0),
+
     startedAt: timestamptz('started_at').notNull().defaultNow(),
     completedAt: timestamptz('completed_at'),
 
@@ -468,6 +535,8 @@ export const expertiseHits = pgTable(
     /** 违反时的定位与说明。 */
     where: text('where'),
     note: text('note'),
+    /** instance 判定挂的具体情形 —— 这条规则这次长什么样，就是 ✅❌ 例子。 */
+    example: text('example'),
     severity: text('severity', { enum: EXPERTISE_HIT_SEVERITIES }),
 
     /** 证据接 verify_evidence，不退化成一句话。 */
@@ -539,6 +608,31 @@ export const expertiseDomainSnapshots = pgTable(
     fitSampleSize: integer('fit_sample_size'),
     fitConfidence: text('fit_confidence', { enum: EXPERTISE_FIT_CONFIDENCES }),
     fitComputedAt: timestamptz('fit_computed_at'),
+    /**
+     * τ 撞上了搜索上界 = 拟合失败，此时 pInf / maturity 全是边界伪影。
+     * 9 组回测里 6 组撞界，而旧版把它们全报成了 ok（有个「成熟度 93.6%」
+     * 就是这么来的）。撞界必须一律降级。
+     */
+    tauPinned: boolean('tau_pinned').notNull().default(false),
+    /**
+     * = runIndex / τ。τ 是曲线弯折的尺度：没跨过一个时间常数，曲线还在直线段上，
+     * 渐近线根本没被数据约束住，pInf 是**猜出来的而不是测出来的**。
+     * < 1 时界面必须显式警告，不能拿它做外推。
+     */
+    observedSpan: numeric('observed_span', { mode: 'number' }),
+    plateauKind: text('plateau_kind', { enum: EXPERTISE_PLATEAU_KINDS }),
+
+    /**
+     * 有界指标：分母固定，不依赖外推，拟合失败时它们仍然可信。
+     *
+     * 分层覆盖与 canon 覆盖是**两个独立的比率**，不能乘成笛卡尔积 —— 并非每个
+     * (层, canon) 组合都有意义（entity_disambiguation 只在 entity_resolution
+     * 层成立，配到 corroboration 层是个永远填不满的空格子）。
+     */
+    layerCoverage: numeric('layer_coverage', { mode: 'number' }),
+    canonCoverage: numeric('canon_coverage', { mode: 'number' }),
+    /** 有命中的规则 / 总规则。**枚举越多它越低 —— 天然的反枚举指标。** */
+    activeRate: numeric('active_rate', { mode: 'number' }),
 
     capturedAt: timestamptz('captured_at').notNull().defaultNow(),
   },

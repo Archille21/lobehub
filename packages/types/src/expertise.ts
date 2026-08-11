@@ -51,6 +51,45 @@ export interface ExpertiseLessonSection {
   key: string;
 }
 
+/**
+ * Canon 的一个条目。条目化是必需的 —— 早期把 canon 存成一句话时，
+ * lesson 的 canonAnchor 100% 是 null：锚点不可引用就锚不上。
+ *
+ * 与 layers 同构，所以同样存 jsonb 而不抽表：每个领域 7-8 条且固定，
+ * 读取永远是全量（喂 prompt / 算覆盖率），9 个真实领域间零复用。
+ */
+export interface ExpertiseCanonEntry {
+  /** 稳定标识，被 lessons.canonAnchor 引用。 */
+  key: string;
+  /** 哪本书 / 哪套方法。 */
+  source: string;
+  /** 这条理论说什么 —— 为什么这类失败会在任何同类工作里发生。 */
+  statement: string;
+  title: string;
+}
+
+/**
+ * 锚定阶段给出的一个候选领域。
+ *
+ * 领域是**选择**不是发现：同一个 agent 锚两次可能得到「技术情报分析」和
+ * 「论文解读」两个都成立的身份，各自带不同的 canon 与分层。所以候选全集要留着，
+ * 由人来选，且没选的那条路也保留 —— 后面才能回答「当时选另一个会怎样」。
+ */
+export interface ExpertiseAnchorCandidate {
+  canonEntries: ExpertiseCanonEntry[];
+  domainFilter: string;
+  evidenceSpec?: ExpertiseEvidenceSpecItem[];
+  flow?: string[];
+  key: string;
+  layerCanonRef?: string;
+  layers: ExpertiseLayerDefinition[];
+  layerSource: 'canonical' | 'invented';
+  outOfScope?: string;
+  /** 这个候选是怎么从语料里读出来的 —— 供人判断该选哪个。 */
+  rationale?: string;
+  title: string;
+}
+
 export type ExpertiseInsightEvidenceType = 'lesson' | 'run' | 'hit' | 'topic' | 'operation';
 
 export interface ExpertiseInsightEvidenceRef {

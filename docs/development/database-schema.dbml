@@ -1133,6 +1133,12 @@ table expertise_domain_snapshots {
   fit_sample_size integer
   fit_confidence text
   fit_computed_at "timestamp with time zone"
+  tau_pinned boolean [not null, default: false]
+  observed_span numeric
+  plateau_kind text
+  layer_coverage numeric
+  canon_coverage numeric
+  active_rate numeric
   captured_at "timestamp with time zone" [not null, default: `now()`]
 
   indexes {
@@ -1156,11 +1162,14 @@ table expertise_domains {
   out_of_scope text
   layers jsonb [not null, default: `[]`]
   layer_source text [not null, default: 'invented']
-  canon text
+  canon_entries jsonb [not null, default: `[]`]
   canon_document_id varchar(255)
   flow jsonb [not null, default: `[]`]
   evidence_spec jsonb [not null, default: `[]`]
   lesson_base_document_id varchar(255)
+  anchor_candidates jsonb
+  anchor_chosen_at "timestamp with time zone"
+  anchor_chosen_by_user_id text
   seed_state text [not null, default: 'seeding']
   seed_run_id varchar(255)
   accessed_at "timestamp with time zone" [not null, default: `now()`]
@@ -1185,6 +1194,7 @@ table expertise_hits {
   outcome text [not null]
   where text
   note text
+  example text
   severity text
   evidence_id uuid
   operation_id text
@@ -1233,6 +1243,8 @@ table expertise_lesson_revisions {
   sections jsonb [not null]
   feedback text
   changed_by text [not null]
+  kind text [not null, default: 'user-feedback']
+  prev_title text
   changed_by_user_id text
   source_run_id varchar(255)
   operation_id text
@@ -1268,6 +1280,9 @@ table expertise_lessons {
   false_positive_count integer [not null, default: 0]
   last_hit_at "timestamp with time zone"
   last_hit_run_id varchar(255)
+  generalized_from_ids jsonb
+  specificity text
+  example_count integer [not null, default: 0]
   current_revision integer [not null, default: 1]
   accessed_at "timestamp with time zone" [not null, default: `now()`]
   created_at "timestamp with time zone" [not null, default: `now()`]
@@ -1296,6 +1311,9 @@ table expertise_runs {
   had_human_in_loop boolean [not null, default: false]
   user_id text
   workspace_id text
+  instance_count integer [not null, default: 0]
+  refine_count integer [not null, default: 0]
+  new_count integer [not null, default: 0]
   started_at "timestamp with time zone" [not null, default: `now()`]
   completed_at "timestamp with time zone"
   accessed_at "timestamp with time zone" [not null, default: `now()`]

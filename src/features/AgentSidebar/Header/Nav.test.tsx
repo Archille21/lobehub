@@ -18,6 +18,10 @@ const permissionMock = vi.hoisted(() => ({
   create_content: true,
   edit_own_content: true,
 }));
+const labMock = vi.hoisted(() => ({
+  enableSelfLearning: true,
+  enableTopicAcceptance: true,
+}));
 vi.mock('@/features/ResourcePermission/useResourceAccess', () => ({
   useResourceAccess: () => ({ canEditResource: true, isAccessResolved: true }),
 }));
@@ -33,6 +37,7 @@ vi.mock('@lobehub/ui/icons', () => ({
 }));
 
 vi.mock('lucide-react', () => ({
+  GraduationCapIcon: () => null,
   MessageSquarePlusIcon: () => null,
   MessagesSquareIcon: () => null,
   SearchIcon: () => null,
@@ -131,11 +136,13 @@ vi.mock('@/store/serverConfig', () => ({
 
 vi.mock('@/store/user', () => ({
   useUserStore: (selector: (state: unknown) => unknown) =>
-    selector({ preference: { lab: { enableTopicAcceptance: true } } }),
+    selector({ preference: { lab: labMock } }),
 }));
 
 vi.mock('@/store/user/selectors', () => ({
   labPreferSelectors: {
+    enableSelfLearning: (state: { preference: { lab?: { enableSelfLearning?: boolean } } }) =>
+      state.preference.lab?.enableSelfLearning ?? false,
     enableTopicAcceptance: (state: { preference: { lab?: { enableTopicAcceptance?: boolean } } }) =>
       state.preference.lab?.enableTopicAcceptance ?? false,
   },
@@ -152,6 +159,8 @@ describe('Agent sidebar header nav', () => {
     usePathnameMock.mockReset();
     permissionMock.create_content = true;
     permissionMock.edit_own_content = true;
+    labMock.enableSelfLearning = true;
+    labMock.enableTopicAcceptance = true;
 
     useParamsMock.mockReturnValue({ aid: 'agt_eH4zL98zBx5u', topicId: 'tpc_2FCHvjS7d4CA' });
   });
@@ -227,6 +236,35 @@ describe('Agent sidebar header nav', () => {
 
     expect(switchTopicMock).toHaveBeenCalledWith(null, { skipRefreshMessage: true });
     expect(pushMock).toHaveBeenCalledWith('/agent/agt_eH4zL98zBx5u/goals');
+  });
+
+  it('navigates to the agent self-learning page', () => {
+    usePathnameMock.mockReturnValue('/agent/agt_eH4zL98zBx5u');
+
+    render(<Nav />);
+    fireEvent.click(screen.getByRole('button', { name: 'title' }));
+
+    expect(switchTopicMock).toHaveBeenCalledWith(null, { skipRefreshMessage: true });
+    expect(pushMock).toHaveBeenCalledWith('/agent/agt_eH4zL98zBx5u/self-learning');
+  });
+
+  // The surface is opt-in WIP, so the entry must disappear with the Labs toggle
+  // rather than lead everyone to a page whose data pipeline isn't running yet.
+  it('hides the self-learning entry when the labs toggle is off', () => {
+    labMock.enableSelfLearning = false;
+    usePathnameMock.mockReturnValue('/agent/agt_eH4zL98zBx5u');
+
+    render(<Nav />);
+
+    expect(screen.queryByRole('button', { name: 'title' })).toBeNull();
+  });
+
+  it('keeps the self-learning entry active on its own route', () => {
+    usePathnameMock.mockReturnValue('/agent/agt_eH4zL98zBx5u/self-learning');
+
+    render(<Nav />);
+
+    expect(screen.getByRole('button', { name: 'title' })).toHaveAttribute('data-active', 'true');
   });
 
   it('places topics above profile and goals in the agent navigation', () => {

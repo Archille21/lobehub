@@ -38,6 +38,7 @@ import plugin from './plugin';
 import portal from './portal';
 import providers from './providers';
 import ragEval from './ragEval';
+import selfLearning from './selfLearning';
 import setting from './setting';
 import spend from './spend';
 import subscription from './subscription';
@@ -91,6 +92,7 @@ const resources = {
   portal,
   providers,
   ragEval,
+  selfLearning,
   setting,
   spend,
   subscription,

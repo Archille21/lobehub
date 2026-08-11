@@ -32,6 +32,12 @@ CREATE TABLE IF NOT EXISTS "expertise_domain_snapshots" (
 	"fit_sample_size" integer,
 	"fit_confidence" text,
 	"fit_computed_at" timestamp with time zone,
+	"tau_pinned" boolean DEFAULT false NOT NULL,
+	"observed_span" numeric,
+	"plateau_kind" text,
+	"layer_coverage" numeric,
+	"canon_coverage" numeric,
+	"active_rate" numeric,
 	"captured_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -49,11 +55,14 @@ CREATE TABLE IF NOT EXISTS "expertise_domains" (
 	"out_of_scope" text,
 	"layers" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"layer_source" text DEFAULT 'invented' NOT NULL,
-	"canon" text,
+	"canon_entries" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"canon_document_id" varchar(255),
 	"flow" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"evidence_spec" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"lesson_base_document_id" varchar(255),
+	"anchor_candidates" jsonb,
+	"anchor_chosen_at" timestamp with time zone,
+	"anchor_chosen_by_user_id" text,
 	"seed_state" text DEFAULT 'seeding' NOT NULL,
 	"seed_run_id" varchar(255),
 	"accessed_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -70,6 +79,7 @@ CREATE TABLE IF NOT EXISTS "expertise_hits" (
 	"outcome" text NOT NULL,
 	"where" text,
 	"note" text,
+	"example" text,
 	"severity" text,
 	"evidence_id" uuid,
 	"operation_id" text,
@@ -105,6 +115,8 @@ CREATE TABLE IF NOT EXISTS "expertise_lesson_revisions" (
 	"sections" jsonb NOT NULL,
 	"feedback" text,
 	"changed_by" text NOT NULL,
+	"kind" text DEFAULT 'user-feedback' NOT NULL,
+	"prev_title" text,
 	"changed_by_user_id" text,
 	"source_run_id" varchar(255),
 	"operation_id" text,
@@ -135,6 +147,9 @@ CREATE TABLE IF NOT EXISTS "expertise_lessons" (
 	"false_positive_count" integer DEFAULT 0 NOT NULL,
 	"last_hit_at" timestamp with time zone,
 	"last_hit_run_id" varchar(255),
+	"generalized_from_ids" jsonb,
+	"specificity" text,
+	"example_count" integer DEFAULT 0 NOT NULL,
 	"current_revision" integer DEFAULT 1 NOT NULL,
 	"accessed_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -156,6 +171,9 @@ CREATE TABLE IF NOT EXISTS "expertise_runs" (
 	"had_human_in_loop" boolean DEFAULT false NOT NULL,
 	"user_id" text,
 	"workspace_id" text,
+	"instance_count" integer DEFAULT 0 NOT NULL,
+	"refine_count" integer DEFAULT 0 NOT NULL,
+	"new_count" integer DEFAULT 0 NOT NULL,
 	"started_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"completed_at" timestamp with time zone,
 	"accessed_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -191,6 +209,8 @@ ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_can
 ALTER TABLE "expertise_domains" ADD CONSTRAINT "expertise_domains_canon_document_id_documents_id_fk" FOREIGN KEY ("canon_document_id") REFERENCES "public"."documents"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_lesson_base_document_id_documents_id_fk";--> statement-breakpoint
 ALTER TABLE "expertise_domains" ADD CONSTRAINT "expertise_domains_lesson_base_document_id_documents_id_fk" FOREIGN KEY ("lesson_base_document_id") REFERENCES "public"."documents"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_anchor_chosen_by_user_id_users_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_domains" ADD CONSTRAINT "expertise_domains_anchor_chosen_by_user_id_users_id_fk" FOREIGN KEY ("anchor_chosen_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "expertise_hits" DROP CONSTRAINT IF EXISTS "expertise_hits_run_id_expertise_runs_id_fk";--> statement-breakpoint
 ALTER TABLE "expertise_hits" ADD CONSTRAINT "expertise_hits_run_id_expertise_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."expertise_runs"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "expertise_hits" DROP CONSTRAINT IF EXISTS "expertise_hits_lesson_id_expertise_lessons_id_fk";--> statement-breakpoint
