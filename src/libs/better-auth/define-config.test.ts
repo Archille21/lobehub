@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  appEnv: { APP_URL: 'https://example.com' },
   betterAuth: vi.fn((options) => options),
   clearMismatchedOIDCSession: vi.fn(),
   EnvHttpProxyAgent: vi.fn((options) => ({ options })),
@@ -55,9 +56,7 @@ vi.mock('undici', () => ({
 }));
 
 vi.mock('@/envs/app', () => ({
-  appEnv: {
-    APP_URL: 'https://example.com',
-  },
+  appEnv: mocks.appEnv,
 }));
 
 vi.mock('@/envs/auth', () => ({
@@ -116,6 +115,7 @@ describe('defineConfig', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
+    mocks.appEnv.APP_URL = 'https://example.com';
     process.env = { ...originalEnv, NODE_ENV: 'test' };
     delete process.env.HTTP_PROXY;
     delete process.env.http_proxy;
@@ -207,4 +207,42 @@ describe('defineConfig', () => {
 
     expect(mergeLocalNoProxy('*')).toBe('*');
   });
+
+  it('should keep auth cookies host-only when no cookie domain is given', async () => {
+    const { defineConfig } = await import('./define-config');
+
+    defineConfig({ plugins: [] });
+    const [options] = mocks.betterAuth.mock.lastCall!;
+
+    expect(options.advanced.crossSubDomainCookies).toBeUndefined();
+  });
+
+  it.each([['https://app.example.com'], ['https://example.com']])(
+    'should share auth cookies across subdomains when APP_URL %s is under the cookie domain',
+    async (appUrl) => {
+      mocks.appEnv.APP_URL = appUrl;
+      const { defineConfig } = await import('./define-config');
+
+      defineConfig({ cookieDomain: '.example.com', plugins: [] });
+      const [options] = mocks.betterAuth.mock.lastCall!;
+
+      expect(options.advanced.crossSubDomainCookies).toEqual({
+        domain: '.example.com',
+        enabled: true,
+      });
+    },
+  );
+
+  it.each([['https://preview-branch.vercel.app'], ['http://localhost:3010']])(
+    'should ignore a cookie domain that APP_URL %s does not belong to',
+    async (appUrl) => {
+      mocks.appEnv.APP_URL = appUrl;
+      const { defineConfig } = await import('./define-config');
+
+      defineConfig({ cookieDomain: '.example.com', plugins: [] });
+      const [options] = mocks.betterAuth.mock.lastCall!;
+
+      expect(options.advanced.crossSubDomainCookies).toBeUndefined();
+    },
+  );
 });
