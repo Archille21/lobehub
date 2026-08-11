@@ -980,6 +980,13 @@
       "when": 1786316226126,
       "tag": "0139_projects_add_coordinator_agent",
       "breakpoints": true
+    },
+    {
+      "idx": 140,
+      "version": "7",
+      "when": 1786420946106,
+      "tag": "0140_expertise_domain_tables",
+      "breakpoints": true
     }
   ],
   "version": "6"
