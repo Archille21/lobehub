@@ -31,7 +31,16 @@ import { useDevDockStore } from './store';
 const subscribeDevDock = (listener: () => void) => useDevDockStore.subscribe(listener);
 const subscribeGlobal = (listener: () => void) => useGlobalStore.subscribe(listener);
 
-export const registerBuiltinDevDockItems = () => {
+const localDatabasePanel: DevDockItem = {
+  defaultPinned: true,
+  icon: Database,
+  id: 'local-database',
+  label: 'Local Database',
+  load: () => import('@/features/DevPanel/LocalDatabase'),
+  type: 'panel',
+};
+
+export const createBuiltinDevDockItems = (desktopRuntime: boolean): DevDockItem[] => {
   const items: DevDockItem[] = [
     {
       defaultPinned: true,
@@ -58,14 +67,7 @@ export const registerBuiltinDevDockItems = () => {
       load: () => import('@/features/DevPanel/RenderGallery'),
       type: 'panel',
     },
-    {
-      defaultPinned: true,
-      icon: Database,
-      id: 'local-database',
-      label: 'Local Database',
-      load: () => import('@/features/DevPanel/LocalDatabase'),
-      type: 'panel',
-    },
+    ...(desktopRuntime ? [localDatabasePanel] : []),
     {
       defaultPinned: true,
       icon: Layers3,
@@ -101,7 +103,7 @@ export const registerBuiltinDevDockItems = () => {
       slot: 'right',
       type: 'readout',
     },
-    isDesktop
+    desktopRuntime
       ? {
           defaultPinned: true,
           icon: Cpu,
@@ -172,7 +174,7 @@ export const registerBuiltinDevDockItems = () => {
     },
   ];
 
-  if (isDesktop) {
+  if (desktopRuntime) {
     items.push(
       {
         defaultPinned: true,
@@ -201,5 +203,9 @@ export const registerBuiltinDevDockItems = () => {
     );
   }
 
-  registerDevDockItems(items);
+  return items;
+};
+
+export const registerBuiltinDevDockItems = () => {
+  registerDevDockItems(createBuiltinDevDockItems(isDesktop));
 };

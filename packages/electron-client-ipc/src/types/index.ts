@@ -11,6 +11,7 @@ export * from './localDatabase';
 export * from './localSystem';
 export * from './mcpInstall';
 export * from './notification';
+export * from './projectionCache';
 export * from './proxy';
 export * from './proxyTRPCRequest';
 export * from './route';
