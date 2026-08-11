@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS "expertise_domain_snapshots" (
 	"tau" numeric,
 	"maturity" numeric,
 	"fit_sample_size" integer,
+	"fit_r2" numeric,
 	"fit_confidence" text,
 	"fit_computed_at" timestamp with time zone,
 	"tau_pinned" boolean DEFAULT false NOT NULL,
@@ -181,73 +182,73 @@ CREATE TABLE IF NOT EXISTS "expertise_runs" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_domain_id_expertise_domains_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_domain_id_expertise_domains_id_fk";
 ALTER TABLE "expertise_bindings" ADD CONSTRAINT "expertise_bindings_domain_id_expertise_domains_id_fk" FOREIGN KEY ("domain_id") REFERENCES "public"."expertise_domains"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_agent_id_agents_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_agent_id_agents_id_fk";
 ALTER TABLE "expertise_bindings" ADD CONSTRAINT "expertise_bindings_agent_id_agents_id_fk" FOREIGN KEY ("agent_id") REFERENCES "public"."agents"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_project_id_projects_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_project_id_projects_id_fk";
 ALTER TABLE "expertise_bindings" ADD CONSTRAINT "expertise_bindings_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_bound_workspace_id_workspaces_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_bound_workspace_id_workspaces_id_fk";
 ALTER TABLE "expertise_bindings" ADD CONSTRAINT "expertise_bindings_bound_workspace_id_workspaces_id_fk" FOREIGN KEY ("bound_workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_bound_user_id_users_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_bound_user_id_users_id_fk";
 ALTER TABLE "expertise_bindings" ADD CONSTRAINT "expertise_bindings_bound_user_id_users_id_fk" FOREIGN KEY ("bound_user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_added_by_user_id_users_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_added_by_user_id_users_id_fk";
 ALTER TABLE "expertise_bindings" ADD CONSTRAINT "expertise_bindings_added_by_user_id_users_id_fk" FOREIGN KEY ("added_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_workspace_id_workspaces_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_bindings" DROP CONSTRAINT IF EXISTS "expertise_bindings_workspace_id_workspaces_id_fk";
 ALTER TABLE "expertise_bindings" ADD CONSTRAINT "expertise_bindings_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_domain_snapshots" DROP CONSTRAINT IF EXISTS "expertise_domain_snapshots_domain_id_expertise_domains_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_domain_snapshots" DROP CONSTRAINT IF EXISTS "expertise_domain_snapshots_domain_id_expertise_domains_id_fk";
 ALTER TABLE "expertise_domain_snapshots" ADD CONSTRAINT "expertise_domain_snapshots_domain_id_expertise_domains_id_fk" FOREIGN KEY ("domain_id") REFERENCES "public"."expertise_domains"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_domain_snapshots" DROP CONSTRAINT IF EXISTS "expertise_domain_snapshots_run_id_expertise_runs_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_domain_snapshots" DROP CONSTRAINT IF EXISTS "expertise_domain_snapshots_run_id_expertise_runs_id_fk";
 ALTER TABLE "expertise_domain_snapshots" ADD CONSTRAINT "expertise_domain_snapshots_run_id_expertise_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."expertise_runs"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_user_id_users_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_user_id_users_id_fk";
 ALTER TABLE "expertise_domains" ADD CONSTRAINT "expertise_domains_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_workspace_id_workspaces_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_workspace_id_workspaces_id_fk";
 ALTER TABLE "expertise_domains" ADD CONSTRAINT "expertise_domains_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_parent_domain_id_expertise_domains_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_parent_domain_id_expertise_domains_id_fk";
 ALTER TABLE "expertise_domains" ADD CONSTRAINT "expertise_domains_parent_domain_id_expertise_domains_id_fk" FOREIGN KEY ("parent_domain_id") REFERENCES "public"."expertise_domains"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_canon_document_id_documents_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_canon_document_id_documents_id_fk";
 ALTER TABLE "expertise_domains" ADD CONSTRAINT "expertise_domains_canon_document_id_documents_id_fk" FOREIGN KEY ("canon_document_id") REFERENCES "public"."documents"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_lesson_base_document_id_documents_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_lesson_base_document_id_documents_id_fk";
 ALTER TABLE "expertise_domains" ADD CONSTRAINT "expertise_domains_lesson_base_document_id_documents_id_fk" FOREIGN KEY ("lesson_base_document_id") REFERENCES "public"."documents"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_anchor_chosen_by_user_id_users_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_domains" DROP CONSTRAINT IF EXISTS "expertise_domains_anchor_chosen_by_user_id_users_id_fk";
 ALTER TABLE "expertise_domains" ADD CONSTRAINT "expertise_domains_anchor_chosen_by_user_id_users_id_fk" FOREIGN KEY ("anchor_chosen_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_hits" DROP CONSTRAINT IF EXISTS "expertise_hits_run_id_expertise_runs_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_hits" DROP CONSTRAINT IF EXISTS "expertise_hits_run_id_expertise_runs_id_fk";
 ALTER TABLE "expertise_hits" ADD CONSTRAINT "expertise_hits_run_id_expertise_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."expertise_runs"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_hits" DROP CONSTRAINT IF EXISTS "expertise_hits_lesson_id_expertise_lessons_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_hits" DROP CONSTRAINT IF EXISTS "expertise_hits_lesson_id_expertise_lessons_id_fk";
 ALTER TABLE "expertise_hits" ADD CONSTRAINT "expertise_hits_lesson_id_expertise_lessons_id_fk" FOREIGN KEY ("lesson_id") REFERENCES "public"."expertise_lessons"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_hits" DROP CONSTRAINT IF EXISTS "expertise_hits_domain_id_expertise_domains_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_hits" DROP CONSTRAINT IF EXISTS "expertise_hits_domain_id_expertise_domains_id_fk";
 ALTER TABLE "expertise_hits" ADD CONSTRAINT "expertise_hits_domain_id_expertise_domains_id_fk" FOREIGN KEY ("domain_id") REFERENCES "public"."expertise_domains"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_hits" DROP CONSTRAINT IF EXISTS "expertise_hits_evidence_id_verify_evidence_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_hits" DROP CONSTRAINT IF EXISTS "expertise_hits_evidence_id_verify_evidence_id_fk";
 ALTER TABLE "expertise_hits" ADD CONSTRAINT "expertise_hits_evidence_id_verify_evidence_id_fk" FOREIGN KEY ("evidence_id") REFERENCES "public"."verify_evidence"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_hits" DROP CONSTRAINT IF EXISTS "expertise_hits_operation_id_agent_operations_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_hits" DROP CONSTRAINT IF EXISTS "expertise_hits_operation_id_agent_operations_id_fk";
 ALTER TABLE "expertise_hits" ADD CONSTRAINT "expertise_hits_operation_id_agent_operations_id_fk" FOREIGN KEY ("operation_id") REFERENCES "public"."agent_operations"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_insights" DROP CONSTRAINT IF EXISTS "expertise_insights_domain_id_expertise_domains_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_insights" DROP CONSTRAINT IF EXISTS "expertise_insights_domain_id_expertise_domains_id_fk";
 ALTER TABLE "expertise_insights" ADD CONSTRAINT "expertise_insights_domain_id_expertise_domains_id_fk" FOREIGN KEY ("domain_id") REFERENCES "public"."expertise_domains"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_insights" DROP CONSTRAINT IF EXISTS "expertise_insights_user_id_users_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_insights" DROP CONSTRAINT IF EXISTS "expertise_insights_user_id_users_id_fk";
 ALTER TABLE "expertise_insights" ADD CONSTRAINT "expertise_insights_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_insights" DROP CONSTRAINT IF EXISTS "expertise_insights_workspace_id_workspaces_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_insights" DROP CONSTRAINT IF EXISTS "expertise_insights_workspace_id_workspaces_id_fk";
 ALTER TABLE "expertise_insights" ADD CONSTRAINT "expertise_insights_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_insights" DROP CONSTRAINT IF EXISTS "expertise_insights_generated_by_operation_id_agent_operations_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_insights" DROP CONSTRAINT IF EXISTS "expertise_insights_generated_by_operation_id_agent_operations_id_fk";
 ALTER TABLE "expertise_insights" ADD CONSTRAINT "expertise_insights_generated_by_operation_id_agent_operations_id_fk" FOREIGN KEY ("generated_by_operation_id") REFERENCES "public"."agent_operations"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_lesson_revisions" DROP CONSTRAINT IF EXISTS "expertise_lesson_revisions_lesson_id_expertise_lessons_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_lesson_revisions" DROP CONSTRAINT IF EXISTS "expertise_lesson_revisions_lesson_id_expertise_lessons_id_fk";
 ALTER TABLE "expertise_lesson_revisions" ADD CONSTRAINT "expertise_lesson_revisions_lesson_id_expertise_lessons_id_fk" FOREIGN KEY ("lesson_id") REFERENCES "public"."expertise_lessons"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_lesson_revisions" DROP CONSTRAINT IF EXISTS "expertise_lesson_revisions_changed_by_user_id_users_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_lesson_revisions" DROP CONSTRAINT IF EXISTS "expertise_lesson_revisions_changed_by_user_id_users_id_fk";
 ALTER TABLE "expertise_lesson_revisions" ADD CONSTRAINT "expertise_lesson_revisions_changed_by_user_id_users_id_fk" FOREIGN KEY ("changed_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_lesson_revisions" DROP CONSTRAINT IF EXISTS "expertise_lesson_revisions_operation_id_agent_operations_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_lesson_revisions" DROP CONSTRAINT IF EXISTS "expertise_lesson_revisions_operation_id_agent_operations_id_fk";
 ALTER TABLE "expertise_lesson_revisions" ADD CONSTRAINT "expertise_lesson_revisions_operation_id_agent_operations_id_fk" FOREIGN KEY ("operation_id") REFERENCES "public"."agent_operations"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_lessons" DROP CONSTRAINT IF EXISTS "expertise_lessons_domain_id_expertise_domains_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_lessons" DROP CONSTRAINT IF EXISTS "expertise_lessons_domain_id_expertise_domains_id_fk";
 ALTER TABLE "expertise_lessons" ADD CONSTRAINT "expertise_lessons_domain_id_expertise_domains_id_fk" FOREIGN KEY ("domain_id") REFERENCES "public"."expertise_domains"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_lessons" DROP CONSTRAINT IF EXISTS "expertise_lessons_created_by_user_id_users_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_lessons" DROP CONSTRAINT IF EXISTS "expertise_lessons_created_by_user_id_users_id_fk";
 ALTER TABLE "expertise_lessons" ADD CONSTRAINT "expertise_lessons_created_by_user_id_users_id_fk" FOREIGN KEY ("created_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_lessons" DROP CONSTRAINT IF EXISTS "expertise_lessons_salvaged_from_id_expertise_lessons_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_lessons" DROP CONSTRAINT IF EXISTS "expertise_lessons_salvaged_from_id_expertise_lessons_id_fk";
 ALTER TABLE "expertise_lessons" ADD CONSTRAINT "expertise_lessons_salvaged_from_id_expertise_lessons_id_fk" FOREIGN KEY ("salvaged_from_id") REFERENCES "public"."expertise_lessons"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_lessons" DROP CONSTRAINT IF EXISTS "expertise_lessons_compiled_criterion_id_verify_criteria_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_lessons" DROP CONSTRAINT IF EXISTS "expertise_lessons_compiled_criterion_id_verify_criteria_id_fk";
 ALTER TABLE "expertise_lessons" ADD CONSTRAINT "expertise_lessons_compiled_criterion_id_verify_criteria_id_fk" FOREIGN KEY ("compiled_criterion_id") REFERENCES "public"."verify_criteria"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_runs" DROP CONSTRAINT IF EXISTS "expertise_runs_domain_id_expertise_domains_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_runs" DROP CONSTRAINT IF EXISTS "expertise_runs_domain_id_expertise_domains_id_fk";
 ALTER TABLE "expertise_runs" ADD CONSTRAINT "expertise_runs_domain_id_expertise_domains_id_fk" FOREIGN KEY ("domain_id") REFERENCES "public"."expertise_domains"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_runs" DROP CONSTRAINT IF EXISTS "expertise_runs_user_id_users_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_runs" DROP CONSTRAINT IF EXISTS "expertise_runs_user_id_users_id_fk";
 ALTER TABLE "expertise_runs" ADD CONSTRAINT "expertise_runs_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "expertise_runs" DROP CONSTRAINT IF EXISTS "expertise_runs_workspace_id_workspaces_id_fk";--> statement-breakpoint
+ALTER TABLE "expertise_runs" DROP CONSTRAINT IF EXISTS "expertise_runs_workspace_id_workspaces_id_fk";
 ALTER TABLE "expertise_runs" ADD CONSTRAINT "expertise_runs_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "expertise_bindings_agent_domain_unique" ON "expertise_bindings" USING btree ("agent_id","domain_id") WHERE "expertise_bindings"."agent_id" is not null;--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "expertise_bindings_project_domain_unique" ON "expertise_bindings" USING btree ("project_id","domain_id") WHERE "expertise_bindings"."project_id" is not null;--> statement-breakpoint

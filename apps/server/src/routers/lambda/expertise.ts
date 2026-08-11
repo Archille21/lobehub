@@ -25,6 +25,8 @@ const expertiseProcedure = authedProcedure.use(serverDatabase).use(async (opts) 
 const toMaturity = (s?: {
   fitComputedAt: Date | null;
   fitConfidence: string | null;
+  fitR2: number | null;
+  fitSampleSize: number | null;
   maturity: number | null;
   observedSpan: number | null;
   pInf: number | null;
@@ -43,6 +45,8 @@ const toMaturity = (s?: {
     };
   }
   return {
+    fitR2: s.fitR2,
+    fitSampleSize: s.fitSampleSize,
     maturity: s.maturity,
     /** < 1 表示还没观测满一个时间常数，渐近线没被数据约束住，外推只是猜测。 */
     observedSpan: s.observedSpan,
@@ -61,42 +65,63 @@ export const expertiseRouter = router({
     .query(async ({ ctx, input }) => {
       const bound = await ctx.expertiseModel.listDomainsForAgent(input.agentId);
       const domainIds = bound.map((b) => b.domain.id);
-      const [snapshots, actors, insights] = await Promise.all([
+      const [snapshots, actors, insights, series] = await Promise.all([
         ctx.expertiseModel.latestSnapshots(domainIds),
         ctx.expertiseModel.actorsByDomain(domainIds),
         ctx.expertiseModel.listInsights(domainIds),
+        ctx.expertiseModel.seriesForDomains(domainIds),
       ]);
       const snapByDomain = new Map(snapshots.map((s) => [s.domainId, s]));
       const actorsByDomain = new Map<string, string[]>();
       for (const a of actors) {
         actorsByDomain.set(a.domainId, [...(actorsByDomain.get(a.domainId) ?? []), a.actorId]);
       }
+      const seriesByDomain = new Map<string, { n: number; run: number }[]>();
+      for (const s of series) {
+        seriesByDomain.set(s.domainId, [
+          ...(seriesByDomain.get(s.domainId) ?? []),
+          { n: s.activeCount, run: s.runIndex },
+        ]);
+      }
+
+      const domains = bound.map(({ binding, domain }) => {
+        const snap = snapByDomain.get(domain.id);
+        const points = seriesByDomain.get(domain.id) ?? [];
+        // 最近 5 次的净变化：涨=在长，跌=规则被退休（能力在退），0=练了没学到
+        const recent = points.slice(-6);
+        const delta = recent.length > 1 ? recent.at(-1)!.n - recent[0].n : 0;
+        return {
+          activeRate: snap?.activeRate ?? null,
+          actors: actorsByDomain.get(domain.id) ?? [],
+          /** 人还没定锚点时，这个专长不该开始长规则 —— 界面据此显示待确认。 */
+          anchorPending: !domain.anchorChosenAt,
+          canonCoverage: snap?.canonCoverage ?? null,
+          contributionMode: binding.contributionMode,
+          delta,
+          id: domain.id,
+          /** 最近一次实践的时间 —— 用来判断这个专长是不是闲置了。 */
+          lastPracticedAt: snap?.capturedAt ?? null,
+          layerCounts: snap?.layerCounts ?? {},
+          layerCoverage: snap?.layerCoverage ?? null,
+          layers: domain.layers,
+          layerSource: domain.layerSource,
+          lessonCount: snap?.activeCount ?? 0,
+          maturity: toMaturity(snap),
+          runCount: snap?.runIndex ?? 0,
+          /** 叠图用的曲线；纵轴是成熟度比例，所以 pInf 也要一起给。 */
+          series: points,
+          slug: domain.slug,
+          title: domain.title,
+        };
+      });
 
       return {
-        domains: bound.map(({ binding, domain }) => {
-          const snap = snapByDomain.get(domain.id);
-          return {
-            activeRate: snap?.activeRate ?? null,
-            actors: actorsByDomain.get(domain.id) ?? [],
-            /** 人还没定锚点时，这个专长不该开始长规则 —— 界面据此显示待确认。 */
-            anchorPending: !domain.anchorChosenAt,
-            canonCoverage: snap?.canonCoverage ?? null,
-            contributionMode: binding.contributionMode,
-            id: domain.id,
-            layerCounts: snap?.layerCounts ?? {},
-            layers: domain.layers,
-            layerSource: domain.layerSource,
-            lessonCount: snap?.activeCount ?? 0,
-            layerCoverage: snap?.layerCoverage ?? null,
-            maturity: toMaturity(snap),
-            runCount: snap?.runIndex ?? 0,
-            slug: domain.slug,
-            title: domain.title,
-            /** 最近一次实践的时间 —— 用来判断这个专长是不是闲置了。 */
-            lastPracticedAt: snap?.capturedAt ?? null,
-          };
-        }),
+        domains,
         insights,
+        totals: {
+          domains: domains.length,
+          lessons: domains.reduce((a, d) => a + d.lessonCount, 0),
+        },
       };
     }),
 
@@ -107,26 +132,32 @@ export const expertiseRouter = router({
       const domain = await ctx.expertiseModel.findDomain(input.domainId);
       if (!domain) return null;
 
-      const [snapshots, runs, layerCounts, canon] = await Promise.all([
+      const [snapshots, runCount, lessonStats, layerCounts, canon] = await Promise.all([
         ctx.expertiseModel.listSnapshots(input.domainId),
-        ctx.expertiseModel.listRuns(input.domainId),
+        ctx.expertiseModel.countRuns(input.domainId),
+        ctx.expertiseModel.lessonStats(input.domainId),
         ctx.expertiseModel.layerCounts(input.domainId),
         ctx.expertiseModel.canonAnchorCounts(input.domainId),
       ]);
       const latest = snapshots.at(-1);
+      // 后段还在涨多少：最后五次的净增。plateauKind 说的是形状，这个说的是量。
+      const tail = snapshots.slice(-6);
+      const tailGain = tail.length > 1 ? tail.at(-1)!.activeCount - tail[0].activeCount : 0;
 
       return {
         canonAnchorCounts: canon.byKey,
         domain,
         layerCounts,
+        lessonStats,
         maturity: toMaturity(latest),
-        runs,
+        runCount,
         /** 曲线只需要这几列，别把整行快照塞给前端。 */
         series: snapshots.map((s) => ({
           activeCount: s.activeCount,
           compiledCount: s.compiledCount,
           runIndex: s.runIndex,
         })),
+        tailGain,
         unanchoredCount: canon.unanchored,
       };
     }),

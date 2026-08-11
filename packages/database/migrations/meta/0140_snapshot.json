@@ -6,7 +6,7 @@
   },
   "dialect": "postgresql",
   "enums": {},
-  "id": "44e32420-3754-4bf4-8992-6c429d951738",
+  "id": "18092330-a677-4b98-867e-9012f25297dd",
   "policies": {},
   "prevId": "5e08d9a7-4720-4250-aa8d-96fc9a3dd85a",
   "roles": {},
@@ -9550,6 +9550,12 @@
         "fit_sample_size": {
           "name": "fit_sample_size",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fit_r2": {
+          "name": "fit_r2",
+          "type": "numeric",
           "primaryKey": false,
           "notNull": false
         },

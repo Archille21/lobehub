@@ -606,6 +606,12 @@ export const expertiseDomainSnapshots = pgTable(
     /** = activeCount / pInf，0..1。归一化后跨领域可比，不受练习次数绝对值影响。 */
     maturity: numeric('maturity', { mode: 'number' }),
     fitSampleSize: integer('fit_sample_size'),
+    /**
+     * 拟合优度。和 fitConfidence 不是一回事，两个都要留：r² 高只说明这条曲线贴合
+     * 观测点，撞了 τ 上界的那 6 组回测 r² 同样漂亮 —— 贴合的是直线段。
+     * 界面把它和 observedSpan 并排放，就是为了让「拟合得好」和「外推可信」分开被读。
+     */
+    fitR2: numeric('fit_r2', { mode: 'number' }),
     fitConfidence: text('fit_confidence', { enum: EXPERTISE_FIT_CONFIDENCES }),
     fitComputedAt: timestamptz('fit_computed_at'),
     /**

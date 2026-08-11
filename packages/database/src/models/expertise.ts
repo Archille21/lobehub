@@ -96,6 +96,25 @@ export class ExpertiseModel {
       .orderBy(desc(expertiseDomainSnapshots.domainId), desc(expertiseDomainSnapshots.runIndex));
   };
 
+  /**
+   * L0 叠图要的时间序列：每个专长的完整 (runIndex, activeCount)。
+   *
+   * 一次查完所有专长，不按域循环 —— 十个专长就是十次往返，而这张图的全部意义
+   * 就是把它们放在一起看。
+   */
+  seriesForDomains = async (domainIds: string[]) => {
+    if (domainIds.length === 0) return [];
+    return this.db
+      .select({
+        activeCount: expertiseDomainSnapshots.activeCount,
+        domainId: expertiseDomainSnapshots.domainId,
+        runIndex: expertiseDomainSnapshots.runIndex,
+      })
+      .from(expertiseDomainSnapshots)
+      .where(inArray(expertiseDomainSnapshots.domainId, domainIds))
+      .orderBy(asc(expertiseDomainSnapshots.domainId), asc(expertiseDomainSnapshots.runIndex));
+  };
+
   /** 每个专长有哪些 agent 在学 —— L0 列表上直接显示。 */
   actorsByDomain = async (domainIds: string[]) => {
     if (domainIds.length === 0) return [];
@@ -131,6 +150,34 @@ export class ExpertiseModel {
       .where(eq(expertiseRuns.domainId, domainId))
       .orderBy(desc(expertiseRuns.runIndex))
       .limit(limit);
+
+  /**
+   * 「练过多少次」必须自己查 count，不能用 listRuns 的长度。
+   *
+   * 上一轮验收就栽在这儿：分页上限 50 被当成了业务计数，练到 60 次的专长在左栏
+   * 显示 60、在详情页显示 50，而且越练越久这个数字越是卡住不动 —— 偏偏是在成熟度
+   * 最需要被信任的时候。
+   */
+  countRuns = async (domainId: string) => {
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(expertiseRuns)
+      .where(eq(expertiseRuns.domainId, domainId));
+    return row?.n ?? 0;
+  };
+
+  /** 规则库的汇总：条数、总命中、零命中条数 —— 头部那行统计读它。 */
+  lessonStats = async (domainId: string) => {
+    const [row] = await this.db
+      .select({
+        hits: sql<number>`coalesce(sum(${expertiseLessons.hitCount}), 0)::int`,
+        total: sql<number>`count(*)::int`,
+        unused: sql<number>`count(*) filter (where ${expertiseLessons.hitCount} = 0)::int`,
+      })
+      .from(expertiseLessons)
+      .where(and(eq(expertiseLessons.domainId, domainId), eq(expertiseLessons.status, 'active')));
+    return row ?? { hits: 0, total: 0, unused: 0 };
+  };
 
   // ========== L2：规则库 ==========
 

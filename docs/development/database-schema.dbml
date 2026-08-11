@@ -1131,6 +1131,7 @@ table expertise_domain_snapshots {
   tau numeric
   maturity numeric
   fit_sample_size integer
+  fit_r2 numeric
   fit_confidence text
   fit_computed_at "timestamp with time zone"
   tau_pinned boolean [not null, default: false]
