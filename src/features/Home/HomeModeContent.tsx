@@ -9,7 +9,9 @@ import { useTranslation } from 'react-i18next';
 
 import { useWorkspaceMemberProfiles } from '@/business/client/hooks/useWorkspaceMemberProfiles';
 import AsyncError from '@/components/AsyncError';
+import AssigneeAvatar from '@/features/AgentTasks/features/AssigneeAvatar';
 import TaskStatusIcon from '@/features/AgentTasks/features/TaskStatusIcon';
+import TaskTriggerTag from '@/features/AgentTasks/features/TaskTriggerTag';
 import { taskDetailPath } from '@/features/AgentTasks/shared/taskDetailPath';
 import { useAgentDisplayMeta } from '@/features/AgentTasks/shared/useAgentDisplayMeta';
 import HomeInbox from '@/features/HomeInbox';
@@ -24,27 +26,16 @@ import {
   useHomeRecentTopic,
   useHomeRecentTopicIds,
   useHomeRecentTopicsRequest,
+  useHomeScheduledTaskIds,
+  useHomeScheduledTasksIndex,
+  useHomeScheduledTasksRequest,
   useHomeTask,
   useHomeTaskIds,
   useHomeTasksIndex,
   useHomeTasksRequest,
 } from '@/projection';
-import AsyncError from '@/components/AsyncError';
-import AssigneeAvatar from '@/features/AgentTasks/features/AssigneeAvatar';
-import TaskStatusIcon from '@/features/AgentTasks/features/TaskStatusIcon';
-import TaskTriggerTag from '@/features/AgentTasks/features/TaskTriggerTag';
-import { taskDetailPath } from '@/features/AgentTasks/shared/taskDetailPath';
-import { useAgentDisplayMeta } from '@/features/AgentTasks/shared/useAgentDisplayMeta';
-import HomeInbox from '@/features/HomeInbox';
-import AuthorChip from '@/features/HomeInbox/AuthorChip';
-import { useHomeInboxTopics } from '@/features/HomeInbox/useHomeInboxTopics';
-import Recommendations from '@/features/Recommendations';
-import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import { useGlobalStore } from '@/store/global';
 import { systemStatusSelectors } from '@/store/global/selectors';
-import { useTaskStore } from '@/store/task';
-import { taskListSelectors } from '@/store/task/selectors';
-import type { TaskListItem } from '@/store/task/slices/list/initialState';
 import { useUserStore } from '@/store/user';
 import { authSelectors, userProfileSelectors } from '@/store/user/slices/auth/selectors';
 import { markdownToTxt } from '@/utils/markdownToTxt';
@@ -293,9 +284,15 @@ const LoadingRows = memo<{ avatarSize?: number; withTime?: boolean }>(
  * is indistinguishable from a topic row, and the section reads as another feed
  * rather than as work with an owner.
  */
-const ScheduledTaskRow = memo<{ task: TaskListItem }>(({ task }) => {
-  const title = task.name?.trim() || task.identifier;
-  const description = useMemo(() => resolveTaskSummaryLine(task, title), [task, title]);
+const TaskRow = memo<{ taskId: string }>(({ taskId }) => {
+  const task = useHomeTask(taskId);
+  const title = task?.name?.trim() || task?.identifier || '';
+  const description = useMemo(
+    () => (task ? resolveTaskSummaryLine(task, title) : undefined),
+    [task, title],
+  );
+
+  if (!task) return null;
 
   return (
     <Row
@@ -322,20 +319,6 @@ const ScheduledTaskRow = memo<{ task: TaskListItem }>(({ task }) => {
           <Time date={task.updatedAt || task.createdAt} />
         </Flexbox>
       }
-    />
-  );
-});
-
-const TaskRow = memo<{ taskId: string }>(({ taskId }) => {
-  const task = useHomeTask(taskId);
-  if (!task) return null;
-
-  return (
-    <Row
-      description={task.description || task.identifier}
-      href={taskDetailPath(task.identifier)}
-      icon={<TaskStatusIcon size={16} status={task.status} />}
-      title={task.name || task.identifier}
     />
   );
 });
@@ -369,7 +352,7 @@ const TaskContent = memo(() => {
       {tasksQuery.error && !tasksInit ? (
         <AsyncError error={tasksQuery.error} variant={'inline'} onRetry={tasksQuery.mutate} />
       ) : !tasksInit ? (
-        <LoadingRows avatarSize={16} />
+        <LoadingRows withTime avatarSize={16} />
       ) : taskIds.length === 0 ? (
         <Text className={styles.empty}>{t('dashboard.task.empty')}</Text>
       ) : (
@@ -391,11 +374,11 @@ const TaskContent = memo(() => {
  */
 const ScheduledTaskContent = memo(() => {
   const { t } = useTranslation('home');
-  const useFetchScheduledTaskList = useTaskStore((s) => s.useFetchScheduledTaskList);
-  const scheduledSWR = useFetchScheduledTaskList();
-  const scheduled = useTaskStore(taskListSelectors.scheduledTaskList);
-  const scheduledTotal = useTaskStore(taskListSelectors.scheduledTaskListTotal);
-  const scheduledInit = useTaskStore(taskListSelectors.isScheduledTaskListInit);
+  const isLogin = useUserStore(authSelectors.isLogin);
+  const scheduledQuery = useHomeScheduledTasksRequest(isLogin);
+  const scheduledIds = useHomeScheduledTaskIds();
+  const scheduledIndex = useHomeScheduledTasksIndex();
+  const scheduledInit = scheduledQuery.isInitialized;
   const taskCount = useGlobalStore(systemStatusSelectors.homeTaskCount);
 
   // Automation is opt-in and most accounts have none. An empty block would be a
@@ -407,18 +390,18 @@ const ScheduledTaskContent = memo(() => {
   // list look exactly like an account with no schedules, and someone whose
   // automations are running would read a confidently incomplete page. The block
   // stays and says so, with a retry.
-  const failedFirstLoad = Boolean(scheduledSWR.error) && !scheduledInit;
-  if (scheduledInit && scheduled.length === 0) return null;
+  const failedFirstLoad = Boolean(scheduledQuery.error) && !scheduledInit;
+  if (scheduledInit && scheduledIds.length === 0) return null;
 
-  const shown = scheduled.slice(0, taskCount);
+  const shown = scheduledIds.slice(0, taskCount);
 
   return (
     <GroupBlock
       actionAlwaysVisible
-      count={failedFirstLoad ? undefined : resolveRecentsBadgeCount(scheduled.length, taskCount)}
+      count={failedFirstLoad ? undefined : resolveRecentsBadgeCount(scheduledIds.length, taskCount)}
       title={t('dashboard.scheduledTask.title')}
       action={
-        !failedFirstLoad && scheduledTotal > shown.length ? (
+        !failedFirstLoad && (scheduledIndex?.total ?? scheduledIds.length) > shown.length ? (
           <WorkspaceLink className={styles.blockAction} to={'/tasks'}>
             {t('dashboard.task.viewAll')}
           </WorkspaceLink>
@@ -426,11 +409,15 @@ const ScheduledTaskContent = memo(() => {
       }
     >
       {failedFirstLoad ? (
-        <AsyncError error={scheduledSWR.error} variant={'inline'} onRetry={scheduledSWR.mutate} />
+        <AsyncError
+          error={scheduledQuery.error}
+          variant={'inline'}
+          onRetry={scheduledQuery.mutate}
+        />
       ) : scheduledInit ? (
         <Flexbox gap={4}>
-          {shown.map((task) => (
-            <ScheduledTaskRow key={task.identifier} task={task} />
+          {shown.map((taskId) => (
+            <TaskRow key={taskId} taskId={taskId} />
           ))}
         </Flexbox>
       ) : (

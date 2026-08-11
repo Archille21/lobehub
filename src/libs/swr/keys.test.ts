@@ -110,6 +110,7 @@ describe('projectionKeys', () => {
       projectionKeys.sidebar('scope-1'),
       projectionKeys.recentTopics('scope-1', 9, 'mine'),
       projectionKeys.inboxTopics('scope-1'),
+      projectionKeys.scheduledTasks('scope-1'),
       projectionKeys.tasks('scope-1'),
       projectionKeys.briefs('scope-1'),
       projectionKeys.localView('scope-1', 'agent.directory'),
