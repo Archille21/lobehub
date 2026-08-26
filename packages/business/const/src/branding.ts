@@ -5,7 +5,7 @@
 export const LOBE_CHAT_CLOUD = 'LobeHub Cloud';
 
 export const BRANDING_NAME = 'ApAI';
-export const BRANDING_LOGO_URL = '';
+export const BRANDING_LOGO_URL = 'https://pub-ceac8558d13d40a985d86b90a5682f0e.r2.dev/logo-master-transparent-581x581.png';
 
 export const ORG_NAME = 'ApAI';
 
