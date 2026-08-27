@@ -140,7 +140,7 @@ const Header = memo(() => {
     showPermissionsEntry ? activeAgentId : undefined,
   );
   // `canManageResource` also unlocks *configuring* the collaborative builtin
-  // rows (Lobe AI, the builders, the page agent) for any workspace member, but
+  // rows (APM, the builders, the page agent) for any workspace member, but
   // those rows can never be deleted or rehomed — the server rejects it, so the
   // affordance must not be offered at all.
   const isBuiltinAgent = useAgentStore(builtinAgentSelectors.isBuiltinAgent(activeAgentId));

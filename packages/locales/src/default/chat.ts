@@ -505,7 +505,7 @@ export default {
   'historySummary': 'Historical Message Summary',
   'inactive': 'Inactive',
   'inbox.desc': 'Collaborate in one Workspace and move ideas into outcomes.',
-  'inbox.title': 'Lobe AI',
+  'inbox.title': 'APM',
   'input.addAi': 'Add an AI message',
   'input.addAiPrefillUnsupported':
     'The current model doesn’t support ending the conversation with an assistant message. Follow it with a user message before sending.',
@@ -1398,7 +1398,7 @@ export default {
   'taskList.orderBy.updatedAt': 'Updated at',
   'taskList.title': 'Tasks',
   'taskList.unassigned': 'Unassigned',
-  'taskList.unassignedHint': 'Lobe AI will run this task when no assignee is set',
+  'taskList.unassignedHint': 'APM will run this task when no assignee is set',
   'taskList.assigneeSearch.empty': 'No matching agent',
   'taskList.assigneeSearch.placeholder': 'Search agent...',
   'taskList.contextMenu.copyConfirm': 'Copy',

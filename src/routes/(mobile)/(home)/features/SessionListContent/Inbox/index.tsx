@@ -22,7 +22,7 @@ const Inbox = memo(() => {
 
   return (
     <Link
-      aria-label={'Lobe AI'}
+      aria-label={'APM'}
       to={AGENT_CHAT_URL(inboxRouteAgentId, mobile)}
       onClick={(e) => {
         e.preventDefault();
@@ -33,7 +33,7 @@ const Inbox = memo(() => {
         active={isInboxActive}
         avatar={DEFAULT_INBOX_AVATAR}
         key={'inbox'}
-        title={'Lobe AI'}
+        title={'APM'}
         styles={{
           container: {
             gap: 12,

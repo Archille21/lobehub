@@ -24,7 +24,7 @@ const ShareTopicPage = memo(() => {
 
   const isInboxAgent = !data.groupId && data.agentMeta?.slug === 'inbox';
   const agentOrGroupTitle =
-    data.groupMeta?.title || (isInboxAgent ? 'Lobe AI' : data.agentMeta?.title);
+    data.groupMeta?.title || (isInboxAgent ? 'APM' : data.agentMeta?.title);
 
   return (
     <SharedMessageList

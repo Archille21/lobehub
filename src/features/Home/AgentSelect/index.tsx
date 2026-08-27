@@ -68,7 +68,7 @@ const AgentSelect = memo(() => {
   const showInboxFallback = isInbox || !resolvedAgentId;
   const displayMeta = showInboxFallback ? inboxMeta : (sidebarItem ?? agentMapMeta);
   const displayTitle =
-    displayMeta?.title || (showInboxFallback ? 'Lobe AI' : t('defaultSession', { ns: 'common' }));
+    displayMeta?.title || (showInboxFallback ? 'APM' : t('defaultSession', { ns: 'common' }));
   const displayAvatar =
     (typeof displayMeta?.avatar === 'string' ? displayMeta.avatar : undefined) ||
     (showInboxFallback ? DEFAULT_INBOX_AVATAR : DEFAULT_AVATAR);

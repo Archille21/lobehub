@@ -474,7 +474,7 @@
   "inaccessibleFile.name": "Fichier Indisponible",
   "inactive": "Inactif",
   "inbox.desc": "Collaborez dans un espace de travail unique et transformez les idées en résultats.",
-  "inbox.title": "Lobe IA",
+  "inbox.title": "APM",
   "input.addAi": "Ajouter un message IA",
   "input.addAiPrefillUnsupported": "Le modèle actuel ne prend pas en charge la fin de la conversation avec un message de l'assistant. Suivez-le avec un message utilisateur avant d'envoyer.",
   "input.addUser": "Ajouter un message utilisateur",

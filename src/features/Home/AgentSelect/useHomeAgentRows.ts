@@ -100,7 +100,7 @@ export const useHomeAgentRows = (): HomeAgentRows => {
           DEFAULT_INBOX_AVATAR,
         backgroundColor: inboxMeta?.backgroundColor || undefined,
         id: inboxAgentId,
-        title: inboxMeta?.title || 'Lobe AI',
+        title: inboxMeta?.title || 'APM',
       });
     }
     workspaceRows.push(
