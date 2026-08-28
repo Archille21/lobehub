@@ -25,11 +25,25 @@
         background: inherit;
         gap: 12px;
       }
+      @keyframes loading-draw {
+        0% { stroke-dashoffset: var(--len); }
+        100% { stroke-dashoffset: 0; }
+      }
+      @keyframes loading-fill {
+        30% { fill-opacity: 0.05; }
+        100% { fill-opacity: 1; }
+      }
       #loading-brand {
         display: flex;
         align-items: center;
         gap: 12px;
         color: #1f1f1f;
+      }
+      #loading-brand svg path {
+        stroke-width: 3px;
+        animation:
+          loading-draw 2s cubic-bezier(0.4, 0, 0.2, 1) infinite,
+          loading-fill 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
       }
       html[data-theme='dark'] #loading-brand {
         color: #f0f0f0;
@@ -113,7 +127,12 @@
   <body>
     <div id="loading-screen">
       <div id="loading-brand" aria-label="Loading" role="status">
-        <img alt="ApAI" height="40" src="https://pub-ceac8558d13d40a985d86b90a5682f0e.r2.dev/logo-master-transparent-581x581.png" style="height:40px;width:auto" />
+        <svg fill-rule="evenodd" height="40" style="flex:none;line-height:1" viewBox="0 0 581 581" xmlns="http://www.w3.org/2000/svg">
+          <title>ApAI</title>
+          <path d="M226.0,373.5 L213.0,373.5 L204.0,369.5 L200.5,366.0 L196.5,357.0 L196.5,346.0 L218.5,295.0 L225.5,283.0 L230.5,268.0 L237.5,256.0 L238.5,250.0 L266.5,191.0 L270.5,178.0 L278.5,166.0 L287.0,161.5 L289.5,164.0 L289.5,348.0 L270.0,353.5 L226.0,373.5 Z" fill="#4299f0" stroke="#4299f0" style="--len:513;stroke-dasharray:513;stroke-dashoffset:513" />
+          <path d="M293.0,507.5 L261.0,505.5 L221.0,495.5 L190.0,481.5 L165.0,465.5 L149.0,452.5 L122.5,425.0 L98.5,389.0 L82.5,352.0 L73.5,314.0 L71.5,269.0 L75.5,238.0 L86.5,201.0 L105.5,164.0 L129.5,133.0 L159.0,106.5 L182.0,91.5 L198.0,83.5 L233.0,71.5 L243.0,74.5 L248.5,80.0 L250.5,91.0 L247.5,99.0 L244.0,102.5 L214.0,116.5 L199.0,126.5 L173.5,150.0 L162.5,164.0 L153.5,178.0 L142.5,201.0 L134.5,229.0 L131.5,256.0 L132.5,280.0 L135.5,298.0 L141.5,318.0 L153.5,344.0 L176.5,375.0 L192.0,389.5 L210.0,402.5 L239.0,416.5 L274.0,424.5 L305.0,424.5 L340.0,416.5 L372.0,400.5 L401.5,376.0 L422.5,349.0 L437.5,318.0 L445.5,287.0 L447.5,256.0 L444.5,229.0 L436.5,201.0 L425.5,178.0 L416.5,164.0 L391.0,135.5 L370.0,119.5 L356.0,111.5 L336.0,103.5 L330.5,98.0 L328.5,93.0 L328.5,85.0 L330.5,80.0 L336.0,74.5 L344.0,71.5 L355.0,73.5 L393.0,89.5 L425.0,110.5 L448.5,132.0 L466.5,154.0 L479.5,174.0 L488.5,192.0 L499.5,222.0 L505.5,250.0 L507.5,271.0 L506.5,304.0 L498.5,345.0 L490.5,368.0 L480.5,389.0 L456.5,425.0 L429.0,453.5 L410.0,468.5 L391.0,480.5 L371.0,490.5 L342.0,500.5 L324.0,504.5 L293.0,507.5 Z" fill="#095cc0" stroke="#095cc0" style="--len:2271;stroke-dasharray:2271;stroke-dashoffset:2271" />
+          <path d="M366.0,372.5 L350.0,371.5 L312.0,353.5 L289.5,347.0 L288.5,284.0 L289.5,164.0 L291.0,162.5 L298.0,164.5 L305.5,173.0 L380.5,342.0 L382.5,350.0 L381.5,359.0 L373.0,369.5 L366.0,372.5 Z" fill="#095cc0" stroke="#095cc0" style="--len:509;stroke-dasharray:509;stroke-dashoffset:509" />
+        </svg>
       </div>
     </div>
     <div id="root" style="height: 100%"></div>
